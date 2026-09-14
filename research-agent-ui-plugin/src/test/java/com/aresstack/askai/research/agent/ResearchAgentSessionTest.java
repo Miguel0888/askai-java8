@@ -107,8 +107,8 @@ public class ResearchAgentSessionTest {
         f.session.activate();
         // Creation is passive: the user's first question starts the run.
         f.session.getChatTarget().submitText("investigate pf4j");
-        f.scheduler.runUntilIdle(); // → EVIDENCE / WAITING with a pending approval (C5: no outline gate)
-        assertEquals("EVIDENCE", f.session.getState().getPhaseLabel());
+        f.scheduler.runUntilIdle(); // → Sources approval gate (#43: evidence review inside Sources)
+        assertEquals("RESEARCH", f.session.getState().getPhaseLabel());
         assertTrue(f.session.getState().hasPendingApproval());
         assertTrue(f.sink.approvals > 0);
         assertTrue(f.session.getState().getAllowedCommandNames().contains("approve"));
@@ -140,7 +140,7 @@ public class ResearchAgentSessionTest {
         String ok = f.session.executeCommand("approve", "");
         assertTrue(ok, ok.startsWith("handled:"));
         f.scheduler.runUntilIdle();
-        assertEquals("REVIEW", f.session.getState().getPhaseLabel());
+        assertEquals("OUTLINE", f.session.getState().getPhaseLabel());
     }
 
     @Test
@@ -203,10 +203,10 @@ public class ResearchAgentSessionTest {
         });
         f.session.activate();
         f.session.getChatTarget().submitText("investigate pf4j"); // the question starts the run
-        f.scheduler.runUntilIdle(); // → EVIDENCE / waiting_approval (C5: no outline gate)
+        f.scheduler.runUntilIdle(); // → Sources waiting_approval (#43)
         com.aresstack.askai.research.agent.ResearchStateSnapshot snapshot =
                 f.session.currentResearchSnapshot();
-        assertEquals(com.aresstack.askai.research.state.oo.ResearchStateIds.EVIDENCE,
+        assertEquals(com.aresstack.askai.research.state.oo.ResearchStateIds.RESEARCH,
                 snapshot.getCurrentPhaseId());
         assertEquals(com.aresstack.askai.research.state.oo.ResearchStateIds.WAITING_APPROVAL,
                 snapshot.getCurrentStateId());

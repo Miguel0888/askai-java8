@@ -49,18 +49,18 @@ public class HierarchicalResearchStateTest {
         assertEquals(ResearchStateIds.SCOPING, s.getPhaseId());
         assertEquals(ResearchStateIds.NEW, s.getCurrentState().getStateId());
         s = accept(s, ResearchCommandType.START, ResearchStateIds.SCOPING, ResearchStateIds.RUNNING);
-        // C5: a confirmed scope goes STRAIGHT to research; the first approval gate is the evidence gate.
+        // #43: Concept → Sources → Outline → Document; the first approval is Sources' evidence gate.
         s = accept(s, ResearchCommandType.SUBMIT_SCOPE, ResearchStateIds.RESEARCH, ResearchStateIds.WAITING);
         s = accept(s, ResearchCommandType.START_RESEARCH, ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING);
-        s = accept(s, ResearchCommandType.REQUEST_EVIDENCE_REVIEW, ResearchStateIds.EVIDENCE, ResearchStateIds.WAITING_APPROVAL);
+        s = accept(s, ResearchCommandType.REQUEST_EVIDENCE_REVIEW, ResearchStateIds.RESEARCH, ResearchStateIds.WAITING_APPROVAL);
         assertTrue(s.getCurrentState().requiresApproval());
         assertNotNull(s.getCurrentState().getPendingApprovalId());
-        s = accept(s, ResearchCommandType.APPROVE_EVIDENCE, ResearchStateIds.DRAFT, ResearchStateIds.WAITING);
+        s = accept(s, ResearchCommandType.APPROVE_EVIDENCE, ResearchStateIds.OUTLINE, ResearchStateIds.RUNNING);
+        s = accept(s, ResearchCommandType.PROPOSE_OUTLINE, ResearchStateIds.OUTLINE, ResearchStateIds.WAITING_APPROVAL);
+        s = accept(s, ResearchCommandType.APPROVE_OUTLINE, ResearchStateIds.DRAFT, ResearchStateIds.WAITING);
         s = accept(s, ResearchCommandType.START_DRAFTING, ResearchStateIds.DRAFT, ResearchStateIds.RUNNING);
-        s = accept(s, ResearchCommandType.REQUEST_DRAFT_REVIEW, ResearchStateIds.REVIEW, ResearchStateIds.WAITING_APPROVAL);
-        s = accept(s, ResearchCommandType.APPROVE_DRAFT, ResearchStateIds.FINALIZATION, ResearchStateIds.RUNNING);
-        s = accept(s, ResearchCommandType.REQUEST_FINAL_REVIEW, ResearchStateIds.FINALIZATION, ResearchStateIds.WAITING_APPROVAL);
-        s = accept(s, ResearchCommandType.APPROVE_FINAL, ResearchStateIds.FINALIZATION, ResearchStateIds.COMPLETED);
+        s = accept(s, ResearchCommandType.REQUEST_DRAFT_REVIEW, ResearchStateIds.DRAFT, ResearchStateIds.WAITING_APPROVAL);
+        s = accept(s, ResearchCommandType.APPROVE_FINAL, ResearchStateIds.DRAFT, ResearchStateIds.COMPLETED);
         assertTrue(s.getCurrentState().isTerminal());
     }
 
@@ -80,12 +80,12 @@ public class HierarchicalResearchStateTest {
                 accept(outlineGate, ResearchCommandType.REQUEST_OUTLINE_CHANGES,
                         ResearchStateIds.OUTLINE, ResearchStateIds.RUNNING).getPhaseId());
 
-        ResearchPhaseState evidenceGate = factory.phase(ResearchStateIds.EVIDENCE,
-                factory.state(ResearchStateIds.EVIDENCE, ResearchStateIds.WAITING_APPROVAL, null, "a"));
+        ResearchPhaseState evidenceGate = factory.phase(ResearchStateIds.RESEARCH,
+                factory.state(ResearchStateIds.RESEARCH, ResearchStateIds.WAITING_APPROVAL, null, "a"));
         accept(evidenceGate, ResearchCommandType.REQUEST_REVISION, ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING);
 
-        ResearchPhaseState reviewGate = factory.phase(ResearchStateIds.REVIEW,
-                factory.state(ResearchStateIds.REVIEW, ResearchStateIds.WAITING_APPROVAL, null, "a"));
+        ResearchPhaseState reviewGate = factory.phase(ResearchStateIds.DRAFT,
+                factory.state(ResearchStateIds.DRAFT, ResearchStateIds.WAITING_APPROVAL, null, "a"));
         accept(reviewGate, ResearchCommandType.REQUEST_REVISION, ResearchStateIds.DRAFT, ResearchStateIds.RUNNING);
     }
 
@@ -140,8 +140,8 @@ public class HierarchicalResearchStateTest {
 
     @Test
     public void terminalStatesRejectEverything() {
-        ResearchPhaseState completed = factory.phase(ResearchStateIds.FINALIZATION,
-                factory.state(ResearchStateIds.FINALIZATION, ResearchStateIds.COMPLETED, null, null));
+        ResearchPhaseState completed = factory.phase(ResearchStateIds.DRAFT,
+                factory.state(ResearchStateIds.DRAFT, ResearchStateIds.COMPLETED, null, null));
         reject(completed, ResearchCommandType.CANCEL);
         reject(completed, ResearchCommandType.RETRY);
         ResearchPhaseState cancelled = factory.phase(ResearchStateIds.SCOPING,

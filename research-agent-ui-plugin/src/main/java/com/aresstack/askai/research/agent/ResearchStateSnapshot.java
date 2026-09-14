@@ -22,10 +22,10 @@ import java.util.Set;
  */
 public final class ResearchStateSnapshot {
 
+    /** #43: the canonical product order — Concept → Sources → Outline → Document. */
     private static final List<String> PHASE_ORDER = Collections.unmodifiableList(Arrays.asList(
-            ResearchStateIds.SCOPING, ResearchStateIds.OUTLINE, ResearchStateIds.RESEARCH,
-            ResearchStateIds.EVIDENCE, ResearchStateIds.DRAFT, ResearchStateIds.REVIEW,
-            ResearchStateIds.FINALIZATION));
+            ResearchStateIds.SCOPING, ResearchStateIds.RESEARCH,
+            ResearchStateIds.OUTLINE, ResearchStateIds.DRAFT));
 
     private final String currentPhaseId;
     private final String currentStateId;

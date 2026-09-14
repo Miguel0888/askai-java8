@@ -69,8 +69,8 @@ public class ResearchStateViewTest {
     @Test
     public void showsCompletedAndCancelled() {
         String completed = ResearchStateView.render(
-                snapshot(ResearchStateIds.FINALIZATION, ResearchStateIds.COMPLETED, null, null, 20L, ""));
-        assertTrue(completed.contains("FINALIZATION"));
+                snapshot(ResearchStateIds.DRAFT, ResearchStateIds.COMPLETED, null, null, 20L, ""));
+        assertTrue(completed.contains("DRAFT"));
         assertTrue(completed.contains("COMPLETED"));
 
         String cancelled = ResearchStateView.render(
@@ -80,10 +80,11 @@ public class ResearchStateViewTest {
 
     @Test
     public void earlierPhasesAreMarkedCompleted() {
+        // #43: Outline comes AFTER Sources — with Sources running only Concept is done.
         ResearchStateSnapshot s = snapshot(ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING, null, null, 5L, "");
         assertTrue(s.getCompletedPhaseIds().contains(ResearchStateIds.SCOPING));
-        assertTrue(s.getCompletedPhaseIds().contains(ResearchStateIds.OUTLINE));
-        assertFalse(s.getCompletedPhaseIds().contains(ResearchStateIds.EVIDENCE));
+        assertFalse(s.getCompletedPhaseIds().contains(ResearchStateIds.OUTLINE));
+        assertFalse(s.getCompletedPhaseIds().contains(ResearchStateIds.DRAFT));
     }
 
     @Test
@@ -129,17 +130,17 @@ public class ResearchStateViewTest {
 
     @Test
     public void approvalGatesOfferForwardAndBackwardPhaseClicks() throws Exception {
-        // EVIDENCE approval: DRAFT = approve (forward), RESEARCH = request revision (backward).
-        final ResearchStateSnapshot s = snapshot(ResearchStateIds.EVIDENCE,
+        // Sources approval: OUTLINE = approve (forward), SOURCES itself = request revision.
+        final ResearchStateSnapshot s = snapshot(ResearchStateIds.RESEARCH,
                 ResearchStateIds.WAITING_APPROVAL, null, "a1", 9L, "");
         javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
                 ResearchStateView view = acceptingView();
                 view.setSnapshot(s);
                 java.util.Map<String, ResearchCommandType> clickable = view.clickablePhasesForTest();
-                assertTrue(clickable.get(ResearchStateIds.DRAFT)
+                assertTrue(clickable.get(ResearchStateIds.OUTLINE)
                         == ResearchCommandType.APPROVE_EVIDENCE);
-                assertTrue("clicking back on research means request revision",
+                assertTrue("clicking the current phase means request revision",
                         clickable.get(ResearchStateIds.RESEARCH)
                                 == ResearchCommandType.REQUEST_REVISION);
             }

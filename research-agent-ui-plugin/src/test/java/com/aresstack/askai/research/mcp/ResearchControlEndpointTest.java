@@ -108,18 +108,16 @@ public class ResearchControlEndpointTest {
         assertFalse(t.contains("finding_add"));
         assertFalse(t.contains("notes_append"));
 
-        // DRAFT/running and FINALIZATION/running → the ONE canonical document, same tools in both phases.
-        for (String phase : new String[]{ResearchStateIds.DRAFT, ResearchStateIds.FINALIZATION}) {
-            ctx.phaseId = phase;
-            ep.refreshTools();
-            t = tools(reg, ep);
-            assertTrue(phase + " offers document_read", t.contains("document_read"));
-            assertTrue(phase + " offers document_save", t.contains("document_save"));
-            assertFalse(t.contains("draft_read"));
-            assertFalse(t.contains("draft_save"));
-            assertFalse(t.contains("final_read"));
-            assertFalse(t.contains("final_save"));
-        }
+        // #43: DOCUMENT (id "draft") is the ONE writing phase for the canonical document.
+        ctx.phaseId = ResearchStateIds.DRAFT;
+        ep.refreshTools();
+        t = tools(reg, ep);
+        assertTrue("document offers document_read", t.contains("document_read"));
+        assertTrue("document offers document_save", t.contains("document_save"));
+        assertFalse(t.contains("draft_read"));
+        assertFalse(t.contains("draft_save"));
+        assertFalse(t.contains("final_read"));
+        assertFalse(t.contains("final_save"));
 
         // Any non-running run state removes ALL write tools (approval gate, paused, blocked, failed, terminal).
         for (String s : new String[]{ResearchStateIds.WAITING_APPROVAL, ResearchStateIds.PAUSED,
@@ -167,18 +165,16 @@ public class ResearchControlEndpointTest {
         assertTrue(stale.isError());
         assertEquals("# New", ctx.store.read("outline").getMarkdown());
 
-        // DRAFT and FINALIZATION write the SAME document (issue #32): a draft save is visible to the
-        // finalization phase — one canonical document, no second final artifact.
+        // #43: drafting AND finalizing happen inside the ONE Document phase on the ONE
+        // canonical document (issue #32) — a later save sees the earlier one.
         ctx.phaseId = ResearchStateIds.DRAFT;
         ep.refreshTools();
         long docRev = ctx.store.read("document").getRevision();
         assertFalse(call(reg, ep, "document_save", "markdown", "# Working document",
                 "expected_revision", String.valueOf(docRev)).isError());
-        ctx.phaseId = ResearchStateIds.FINALIZATION;
-        ep.refreshTools();
         McpToolResult finalized = call(reg, ep, "document_read");
         assertFalse(finalized.isError());
-        assertTrue("finalization reads the draft's document", finalized.getText()
+        assertTrue("the finalizing pass reads the drafted document", finalized.getText()
                 .contains("# Working document"));
         assertFalse(call(reg, ep, "document_save", "markdown", "# Working document\n\nDone.",
                 "expected_revision", String.valueOf(ctx.store.read("document").getRevision())).isError());

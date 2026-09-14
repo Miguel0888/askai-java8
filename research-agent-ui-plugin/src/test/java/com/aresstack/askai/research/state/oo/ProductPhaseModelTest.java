@@ -9,13 +9,14 @@ import java.util.Arrays;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 /**
- * #43 slice 1 — CHARACTERIZATION of the product phase model as it stands BEFORE the 4-phase
- * migration: seven functional phases in the legacy order (OUTLINE before RESEARCH), the full
- * forward walk, and the snapshot's phase order. The next slice deliberately REWRITES these
- * pins to the ratified model {@code Concept → Sources → Outline → Document}; the diff of this
- * file then documents exactly the semantic change.
+ * #43 — the RATIFIED 4-phase product model: {@code Concept → Sources → Outline → Document}
+ * (technical compat ids scoping/research/outline/draft). Evidence review, draft review and
+ * finalization are ACTIVITIES inside Sources/Document, never phases; the legacy trio
+ * evidence/review/finalization is no longer constructible as a product phase.
  */
 public class ProductPhaseModelTest {
 
@@ -28,18 +29,16 @@ public class ProductPhaseModelTest {
                         factory.state(ResearchStateIds.SCOPING, ResearchStateIds.NEW,
                                 null, null)), 0L, null);
         assertEquals(Arrays.asList(
-                        ResearchStateIds.SCOPING, ResearchStateIds.OUTLINE,
-                        ResearchStateIds.RESEARCH, ResearchStateIds.EVIDENCE,
-                        ResearchStateIds.DRAFT, ResearchStateIds.REVIEW,
-                        ResearchStateIds.FINALIZATION),
+                        ResearchStateIds.SCOPING, ResearchStateIds.RESEARCH,
+                        ResearchStateIds.OUTLINE, ResearchStateIds.DRAFT),
                 snapshot.getPhaseOrder());
     }
 
     @Test
     public void theForwardWalkCoversTheWholeLifecycle() {
-        // SCOPING new → running → (submit) RESEARCH waiting → running → (evidence review)
-        // EVIDENCE approval → (approve) DRAFT waiting → running → (draft review) REVIEW
-        // approval → (approve) FINALIZATION running → approval → completed.
+        // Concept new → running → (submit) Sources waiting → running → (evidence review)
+        // Sources approval → (approve) Outline running → approval → (approve) Document
+        // waiting → running → (draft review) Document approval → (approve final) completed.
         assertEdge(ResearchStateIds.SCOPING, ResearchStateIds.NEW,
                 ResearchCommandType.START, ResearchStateIds.SCOPING, ResearchStateIds.RUNNING);
         assertEdge(ResearchStateIds.SCOPING, ResearchStateIds.RUNNING,
@@ -50,25 +49,54 @@ public class ProductPhaseModelTest {
                 ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING);
         assertEdge(ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING,
                 ResearchCommandType.REQUEST_EVIDENCE_REVIEW,
-                ResearchStateIds.EVIDENCE, ResearchStateIds.WAITING_APPROVAL);
-        assertEdge(ResearchStateIds.EVIDENCE, ResearchStateIds.WAITING_APPROVAL,
+                ResearchStateIds.RESEARCH, ResearchStateIds.WAITING_APPROVAL);
+        assertEdge(ResearchStateIds.RESEARCH, ResearchStateIds.WAITING_APPROVAL,
                 ResearchCommandType.APPROVE_EVIDENCE,
+                ResearchStateIds.OUTLINE, ResearchStateIds.RUNNING);
+        assertEdge(ResearchStateIds.OUTLINE, ResearchStateIds.RUNNING,
+                ResearchCommandType.PROPOSE_OUTLINE,
+                ResearchStateIds.OUTLINE, ResearchStateIds.WAITING_APPROVAL);
+        assertEdge(ResearchStateIds.OUTLINE, ResearchStateIds.WAITING_APPROVAL,
+                ResearchCommandType.APPROVE_OUTLINE,
                 ResearchStateIds.DRAFT, ResearchStateIds.WAITING);
         assertEdge(ResearchStateIds.DRAFT, ResearchStateIds.WAITING,
                 ResearchCommandType.START_DRAFTING,
                 ResearchStateIds.DRAFT, ResearchStateIds.RUNNING);
         assertEdge(ResearchStateIds.DRAFT, ResearchStateIds.RUNNING,
                 ResearchCommandType.REQUEST_DRAFT_REVIEW,
-                ResearchStateIds.REVIEW, ResearchStateIds.WAITING_APPROVAL);
-        assertEdge(ResearchStateIds.REVIEW, ResearchStateIds.WAITING_APPROVAL,
-                ResearchCommandType.APPROVE_DRAFT,
-                ResearchStateIds.FINALIZATION, ResearchStateIds.RUNNING);
-        assertEdge(ResearchStateIds.FINALIZATION, ResearchStateIds.RUNNING,
-                ResearchCommandType.REQUEST_FINAL_REVIEW,
-                ResearchStateIds.FINALIZATION, ResearchStateIds.WAITING_APPROVAL);
-        assertEdge(ResearchStateIds.FINALIZATION, ResearchStateIds.WAITING_APPROVAL,
+                ResearchStateIds.DRAFT, ResearchStateIds.WAITING_APPROVAL);
+        assertEdge(ResearchStateIds.DRAFT, ResearchStateIds.WAITING_APPROVAL,
                 ResearchCommandType.APPROVE_FINAL,
-                ResearchStateIds.FINALIZATION, ResearchStateIds.COMPLETED);
+                ResearchStateIds.DRAFT, ResearchStateIds.COMPLETED);
+    }
+
+    @Test
+    public void theLegacyTrioIsNoProductPhaseAnymore() {
+        for (String legacy : new String[] {ResearchStateIds.EVIDENCE, ResearchStateIds.REVIEW,
+                ResearchStateIds.FINALIZATION}) {
+            try {
+                factory.state(legacy, ResearchStateIds.RUNNING, null, null);
+                throw new AssertionError(legacy + " must not be constructible as a phase");
+            } catch (IllegalArgumentException expected) {
+                // the migration remap is the only legal entrance for these ids
+            }
+            assertEquals("its canonical home is defined",
+                    legacy.equals(ResearchStateIds.EVIDENCE)
+                            ? ResearchStateIds.RESEARCH : ResearchStateIds.DRAFT,
+                    ResearchStateIds.canonicalPhaseId(legacy));
+        }
+        assertTrue(ResearchStateIds.isCanonicalPhase(ResearchStateIds.SCOPING));
+        assertTrue(ResearchStateIds.isCanonicalPhase(ResearchStateIds.DRAFT));
+    }
+
+    @Test
+    public void oldForwardEdgesOfTheSevenPhaseWorldAreGone() {
+        assertNull(ResearchStateGraph.forward(ResearchStateIds.DRAFT,
+                ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.APPROVE_DRAFT));
+        assertNull(ResearchStateGraph.forward(ResearchStateIds.DRAFT,
+                ResearchStateIds.RUNNING, ResearchCommandType.REQUEST_FINAL_REVIEW));
+        assertNull(ResearchStateGraph.forward(ResearchStateIds.OUTLINE,
+                ResearchStateIds.WAITING_APPROVAL + "x", ResearchCommandType.APPROVE_OUTLINE));
     }
 
     private void assertEdge(String phaseId, String stateId, ResearchCommandType command,

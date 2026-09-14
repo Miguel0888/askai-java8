@@ -120,7 +120,11 @@ public final class ResearchStateFactory {
     }
 
     private static void requireKnownPhase(String phaseId) {
-        ResearchStateIds.phase(phaseId); // throws for unknown phase id
+        // #43: the factory is STRICT on the canonical four — legacy phase ids reach it only
+        // through the restore remap, never as fresh states.
+        if (!ResearchStateIds.isCanonicalPhase(phaseId)) {
+            throw new IllegalArgumentException("unknown phaseId: " + phaseId);
+        }
     }
 
     private static void requireCombo(String phaseId, String stateId) {

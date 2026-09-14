@@ -83,7 +83,7 @@ public class MementoBackendEventTest {
 
         ResearchBackendEvent lastState = listener.last(ResearchBackendEventType.SESSION_STATE_CHANGED);
         assertNotNull(lastState);
-        assertEquals(ResearchStateIds.EVIDENCE, lastState.getStateMemento().getPhaseId());
+        assertEquals(ResearchStateIds.RESEARCH, lastState.getStateMemento().getPhaseId());
         assertEquals(ResearchStateIds.WAITING_APPROVAL, lastState.getStateMemento().getStateId());
         assertNotNull(lastState.getStateMemento().getPendingApprovalId());
     }
@@ -126,7 +126,7 @@ public class MementoBackendEventTest {
         ResearchStateMemento afterApprove =
                 listener.last(ResearchBackendEventType.SESSION_STATE_CHANGED).getStateMemento();
         assertTrue("approval must move past the evidence gate",
-                !ResearchStateIds.EVIDENCE.equals(afterApprove.getPhaseId())
+                !ResearchStateIds.RESEARCH.equals(afterApprove.getPhaseId())
                         || !ResearchStateIds.WAITING_APPROVAL.equals(afterApprove.getStateId()));
     }
 }

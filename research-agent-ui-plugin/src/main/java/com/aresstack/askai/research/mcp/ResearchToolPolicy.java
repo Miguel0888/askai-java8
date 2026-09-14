@@ -91,15 +91,11 @@ public final class ResearchToolPolicy {
             tools.add(sourceAcceptTool(ctx));
             tools.add(sourceParkTool(ctx));
         }
-        // DRAFT and FINALIZATION both work on the ONE canonical document; whether FINALIZATION survives as
-        // its own outer phase is #30's decision — this policy does not pre-empt it.
+        // #43: DOCUMENT (id "draft") is the ONE writing phase — drafting, review and
+        // finalization are activities inside it, so the document tools live here alone.
         if (writable(phaseId, stateId, ResearchStateIds.DRAFT)) {
             tools.add(readTool(ctx, "document_read", "document"));
             tools.add(saveTool(ctx, "document_save", "document", ResearchStateIds.DRAFT));
-        }
-        if (writable(phaseId, stateId, ResearchStateIds.FINALIZATION)) {
-            tools.add(readTool(ctx, "document_read", "document"));
-            tools.add(saveTool(ctx, "document_save", "document", ResearchStateIds.FINALIZATION));
         }
         return tools;
     }

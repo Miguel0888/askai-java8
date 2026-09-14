@@ -14,14 +14,34 @@ import com.aresstack.askai.research.state.ResearchRunState;
  */
 public final class ResearchStateIds {
 
-    // Phase ids.
+    // Phase ids — the CANONICAL four (#43). The persisted technical ids keep their historic
+    // spelling as the compatibility vocabulary; the PRODUCT names are Concept ("scoping"),
+    // Sources ("research"), Outline and Document ("draft").
     public static final String SCOPING = "scoping";
-    public static final String OUTLINE = "outline";
     public static final String RESEARCH = "research";
-    public static final String EVIDENCE = "evidence";
+    public static final String OUTLINE = "outline";
     public static final String DRAFT = "draft";
+    // LEGACY phase ids — accepted ONLY by the migration remap; never part of the product model.
+    public static final String EVIDENCE = "evidence";
     public static final String REVIEW = "review";
     public static final String FINALIZATION = "finalization";
+
+    /** The canonical product model (#43): Concept → Sources → Outline → Document. */
+    public static boolean isCanonicalPhase(String phaseId) {
+        return SCOPING.equals(phaseId) || RESEARCH.equals(phaseId)
+                || OUTLINE.equals(phaseId) || DRAFT.equals(phaseId);
+    }
+
+    /** Legacy 7-phase id → its canonical 4-phase home (identity for canonical ids). */
+    public static String canonicalPhaseId(String phaseId) {
+        if (EVIDENCE.equals(phaseId)) {
+            return RESEARCH; // evidence review is Sources' closing approval
+        }
+        if (REVIEW.equals(phaseId) || FINALIZATION.equals(phaseId)) {
+            return DRAFT; // review + finalization live inside Document
+        }
+        return phaseId;
+    }
 
     // State ids.
     public static final String NEW = "new";

@@ -110,7 +110,9 @@ public class ResearchServiceEndpointTest {
         service.open();
         List<String> names = reg.listToolNames(service.getEndpointId(), service.getHandle().getToken());
         assertEquals("runtime plumbing ONLY — the bot tools live on their own endpoint",
-                java.util.Arrays.asList("manual_source_accept", "manual_source_park"), names);
+                java.util.Arrays.asList("manual_source_accept", "manual_source_park",
+                        "search_scope_begin", "search_scope_evaluate", "search_scope_end"),
+                names);
         service.close();
     }
 

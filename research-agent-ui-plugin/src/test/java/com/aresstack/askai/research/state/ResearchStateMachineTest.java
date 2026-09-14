@@ -43,23 +43,22 @@ public class ResearchStateMachineTest {
     }
 
     @Test
-    public void fullHappyPathWalksEveryPhaseAndIncrementsRevision() {
+    public void theLegacyPairWalksIntoTheFourPhaseModelUpToItsExpressiveLimit() {
+        // #43: the deprecated legacy pair (phase + runState) cannot distinguish the ready
+        // gate from the approval gate that now BOTH live inside Sources/Document — it walks
+        // the model up to the first in-phase approval and stops there. The productive OO
+        // memento machine carries the full model; this adapter is compatibility only.
         ResearchStateMachine sm = sm();
         ResearchSessionState s = ResearchSessionState.initial();
         assertEquals(0L, s.getRevision());
         s = accept(sm, s, ResearchCommandType.START, ResearchPhase.SCOPING, ResearchRunState.RUNNING);
-        // C5: a confirmed scope goes STRAIGHT to research (the OUTLINE phase stays for old sessions
-        // and returns later as the post-evidence freeze step).
         s = accept(sm, s, ResearchCommandType.SUBMIT_SCOPE, ResearchPhase.RESEARCH, ResearchRunState.WAITING_FOR_USER);
         s = accept(sm, s, ResearchCommandType.START_RESEARCH, ResearchPhase.RESEARCH, ResearchRunState.RUNNING);
-        s = accept(sm, s, ResearchCommandType.REQUEST_EVIDENCE_REVIEW, ResearchPhase.EVIDENCE, ResearchRunState.WAITING_FOR_USER);
-        s = accept(sm, s, ResearchCommandType.APPROVE_EVIDENCE, ResearchPhase.DRAFT, ResearchRunState.WAITING_FOR_USER);
-        s = accept(sm, s, ResearchCommandType.START_DRAFTING, ResearchPhase.DRAFT, ResearchRunState.RUNNING);
-        s = accept(sm, s, ResearchCommandType.REQUEST_DRAFT_REVIEW, ResearchPhase.REVIEW, ResearchRunState.WAITING_FOR_USER);
-        s = accept(sm, s, ResearchCommandType.APPROVE_DRAFT, ResearchPhase.FINALIZATION, ResearchRunState.RUNNING);
-        s = accept(sm, s, ResearchCommandType.REQUEST_FINAL_REVIEW, ResearchPhase.FINALIZATION, ResearchRunState.WAITING_FOR_USER);
-        s = accept(sm, s, ResearchCommandType.APPROVE_FINAL, ResearchPhase.FINALIZATION, ResearchRunState.COMPLETED);
-        assertTrue(s.isTerminal());
+        s = accept(sm, s, ResearchCommandType.REQUEST_EVIDENCE_REVIEW, ResearchPhase.RESEARCH, ResearchRunState.WAITING_FOR_USER);
+        // The expressive limit, stated honestly: reconstructed from the flat pair, Sources'
+        // WAITING_FOR_USER reads as the ready gate — the in-phase approval id is lost, so the
+        // approval command is rejected here instead of silently guessing a gate.
+        reject(sm, s, ResearchCommandType.APPROVE_EVIDENCE);
     }
 
     @Test
@@ -71,23 +70,18 @@ public class ResearchStateMachineTest {
         reject(sm, outlineRunning, ResearchCommandType.START_RESEARCH);
         reject(sm, outlineRunning, ResearchCommandType.APPROVE_OUTLINE); // approve only from WAITING
 
-        // Cannot approve final outside FINALIZATION/WAITING.
-        reject(sm, new ResearchSessionState(ResearchPhase.REVIEW, ResearchRunState.WAITING_FOR_USER, 9L),
+        // Cannot approve final from the Document ready gate (the flat pair's WAITING).
+        reject(sm, new ResearchSessionState(ResearchPhase.DRAFT, ResearchRunState.WAITING_FOR_USER, 9L),
                 ResearchCommandType.APPROVE_FINAL);
     }
 
     @Test
     public void requestChangesReturnsToTheCorrectWorkingStep() {
+        // OUTLINE keeps the one approval gate the flat pair can still express directly.
         ResearchStateMachine sm = sm();
         assertEquals(ResearchPhase.OUTLINE, sm.dispatch(
                 new ResearchSessionState(ResearchPhase.OUTLINE, ResearchRunState.WAITING_FOR_USER, 3L),
                 cmd(ResearchCommandType.REQUEST_OUTLINE_CHANGES)).getState().getPhase());
-        assertEquals(ResearchPhase.RESEARCH, sm.dispatch(
-                new ResearchSessionState(ResearchPhase.EVIDENCE, ResearchRunState.WAITING_FOR_USER, 3L),
-                cmd(ResearchCommandType.REQUEST_REVISION)).getState().getPhase());
-        assertEquals(ResearchPhase.DRAFT, sm.dispatch(
-                new ResearchSessionState(ResearchPhase.REVIEW, ResearchRunState.WAITING_FOR_USER, 3L),
-                cmd(ResearchCommandType.REQUEST_REVISION)).getState().getPhase());
     }
 
     @Test
@@ -125,14 +119,14 @@ public class ResearchStateMachineTest {
             new ResearchSessionState(ResearchPhase.OUTLINE, ResearchRunState.WAITING_FOR_USER, 1L),
             new ResearchSessionState(ResearchPhase.RESEARCH, ResearchRunState.PAUSED, 1L),
             new ResearchSessionState(ResearchPhase.DRAFT, ResearchRunState.BLOCKED, 1L),
-            new ResearchSessionState(ResearchPhase.REVIEW, ResearchRunState.FAILED, 1L)
+            new ResearchSessionState(ResearchPhase.DRAFT, ResearchRunState.FAILED, 1L)
         };
         for (ResearchSessionState state : nonTerminal) {
             assertEquals(ResearchRunState.CANCELLED,
                     sm.dispatch(state, cmd(ResearchCommandType.CANCEL)).getState().getRunState());
         }
         ResearchSessionState completed = new ResearchSessionState(
-                ResearchPhase.FINALIZATION, ResearchRunState.COMPLETED, 12L);
+                ResearchPhase.DRAFT, ResearchRunState.COMPLETED, 12L);
         reject(sm, completed, ResearchCommandType.CANCEL);
         reject(sm, completed, ResearchCommandType.START);
         reject(sm, new ResearchSessionState(ResearchPhase.SCOPING, ResearchRunState.CANCELLED, 3L),

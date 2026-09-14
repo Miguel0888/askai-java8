@@ -47,29 +47,21 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
     private static final int SHORT_TITLE_LIMIT = 8;
 
     static {
+        // #43: exactly the four product phases, English UI names, snapshot order.
         Map<String, String> titles = new LinkedHashMap<String, String>();
         Map<String, String> shorts = new LinkedHashMap<String, String>();
         titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING,
-                "Scoping / Konzeptphase");
+                "Concept / Structure I");
         shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING, "Concept");
-        titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE,
-                "Gliederung");
-        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE, "Gliedern");
         titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.RESEARCH,
-                "Research / Recherche");
-        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.RESEARCH, "Suchen");
-        titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.EVIDENCE,
-                "Evidenz / Belege");
-        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.EVIDENCE, "Belegen");
+                "Sources / Content I");
+        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.RESEARCH, "Sources");
+        titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE,
+                "Outline / Structure II");
+        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE, "Outline");
         titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.DRAFT,
-                "Entwurf");
-        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.DRAFT, "Entwurf");
-        titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.REVIEW,
-                "Review");
-        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.REVIEW, "Prüfen");
-        titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.FINALIZATION,
-                "Finalisierung");
-        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.FINALIZATION, "Finale");
+                "Document / Content II");
+        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.DRAFT, "Document");
         PHASE_TITLES = titles;
         PHASE_SHORT_TITLES = shorts;
     }
