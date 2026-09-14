@@ -123,7 +123,9 @@ public class SearchScopeControlFunnelTest {
                         candidate("https://kept.example/scheduling",
                                 "FreeRTOS Scheduling Guide", "freertos scheduling"),
                         candidate("https://out.example/gui",
-                                "Java Swing GUI Tutorial", "desktop windows toolkit")),
+                                "Java Swing GUI Tutorial", "desktop windows toolkit"),
+                        candidate("https://second.example/tasks",
+                                "FreeRTOS Task Basics", "freertos tasks")),
                         new ArrayList<String>(),
                         Collections.<com.aresstack.askai.browser.search.repair
                                 .SearchChallengeState>emptyList(),
@@ -192,11 +194,13 @@ public class SearchScopeControlFunnelTest {
         service.execute("freertos scheduling");
 
         assertTrue("the SERP lane was judged", scope.lanes.contains("serp"));
-        assertEquals("only the kept hit is parked",
-                Collections.singletonList("https://kept.example/scheduling"),
+        assertEquals("only the kept hits are parked, in the RERANKER'S order",
+                Arrays.asList("https://kept.example/scheduling",
+                        "https://second.example/tasks"),
                 acceptance.parked);
-        assertEquals("the OUT hit is NEVER opened",
-                Collections.singletonList("https://kept.example/scheduling"),
+        assertEquals("the OUT hit is NEVER opened; survivor order stays the reranker's",
+                Arrays.asList("https://kept.example/scheduling",
+                        "https://second.example/tasks"),
                 browser.openedUrls);
         assertTrue("the skip is observable", status.toString().contains(
                 "search-scope skip candidate=\"Java Swing GUI Tutorial\" "
@@ -218,7 +222,10 @@ public class SearchScopeControlFunnelTest {
                 service(browser, twoHitStrategy(calls), acceptance, status);
         ScriptedScope scope = new ScriptedScope();
         scope.out("serp", "https://out.example/gui");
-        scope.out("page", "https://kept.example/scheduling"); // page-lane verdict: OUT
+        // BOTH surviving hits measure OUT once their content is loaded — the fixture's page
+        // reply is shared, so both visits must be page-lane OUT for the pin to be exact.
+        scope.out("page", "https://kept.example/scheduling");
+        scope.out("page", "https://second.example/tasks");
         service.setScopeControl(scope);
 
         service.execute("freertos scheduling");
@@ -267,7 +274,7 @@ public class SearchScopeControlFunnelTest {
         service.execute("freertos scheduling");
 
         assertTrue("zero evaluate calls on the fast path", scope.lanes.isEmpty());
-        assertEquals("baseline behaviour: BOTH hits parked", 2, acceptance.parked.size());
-        assertEquals("baseline behaviour: BOTH hits opened", 2, browser.openedUrls.size());
+        assertEquals("baseline behaviour: ALL hits parked", 3, acceptance.parked.size());
+        assertEquals("baseline behaviour: ALL hits opened", 3, browser.openedUrls.size());
     }
 }
