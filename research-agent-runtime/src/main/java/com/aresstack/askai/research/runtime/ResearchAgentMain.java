@@ -1006,6 +1006,11 @@ public final class ResearchAgentMain {
             acquisition.setCompletionPolicy(
                     new com.aresstack.askai.research.runtime.acquire.FixedAcceptedSourceCountPolicy(
                             searchBudget.getMaxAcceptedSources()));
+            // SC1: the manual search runs behind the SAME scope-control gate as the autonomous
+            // loop — the internal service endpoint, never an agent tool.
+            acquisition.setScopeControl(
+                    new com.aresstack.askai.research.runtime.acquire.ServiceSearchScopeControlPort(
+                            service));
             // "LLM entscheidet": let the main model classify an ambiguous page (thin text, no DOM signal) so
             // a "verify you are human" wall the SERP selectors missed is treated as a CAPTCHA, not skipped.
             acquisition.setReadinessJudge(
@@ -1686,6 +1691,15 @@ public final class ResearchAgentMain {
                 loop.setSearchStrategy(searchStrategy, searchProviderLabel);
             } else if (inferencePort != null) {
                 loop.setStructuredInferencePort(inferencePort);
+            }
+            // SC1: the autonomous loop gets the same scope-control lane (internal service
+            // endpoint) — a canonical OUT is filtered identically on both acquisition paths.
+            if (environment.hasService()) {
+                loop.setScopeControl(
+                        new com.aresstack.askai.research.runtime.acquire.ServiceSearchScopeControlPort(
+                                new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
+                                        environment.serviceUrl, environment.serviceTransport,
+                                        browserToolTimeoutSeconds())));
             }
             // Continuation semantics: a later run of the same session never re-navigates target pages.
             loop.excludeVisited(visitedAcrossRuns);

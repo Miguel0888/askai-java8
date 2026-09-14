@@ -171,4 +171,20 @@ public interface ResearchControlContext {
     default String scopeProbe(java.util.List<String> terms) {
         return null;
     }
+
+    /**
+     * SC1 search-scope control (internal service lane, never an agent tool).
+     * DELEGATING WRAPPERS MUST FORWARD THESE.
+     */
+    default String searchScopeBegin() {
+        return null;
+    }
+
+    default String searchScopeEvaluate(String handle, String lane, String itemsJson) {
+        return null;
+    }
+
+    default String searchScopeEnd(String handle) {
+        return null;
+    }
 }

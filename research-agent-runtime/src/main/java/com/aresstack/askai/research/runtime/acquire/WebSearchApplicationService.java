@@ -160,6 +160,19 @@ public final class WebSearchApplicationService {
     private final int minReadableChars;
     /** The readiness verdict seam (default heuristic; a model-backed judge can be set for user searches). */
     private PageReadinessJudge readinessJudge;
+    // SC1 search-scope control: the second, ORTHOGONAL funnel decision (query relevance stays
+    // with the reranker/relevance model). One immutable snapshot per run — a running search
+    // never goes stale; the NEXT run sees the new fence.
+    private SearchScopeControlPort scopeControl;
+    private String scopeHandle;
+    private boolean scopeActive;
+    /** Set when an evaluate failed inside a helper that cannot return a stop reason itself. */
+    private boolean scopeControlBroken;
+
+    /** SC1: inject the host's scope-control port (null = feature absent, baseline behaviour). */
+    public void setScopeControl(SearchScopeControlPort port) {
+        this.scopeControl = port;
+    }
     /**
      * The completion seam: "fachlich fertig?" is a policy, not service code. Default is the LEGACY
      * autonomous semantics (behaviour-preserving); the manual search injects the deterministic
@@ -317,7 +330,16 @@ public final class WebSearchApplicationService {
      * umlauts and short words out of the SERP query ("hühner" became "hner").
      */
     public ResearchStopReason execute(String task) {
-        ResearchStopReason reason = runAcquisition(task, WebAcquisitionText.queryTerms(task));
+        ResearchStopReason reason = beginScopeControl();
+        if (reason == null) {
+            try {
+                reason = runAcquisition(task, WebAcquisitionText.queryTerms(task));
+            } finally {
+                if (scopeActive && scopeHandle != null) {
+                    scopeControl.end(scopeHandle); // best effort — host teardown also clears
+                }
+            }
+        }
         // HUD lifecycle: after a terminal outcome the browser may stay open, but the overlay must stop
         // pretending a page is being visited — controls off, state visibly final. Best-effort like every
         // other HUD render; a dead browser is simply skipped.
@@ -550,6 +572,27 @@ public final class WebSearchApplicationService {
                     continue;
                 }
                 if (relevant) {
+                    // SC1 page gate: the last guard against wrong SERP snippets — a loaded
+                    // page whose semantic content is CLEAR canonical OUT is neither accepted
+                    // nor link-expanded (corpus contamination stops here).
+                    java.util.Map<String, SearchScopeControlPort.Decision> pageVerdicts =
+                            scopeVerdicts("page", java.util.Collections.singletonList(
+                                    new SearchScopeControlPort.Item(effectiveUrl,
+                                            pageRelevanceDocument(pageTitle, page))));
+                    if (pageVerdicts == null) {
+                        return ResearchStopReason.SCOPE_CONTROL_UNAVAILABLE;
+                    }
+                    SearchScopeControlPort.Decision pageDecision =
+                            pageVerdicts.get(effectiveUrl);
+                    if (pageDecision != null && pageDecision.out) {
+                        listener.status("search-scope page OUT url=" + effectiveUrl
+                                + " nearest=\"" + pageDecision.nearestOutLabel
+                                + "\" -> not accepted, not expanded");
+                        listener.progress(progress,
+                                ResearchRunActivity.pageSkipped(effectiveUrl, finalHost,
+                                        pageTitle));
+                        continue;
+                    }
                     ResearchStopReason g3 = acceptSource(captureId, page, effectiveUrl, finalHost, pageTitle);
                     if (g3 != null) {
                         return g3;
@@ -578,6 +621,9 @@ public final class WebSearchApplicationService {
                 String links = callBrowser("web_links", args());
                 progress.success();
                 List<String> follow = selectLinksToFollow(links, url, terms);
+                if (scopeControlBroken) {
+                    return ResearchStopReason.SCOPE_CONTROL_UNAVAILABLE;
+                }
                 if (pageSkip.isCurrentVisitSkipped()) {
                     // An abandoned page hands nothing on: its links would carry the run onwards from a
                     // page the user has just said they do not want.
@@ -626,9 +672,41 @@ public final class WebSearchApplicationService {
                 progress.linksAssessed(candidates.size());
                 progress.linksSelected(result.selected.size());
                 seedSerpRelevanceFloor = seedFloorOf(result.selected);
+                // SC1 SERP gate: AFTER the reranker, BEFORE frontier and park — a CLEAR
+                // canonical OUT is never parked, never enqueued, never web_open'd. Survivor
+                // order stays exactly the reranker's order.
+                java.util.List<SearchScopeControlPort.Item> scopeItems =
+                        new java.util.ArrayList<SearchScopeControlPort.Item>();
+                for (com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate
+                        ranked : result.selected) {
+                    if (!ranked.candidate.resolvedTargetUrl.isEmpty()) {
+                        scopeItems.add(new SearchScopeControlPort.Item(
+                                ranked.candidate.resolvedTargetUrl,
+                                (ranked.candidate.title + " " + ranked.candidate.snippet)
+                                        .trim()));
+                    }
+                }
+                java.util.Map<String, SearchScopeControlPort.Decision> serpVerdicts =
+                        scopeVerdicts("serp", scopeItems);
+                if (serpVerdicts == null) {
+                    return ResearchStopReason.SCOPE_CONTROL_UNAVAILABLE;
+                }
+                int scopedOut = 0;
                 for (com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate ranked
                         : result.selected) {
                     if (!ranked.candidate.resolvedTargetUrl.isEmpty()) {
+                        SearchScopeControlPort.Decision decision =
+                                serpVerdicts.get(ranked.candidate.resolvedTargetUrl);
+                        if (scopeSkips(decision)) {
+                            scopedOut++;
+                            listener.status("search-scope skip candidate=\""
+                                    + ranked.candidate.title + "\" "
+                                    + (decision.unclassified ? "relation=UNCLASSIFIED"
+                                            : "relation=LIKELY_OUT authority=CANONICAL_OUT "
+                                                    + "nearest=\"" + decision.nearestOutLabel
+                                                    + "\""));
+                            continue;
+                        }
                         // The selected hit keeps its identity: the entry names the candidate it came from
                         // and carries what the SERP promised (the Layer 2 semantic readiness net) instead
                         // of parking that promise in a side map keyed by URL.
@@ -641,6 +719,11 @@ public final class WebSearchApplicationService {
                         // successful visit. Best-effort: a park failure never aborts the search.
                         parkCandidate(ranked);
                     }
+                }
+                if (!serpVerdicts.isEmpty()) {
+                    listener.status("search-scope SERP items=" + scopeItems.size()
+                            + " kept=" + (scopeItems.size() - scopedOut)
+                            + " out=" + scopedOut);
                 }
                 return null;
             case NO_CANDIDATES:
@@ -665,6 +748,62 @@ public final class WebSearchApplicationService {
                 progress.error();
                 return ResearchStopReason.RERANKER_UNAVAILABLE;
         }
+    }
+
+    /** SC1 begin: pin the run snapshot. null = proceed; a typed reason ends the run fail-closed. */
+    private ResearchStopReason beginScopeControl() {
+        if (scopeControl == null) {
+            return null; // feature absent → baseline behaviour
+        }
+        try {
+            SearchScopeControlPort.Session scope = scopeControl.begin();
+            scopeActive = scope.active;
+            scopeHandle = scope.handle;
+            listener.status("search-scope " + (scope.active ? scope.summary
+                    : scope.summary.isEmpty() ? "INACTIVE" : scope.summary));
+            return null;
+        } catch (ToolInvoker.ToolFailure broken) {
+            listener.status("search-scope UNAVAILABLE at begin — fail-closed: "
+                    + describe(broken));
+            return ResearchStopReason.SCOPE_CONTROL_UNAVAILABLE;
+        } catch (ToolInvoker.EndpointUnavailable dead) {
+            listener.status("search-scope UNAVAILABLE at begin (endpoint) — fail-closed");
+            return ResearchStopReason.SCOPE_CONTROL_UNAVAILABLE;
+        }
+    }
+
+    /**
+     * SC1 batch verdicts by candidate id. Empty map = inactive fast path (ZERO scope calls);
+     * {@code null} = infrastructure failure → the caller ends the run
+     * {@link ResearchStopReason#SCOPE_CONTROL_UNAVAILABLE}, fail-closed.
+     */
+    private java.util.Map<String, SearchScopeControlPort.Decision> scopeVerdicts(String lane,
+            java.util.List<SearchScopeControlPort.Item> items) {
+        if (!scopeActive || scopeHandle == null || items.isEmpty()) {
+            return java.util.Collections.emptyMap();
+        }
+        try {
+            java.util.Map<String, SearchScopeControlPort.Decision> byId =
+                    new java.util.LinkedHashMap<String, SearchScopeControlPort.Decision>();
+            for (SearchScopeControlPort.Decision decision
+                    : scopeControl.evaluate(scopeHandle, lane, items)) {
+                byId.put(decision.id, decision);
+            }
+            return byId;
+        } catch (ToolInvoker.ToolFailure broken) {
+            listener.status("search-scope UNAVAILABLE at " + lane + " — fail-closed: "
+                    + describe(broken));
+            return null;
+        } catch (ToolInvoker.EndpointUnavailable dead) {
+            listener.status("search-scope UNAVAILABLE at " + lane
+                    + " (endpoint) — fail-closed");
+            return null;
+        }
+    }
+
+    /** OUT is the hard reject; UNCLASSIFIED (no usable text) is conservatively not visited. */
+    static boolean scopeSkips(SearchScopeControlPort.Decision decision) {
+        return decision != null && (decision.out || decision.unclassified);
     }
 
     /**
@@ -797,7 +936,7 @@ public final class WebSearchApplicationService {
             List<String> hints = lexicalHints.size() > MAXIMUM_EXPANDED_LINKS_PER_PAGE
                     ? lexicalHints.subList(0, MAXIMUM_EXPANDED_LINKS_PER_PAGE) : lexicalHints;
             progress.linksSelected(hints.size());
-            return hints;
+            return scopeFilterLinks(hints, documentsByUrl, parentUrl);
         }
         List<String> selected = new ArrayList<String>();
         for (String rankedUrl : assessment.rankedCandidateIds()) {
@@ -817,7 +956,48 @@ public final class WebSearchApplicationService {
         listener.status("link relevance: " + documentsByUrl.size() + " links assessed → "
                 + selected.size() + " followed (floor " + seedSerpRelevanceFloor + ") from "
                 + parentUrl);
-        return selected;
+        return scopeFilterLinks(selected, documentsByUrl, parentUrl);
+    }
+
+    /**
+     * SC1 link gate: AFTER query relevance, BEFORE the frontier — judged on the visible
+     * anchor text (URLs are never interpreted as semantics). A failure sets
+     * {@code scopeControlBroken}; the caller ends the run typed.
+     */
+    private List<String> scopeFilterLinks(List<String> urls,
+            java.util.Map<String, String> documentsByUrl, String parentUrl) {
+        if (urls.isEmpty()) {
+            return urls;
+        }
+        java.util.List<SearchScopeControlPort.Item> items =
+                new java.util.ArrayList<SearchScopeControlPort.Item>();
+        for (String linkUrl : urls) {
+            String document = documentsByUrl.get(linkUrl);
+            items.add(new SearchScopeControlPort.Item(linkUrl,
+                    document == null ? "" : document));
+        }
+        java.util.Map<String, SearchScopeControlPort.Decision> verdicts =
+                scopeVerdicts("links", items);
+        if (verdicts == null) {
+            scopeControlBroken = true;
+            return java.util.Collections.emptyList();
+        }
+        if (verdicts.isEmpty()) {
+            return urls; // inactive fast path
+        }
+        List<String> kept = new ArrayList<String>();
+        for (String linkUrl : urls) {
+            if (scopeSkips(verdicts.get(linkUrl))) {
+                continue; // never enqueued — the skip line came from the host log already
+            }
+            kept.add(linkUrl);
+        }
+        if (kept.size() != urls.size()) {
+            listener.status("search-scope links items=" + urls.size() + " kept="
+                    + kept.size() + " out=" + (urls.size() - kept.size()) + " from "
+                    + parentUrl);
+        }
+        return kept;
     }
 
     /** One document's relevance, or {@code null} when the model could not answer at all. */

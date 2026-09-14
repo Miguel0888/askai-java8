@@ -628,6 +628,26 @@ public final class ProductiveResearchBackendFactory {
                         }
 
                         @Override
+                        public String searchScopeBegin() {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext().searchScopeBegin();
+                        }
+
+                        @Override
+                        public String searchScopeEvaluate(String handle, String lane,
+                                                          String itemsJson) {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext()
+                                            .searchScopeEvaluate(handle, lane, itemsJson);
+                        }
+
+                        @Override
+                        public String searchScopeEnd(String handle) {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext().searchScopeEnd(handle);
+                        }
+
+                        @Override
                         public java.util.List<String> blacklistedTerms() {
                             return holder[0] == null
                                     ? java.util.Collections.<String>emptyList()

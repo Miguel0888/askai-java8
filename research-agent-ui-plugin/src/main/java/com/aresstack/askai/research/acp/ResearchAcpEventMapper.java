@@ -236,6 +236,12 @@ public final class ResearchAcpEventMapper {
         if ("EMPTY_QUERY".equals(reason)) {
             return "Leere Suchanfrage.";
         }
+        if ("SCOPE_CONTROL_UNAVAILABLE".equals(reason)) {
+            // Fail-closed by design: with a negotiated OUT boundary present, a broken scope
+            // filter STOPS the search instead of silently searching unfiltered.
+            return "Websuche gestoppt: Der Themenzuschnitt-Filter ist nicht verfügbar. "
+                    + "Bitte erneut versuchen.";
+        }
         if ("SEARCH_TECHNICAL_PROBLEM".equals(reason) || "MCP_UNAVAILABLE".equals(reason)
                 || "RERANKER_UNAVAILABLE".equals(reason) || "RERANKER_TIMEOUT".equals(reason)
                 || "RERANKER_INVALID_RESPONSE".equals(reason)

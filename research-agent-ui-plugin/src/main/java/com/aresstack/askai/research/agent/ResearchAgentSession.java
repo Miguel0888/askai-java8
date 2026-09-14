@@ -226,6 +226,23 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 public String scopeProbe(java.util.List<String> terms) {
                     return scopeProbeCommand(terms);
                 }
+
+                @Override
+                public String searchScopeBegin() {
+                    return ResearchAgentSession.this.searchScopeBegin();
+                }
+
+                @Override
+                public String searchScopeEvaluate(String handle, String lane,
+                                                  String itemsJson) {
+                    return ResearchAgentSession.this.searchScopeEvaluate(handle, lane,
+                            itemsJson);
+                }
+
+                @Override
+                public String searchScopeEnd(String handle) {
+                    return ResearchAgentSession.this.searchScopeEnd(handle);
+                }
             });
             resources.setProjectionUpdateListener(new Runnable() {
                 public void run() {
@@ -3641,6 +3658,175 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
+    // ------------------------------------------------ SC1 search-scope control (sensor lane)
+    /** One pinned, immutable search-run snapshot — SC1's "a running search never goes stale". */
+    private static final class SearchScopeSnapshot {
+        final java.util.List<com.aresstack.askai.research.domain.scope
+                .ScopeFenceEvaluator.AnchorVector> anchorVectors;
+        final java.util.Map<String, String> labelsById;
+        final com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder;
+        final com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.Thresholds
+                thresholds;
+
+        SearchScopeSnapshot(java.util.List<com.aresstack.askai.research.domain.scope
+                .ScopeFenceEvaluator.AnchorVector> anchorVectors,
+                java.util.Map<String, String> labelsById,
+                com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder,
+                com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.Thresholds
+                        thresholds) {
+            this.anchorVectors = anchorVectors;
+            this.labelsById = labelsById;
+            this.embedder = embedder;
+            this.thresholds = thresholds;
+        }
+    }
+
+    /** Live run snapshots by opaque handle — transient, cleared with the session. */
+    private final java.util.Map<String, SearchScopeSnapshot> searchScopeSnapshots =
+            java.util.Collections.synchronizedMap(
+                    new java.util.LinkedHashMap<String, SearchScopeSnapshot>());
+
+    /**
+     * SC1 begin: pin ONE immutable snapshot of the effective fence (Concept → CANONICAL_IN,
+     * Blacklist → CANONICAL_OUT via ConceptAnchorProjection — never legacy PROVISIONAL truth).
+     * Zero OUT anchors = INACTIVE fast path (no embeddings, baseline search behaviour); a
+     * broken infrastructure WITH an OUT anchor answers UNAVAILABLE — the fence never silently
+     * disappears.
+     */
+    String searchScopeBegin() {
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        if (coordinator == null || !coordinator.isUsable() || productiveResources == null
+                || productiveResources.isClosed()) {
+            return "INACTIVE outAnchors=0"; // no scope system = nothing negotiated OUT
+        }
+        com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft =
+                coordinator.current();
+        com.aresstack.askai.research.concept.ConceptBranchService conceptService =
+                conceptBranchService();
+        java.util.List<com.aresstack.askai.research.domain.scope.ScopeAnchor> conceptAnchors =
+                com.aresstack.askai.research.scope.ConceptAnchorProjection.anchorsOf(
+                        conceptService == null ? null
+                                : conceptService.snapshot().getDocumentJson(), draft);
+        java.util.List<com.aresstack.askai.research.domain.scope.ScopeAnchor> fenceAnchors =
+                com.aresstack.askai.research.scope.ScopeSweepPlanAssembler.combinedAnchors(
+                        draft, conceptAnchors);
+        int outAnchors = 0;
+        int inAnchors = 0;
+        java.util.Map<String, String> labels = new java.util.LinkedHashMap<String, String>();
+        for (com.aresstack.askai.research.domain.scope.ScopeAnchor anchor : fenceAnchors) {
+            labels.put(anchor.getAnchorId(), anchor.getSemanticText());
+            if (anchor.getMembership()
+                    == com.aresstack.askai.research.domain.scope.ScopeAnchor.Membership.OUT) {
+                outAnchors++;
+            } else if (anchor.getMembership()
+                    == com.aresstack.askai.research.domain.scope.ScopeAnchor.Membership.IN) {
+                inAnchors++;
+            }
+        }
+        if (outAnchors == 0) {
+            technicalLog("search-scope INACTIVE (outAnchors=0)");
+            return "INACTIVE outAnchors=0";
+        }
+        com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor descriptor =
+                productiveResources.getEmbeddingDescriptor();
+        if (descriptor == null) {
+            technicalLog("search-scope UNAVAILABLE (no embedding model, outAnchors="
+                    + outAnchors + ")");
+            return "UNAVAILABLE no embedding model";
+        }
+        com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder =
+                new com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder(
+                        descriptor);
+        java.util.List<com.aresstack.askai.research.domain.scope
+                .ScopeFenceEvaluator.AnchorVector> anchorVectors;
+        try {
+            anchorVectors = new com.aresstack.askai.research.store.ScopeAnchorVectorIndex(
+                    new java.io.File(productiveResources.getProjectContext()
+                            .getProjectDirectory(), "scope-anchor-vectors.json"))
+                    .vectorsFor(fenceAnchors, embedder.modelFingerprint(), embedder);
+        } catch (java.io.IOException indexFailed) {
+            technicalLog("search-scope UNAVAILABLE (anchor index: "
+                    + indexFailed.getMessage() + ")");
+            return "UNAVAILABLE anchor index failed";
+        } catch (RuntimeException embeddingBroke) {
+            technicalLog("search-scope UNAVAILABLE (anchor embedding: " + embeddingBroke + ")");
+            return "UNAVAILABLE anchor embedding failed";
+        }
+        String handle = "ss-" + java.util.UUID.randomUUID();
+        searchScopeSnapshots.put(handle, new SearchScopeSnapshot(anchorVectors, labels,
+                embedder,
+                com.aresstack.askai.research.host.ResearchRuntimeSettings
+                        .loadScopeSweepConfiguration(getHostStateStore()).fenceThresholds));
+        String description = "scopeRev=" + draft.getRevision() + " concept=" + conceptStamp()
+                + " embedding=" + embedder.modelFingerprint()
+                + " inAnchors=" + inAnchors + " outAnchors=" + outAnchors;
+        technicalLog("search-scope snapshot " + description);
+        return "ACTIVE handle=" + handle + " " + description;
+    }
+
+    /** SC1 evaluate: ONE batch against the pinned snapshot; per-item verdict lines. */
+    String searchScopeEvaluate(String handle, String lane, String itemsJson) {
+        SearchScopeSnapshot snapshot = searchScopeSnapshots.get(handle);
+        if (snapshot == null) {
+            return "UNKNOWN_HANDLE";
+        }
+        java.util.List<com.aresstack.askai.research.scope.SearchScopeGate.Item> items =
+                new java.util.ArrayList<com.aresstack.askai.research.scope
+                        .SearchScopeGate.Item>();
+        try {
+            com.google.gson.JsonElement parsed =
+                    com.google.gson.JsonParser.parseString(itemsJson == null ? "" : itemsJson);
+            for (com.google.gson.JsonElement element : parsed.getAsJsonArray()) {
+                com.google.gson.JsonObject object = element.getAsJsonObject();
+                items.add(new com.aresstack.askai.research.scope.SearchScopeGate.Item(
+                        object.has("id") ? object.get("id").getAsString() : "",
+                        object.has("text") ? object.get("text").getAsString() : ""));
+            }
+        } catch (RuntimeException malformed) {
+            return "UNAVAILABLE malformed items_json";
+        }
+        java.util.List<com.aresstack.askai.research.scope.SearchScopeGate.Decision> decisions;
+        try {
+            decisions = com.aresstack.askai.research.scope.SearchScopeGate.evaluate(items,
+                    snapshot.anchorVectors, snapshot.labelsById, snapshot.embedder,
+                    snapshot.thresholds);
+        } catch (RuntimeException infrastructure) {
+            // Fail-closed: with OUT anchors present a broken filter ends the run typed —
+            // never a silent return to unfiltered search.
+            technicalLog("search-scope " + lane + " -> UNAVAILABLE (" + infrastructure + ")");
+            return "UNAVAILABLE " + infrastructure.getMessage();
+        }
+        int out = 0;
+        int unclassified = 0;
+        StringBuilder reply = new StringBuilder();
+        for (com.aresstack.askai.research.scope.SearchScopeGate.Decision decision : decisions) {
+            reply.append('\n').append(decision.verdict.name());
+            if (decision.verdict
+                    == com.aresstack.askai.research.scope.SearchScopeGate.Verdict.OUT) {
+                out++;
+                reply.append(" nearest=\"").append(decision.nearestOutLabel).append('"');
+                technicalLog("search-scope skip " + lane + " nearest=\""
+                        + decision.nearestOutLabel + "\" id=" + decision.id);
+            } else if (decision.verdict
+                    == com.aresstack.askai.research.scope.SearchScopeGate.Verdict
+                            .UNCLASSIFIED) {
+                unclassified++;
+            }
+            reply.append(" id=").append(decision.id);
+        }
+        technicalLog("search-scope " + lane + " items=" + decisions.size()
+                + " kept=" + (decisions.size() - out - unclassified) + " out=" + out
+                + (unclassified > 0 ? " unclassified=" + unclassified : ""));
+        return "EVALUATED items=" + decisions.size() + reply;
+    }
+
+    /** SC1 end: release the run snapshot (best effort; session teardown clears leftovers). */
+    String searchScopeEnd(String handle) {
+        searchScopeSnapshots.remove(handle);
+        return "ENDED";
+    }
+
     /** The effective-fence fingerprint: scope revision + concept epoch#revision. */
     private String fenceFingerprintNow() {
         com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
@@ -4581,7 +4767,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             ids.add("sources");
             ids.add("end");
         } else if ("RERANKER_UNAVAILABLE".equals(stop) || "RERANKER_TIMEOUT".equals(stop)
-                || "RERANKER_INVALID_RESPONSE".equals(stop) || "SEARCH_TECHNICAL_PROBLEM".equals(stop)) {
+                || "RERANKER_INVALID_RESPONSE".equals(stop) || "SEARCH_TECHNICAL_PROBLEM".equals(stop)
+                || "SCOPE_CONTROL_UNAVAILABLE".equals(stop)) {
             // Technical search/reranker failures: retry or fix the configuration — NEVER "accept the
             // limitation" (there is no research result to accept, only a failed component).
             ids.add("retry");

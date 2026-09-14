@@ -512,6 +512,24 @@ public final class ProductiveResearchSessionResources {
             }
 
             @Override
+            public String searchScopeBegin() {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? null : port.searchScopeBegin();
+            }
+
+            @Override
+            public String searchScopeEvaluate(String handle, String lane, String itemsJson) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? null : port.searchScopeEvaluate(handle, lane, itemsJson);
+            }
+
+            @Override
+            public String searchScopeEnd(String handle) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? null : port.searchScopeEnd(handle);
+            }
+
+            @Override
             public java.util.List<String> blacklistedTerms() {
                 com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
                 return port == null ? java.util.Collections.<String>emptyList()

@@ -1,0 +1,120 @@
+package com.aresstack.askai.research.runtime.acquire;
+
+import com.aresstack.askai.research.runtime.loop.ToolInvoker;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * The productive {@link SearchScopeControlPort}: the internal research-service endpoint's
+ * {@code search_scope_begin/evaluate/end} tools (the SAME trust lane as
+ * {@code manual_source_accept} — never an agent tool). Replies are line-based machine text;
+ * an {@code UNAVAILABLE}/{@code UNKNOWN_HANDLE} reply is a {@link ToolInvoker.ToolFailure} so
+ * the caller ends the run typed and fail-closed.
+ */
+public final class ServiceSearchScopeControlPort implements SearchScopeControlPort {
+
+    private final ToolInvoker service;
+
+    public ServiceSearchScopeControlPort(ToolInvoker service) {
+        this.service = service;
+    }
+
+    @Override
+    public Session begin() throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        String reply = service.call("search_scope_begin", new HashMap<String, Object>());
+        String line = reply == null ? "" : reply.trim();
+        if (line.startsWith("ACTIVE handle=")) {
+            int space = line.indexOf(' ', "ACTIVE handle=".length());
+            String handle = space < 0 ? line.substring("ACTIVE handle=".length())
+                    : line.substring("ACTIVE handle=".length(), space);
+            return new Session(true, handle, line.substring("ACTIVE ".length()));
+        }
+        if (line.startsWith("INACTIVE")) {
+            return new Session(false, null, line);
+        }
+        throw new ToolInvoker.ToolFailure("search_scope_begin: " + line);
+    }
+
+    @Override
+    public List<Decision> evaluate(String handle, String lane, List<Item> items)
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        StringBuilder json = new StringBuilder("[");
+        for (int index = 0; index < items.size(); index++) {
+            if (index > 0) {
+                json.append(',');
+            }
+            json.append("{\"id\":");
+            appendJsonString(json, items.get(index).id);
+            json.append(",\"text\":");
+            appendJsonString(json, items.get(index).text);
+            json.append('}');
+        }
+        json.append(']');
+        Map<String, Object> args = new HashMap<String, Object>();
+        args.put("handle", handle);
+        args.put("lane", lane);
+        args.put("items_json", json.toString());
+        String reply = service.call("search_scope_evaluate", args);
+        List<Decision> decisions = new ArrayList<Decision>();
+        for (String line : (reply == null ? "" : reply).split("\r?\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("EVALUATED")) {
+                continue;
+            }
+            if (trimmed.startsWith("UNAVAILABLE") || trimmed.startsWith("UNKNOWN_HANDLE")) {
+                throw new ToolInvoker.ToolFailure("search_scope_evaluate: " + trimmed);
+            }
+            int idMark = trimmed.indexOf(" id=");
+            if (idMark < 0) {
+                continue; // unknown diagnostic line — never a verdict
+            }
+            String id = trimmed.substring(idMark + " id=".length());
+            String head = trimmed.substring(0, idMark);
+            boolean out = head.startsWith("OUT");
+            boolean unclassified = head.startsWith("UNCLASSIFIED");
+            String nearest = "";
+            int nearestMark = head.indexOf("nearest=\"");
+            if (nearestMark >= 0) {
+                int close = head.indexOf('"', nearestMark + "nearest=\"".length());
+                if (close > 0) {
+                    nearest = head.substring(nearestMark + "nearest=\"".length(), close);
+                }
+            }
+            decisions.add(new Decision(id, out, unclassified, nearest));
+        }
+        return decisions;
+    }
+
+    @Override
+    public void end(String handle) {
+        try {
+            Map<String, Object> args = new HashMap<String, Object>();
+            args.put("handle", handle);
+            service.call("search_scope_end", args);
+        } catch (ToolInvoker.ToolFailure ignored) {
+            // best effort — the host clears leftover handles with the session anyway
+        } catch (ToolInvoker.EndpointUnavailable ignored) {
+            // best effort
+        }
+    }
+
+    private static void appendJsonString(StringBuilder sb, String value) {
+        sb.append('"');
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character == '"' || character == '\\') {
+                sb.append('\\').append(character);
+            } else if (character == '\n') {
+                sb.append("\\n");
+            } else if (character == '\r') {
+                sb.append("\\r");
+            } else {
+                sb.append(character);
+            }
+        }
+        sb.append('"');
+    }
+}

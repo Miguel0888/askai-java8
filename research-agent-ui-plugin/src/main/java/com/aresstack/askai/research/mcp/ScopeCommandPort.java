@@ -40,4 +40,19 @@ public interface ScopeCommandPort {
     default String scopeProbe(java.util.List<String> terms) {
         return null;
     }
+
+    /** SC1: pin one immutable search-scope snapshot (ACTIVE/INACTIVE/UNAVAILABLE reply). */
+    default String searchScopeBegin() {
+        return null;
+    }
+
+    /** SC1: judge one candidate batch against a pinned snapshot. */
+    default String searchScopeEvaluate(String handle, String lane, String itemsJson) {
+        return null;
+    }
+
+    /** SC1: release a pinned snapshot (best effort). */
+    default String searchScopeEnd(String handle) {
+        return null;
+    }
 }
