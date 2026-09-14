@@ -150,6 +150,19 @@ public final class ProductiveResearchSessionResources {
     }
 
     /** The live-projection runner owned by this session (stopped in {@link #close()}); may be null. */
+    /** #42: the shared phase-neutral topic discovery, or null without the capability. */
+    private volatile com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery
+            topicDiscovery;
+
+    void setTopicDiscovery(
+            com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery discovery) {
+        this.topicDiscovery = discovery;
+    }
+
+    public com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery topicDiscovery() {
+        return topicDiscovery;
+    }
+
     /** #42: the optional background topic-discovery runner (null when disabled). */
     private volatile com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner
             topicsRunner;

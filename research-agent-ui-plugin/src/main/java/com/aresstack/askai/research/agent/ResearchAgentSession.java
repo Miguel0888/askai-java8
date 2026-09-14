@@ -606,7 +606,63 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                                         + "(takes about 1-2 minutes)", true));
             }
         }
+        // #42: the topics-from-sources action — only when the background analysis is enabled
+        // AND a prepared topic snapshot actually exists (the click consumes, never computes).
+        if (topicDiscoveryOffered()) {
+            tags.add(new ResearchActionTag("discover-topics",
+                    playbook.isGerman() ? "Themen aus Quellen" : "Topics from sources",
+                    playbook.isGerman()
+                            ? "Zeigt die aus den bisherigen Quellen entdeckten Themenfelder "
+                                    + "als Vorschläge — du entscheidest, was ins Konzept kommt"
+                            : "Shows the topic areas discovered in the sources so far as "
+                                    + "suggestions — you decide what enters the concept",
+                    true));
+        }
         return tags;
+    }
+
+    /** #42: enabled setting + an existing prepared snapshot with topics — never a computation. */
+    private boolean topicDiscoveryOffered() {
+        if (productiveResources == null || productiveResources.isClosed()
+                || !com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING
+                        .equals(state.getPhaseId())
+                || !com.aresstack.askai.research.host.ResearchRuntimeSettings
+                        .backgroundTopicDiscovery()) {
+            return false;
+        }
+        com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery discovery =
+                productiveResources.topicDiscovery();
+        if (discovery == null) {
+            return false;
+        }
+        com.aresstack.askai.research.knowledge.processing.live.FileTopicSnapshotStore
+                .TopicSnapshot snapshot = discovery.current();
+        return snapshot != null && !snapshot.topics.isEmpty();
+    }
+
+    /**
+     * #42: consume the PREPARED topic snapshot as a host-narrated chat answer — suggestions
+     * only. Structurally no mutation (the method only speaks); excluded topics are filtered
+     * before presentation; the user's normal reply runs the existing concept operations.
+     */
+    private String discoverTopicsFromSources() {
+        if (!topicDiscoveryOffered()) {
+            return "rejected: no prepared topic analysis is available (background semantic "
+                    + "analysis off, or no sources processed yet)";
+        }
+        com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery discovery =
+                productiveResources.topicDiscovery();
+        com.aresstack.askai.research.knowledge.processing.live.FileTopicSnapshotStore
+                .TopicSnapshot snapshot = discovery.current();
+        java.util.List<String> titles = ResearchTopicsAnswer.presentableTitles(
+                snapshot.topics, currentBlacklistTerms());
+        technicalLog("discover-topics -> snapshot revision=" + snapshot.revision
+                + " topics=" + snapshot.topics.size() + " presented=" + titles.size()
+                + (discovery.isStale() ? " (stale, refresh pending)" : ""));
+        sayAsAgent(ResearchTopicsAnswer.render(titles, discovery.isStale(),
+                playbook.isGerman()));
+        return "handled: presented " + titles.size() + " topic suggestions (no concept "
+                + "change)";
     }
 
     /** SCOPING + a usable productive scope draft — the check's visibility condition. */
@@ -4197,6 +4253,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if ("check-scope".equals(cmd)) {
             return renderOutcome(derivedActions.checkScope());
         }
+        if ("discover-topics".equals(cmd)) {
+            return discoverTopicsFromSources();
+        }
         if ("cancel-scope-check".equals(cmd)) {
             return cancelScopeCheck();
         }
@@ -4270,6 +4329,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         StringBuilder sb = new StringBuilder(
                 "search <query>, generate-visualization, generate-outline, review-sources, "
                         + "check-scope");
+        if (topicDiscoveryOffered()) {
+            sb.append(", discover-topics");
+        }
         for (String name : SEMANTIC_COMMANDS) {
             if (resolveSemanticCommand(name) != null) {
                 sb.append(", ").append(name);
