@@ -38,6 +38,10 @@ public final class LegacyResearchStateMigration {
                 && (approvalId == null || approvalId.trim().isEmpty())) {
             approvalId = idGenerator.newId();
         }
-        return factory.phase(phaseId, factory.state(phaseId, stateId, continuationStateId, approvalId));
+        // #43: legacy 7-phase vocabulary maps to its canonical 4-phase home before the strict
+        // factory sees it (evidence -> sources, review/finalization -> document).
+        String canonical = ResearchStateIds.canonicalPhaseId(phaseId);
+        return factory.phase(canonical,
+                factory.state(canonical, stateId, continuationStateId, approvalId));
     }
 }
