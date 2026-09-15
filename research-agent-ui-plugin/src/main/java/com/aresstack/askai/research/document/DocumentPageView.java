@@ -85,10 +85,12 @@ public final class DocumentPageView extends JComponent implements Scrollable {
                 }
                 String described = resolver == null ? null
                         : resolver.describeReference(badge.number);
+                // No resolved citation → say so honestly; never show a guessed source.
                 setToolTipText(described == null
-                        ? "Source [" + badge.number + "] (not yet linked)"
+                        ? "[" + badge.number + "] unresolved citation"
                         : "[" + badge.number + "] " + described);
-                setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+                setCursor(listener == null ? java.awt.Cursor.getDefaultCursor()
+                        : java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
             }
         };
         addMouseListener(mouse);

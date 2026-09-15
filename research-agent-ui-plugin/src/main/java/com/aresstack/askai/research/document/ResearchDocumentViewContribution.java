@@ -8,9 +8,6 @@ import com.aresstack.askai.plugin.api.agent.artifact.ArtifactViewContribution;
 import com.aresstack.askai.plugin.api.agent.artifact.ArtifactWriteResult;
 import com.aresstack.askai.research.agent.ResearchAgentSession;
 import com.aresstack.askai.research.agent.ResearchArtifacts;
-import com.aresstack.askai.research.sources.ResearchSourceRecord;
-import com.aresstack.askai.research.sources.SourceQuery;
-
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
@@ -21,7 +18,6 @@ import javax.swing.JTextArea;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.FlowLayout;
-import java.util.List;
 
 /**
  * #43 slice 9 — the Document tab: the {@link DocumentPageView} page canvas is the default
@@ -29,10 +25,11 @@ import java.util.List;
  * editor stays one toggle away with the SAME optimistic-locking save semantics the host
  * markdown view used (conflict → reload, never overwrite).
  *
- * <p>SPIKE placeholder, deliberately visible: until #41 introduces the real citation
- * registry, {@code [n]} resolves POSITIONALLY to the n-th source of the repository (documented
- * in the tooltip contract; #41 replaces exactly this resolver). Clicking a badge reveals the
- * Sources tab and focuses that source.</p>
+ * <p>Until #41 introduces the real citation registry, {@code [n]} badges render as visibly
+ * UNRESOLVED and do not navigate anywhere: a positional guess (n-th repository source) could
+ * present the WRONG source as evidence, which is worse than no link. #41 wires the
+ * {@link DocumentPageView.ReferenceResolver}/{@link DocumentPageView.ReferenceListener}
+ * contract with real citation ids.</p>
  */
 public final class ResearchDocumentViewContribution implements ArtifactViewContribution {
 
@@ -136,20 +133,8 @@ public final class ResearchDocumentViewContribution implements ArtifactViewContr
         AgentSession session = context.getSession();
         if (session instanceof ResearchAgentSession) {
             final ResearchAgentSession research = (ResearchAgentSession) session;
-            page.setReferenceResolver(new DocumentPageView.ReferenceResolver() {
-                public String describeReference(int number) {
-                    ResearchSourceRecord record = nthSource(research, number);
-                    return record == null ? null : record.getTitle();
-                }
-            });
-            page.setReferenceListener(new DocumentPageView.ReferenceListener() {
-                public void referenceClicked(int number) {
-                    ResearchSourceRecord record = nthSource(research, number);
-                    if (record != null) {
-                        research.revealSourceInSourcesTab(record.getSourceId());
-                    }
-                }
-            });
+            // #41 wires resolver/listener with REAL citation ids; until then the badges stay
+            // visibly unresolved (no resolver, no listener — see the class contract above).
             research.addStateListener(new Runnable() {
                 public void run() {
                     if (!editing[0]) {
@@ -175,10 +160,4 @@ public final class ResearchDocumentViewContribution implements ArtifactViewContr
         return root;
     }
 
-    /** SPIKE resolver: [n] = the n-th repository source (1-based) until #41's registry. */
-    private static ResearchSourceRecord nthSource(ResearchAgentSession research, int number) {
-        List<ResearchSourceRecord> records =
-                research.getSourceRepository().find(SourceQuery.all());
-        return number >= 1 && number <= records.size() ? records.get(number - 1) : null;
-    }
 }
