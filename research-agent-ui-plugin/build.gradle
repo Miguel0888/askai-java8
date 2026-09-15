@@ -10,6 +10,7 @@ dependencies {
     // bundled INTO the plugin jar below (no other classloader in the host loads them — no identity
     // split).
     implementation project(':browser-api')
+    implementation 'org.jsoup:jsoup:1.17.2'   // #39: structural HTML import extraction (Java 8 bytecode)
     // The knowledge-processing application layer (persistent FIFO + worker + scheduler) and, transitively,
     // :research-knowledge-pipeline + :research-domain. The plugin holds ONLY the neutral scheduler port + the
     // VisitedCapture→SourceCapture adapter; all queue/worker/NLP/embedding logic lives in these modules.
