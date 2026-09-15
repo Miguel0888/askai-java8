@@ -48,13 +48,11 @@ final class HtmlSourceExtraction {
             warnings.add("HTML could not be parsed; imported as plain text");
             return new Extracted("", rawHtml.trim(), warnings);
         }
-        // Chrome and machinery are never evidence.
-        int removed = document.select(
-                "script, style, noscript, template, iframe, svg, nav, header > nav, footer")
-                .size();
-        document.select(
-                "script, style, noscript, template, iframe, svg, nav, header > nav, footer")
-                .remove();
+        // Chrome and machinery are never evidence. Footers deliberately SURVIVE — they often
+        // carry publication, license and source information (review decision).
+        String machinery = "script, style, noscript, template, iframe, svg, object, embed, nav";
+        int removed = document.select(machinery).size();
+        document.select(machinery).remove();
         if (removed > 0) {
             warnings.add(removed + " non-content element(s) removed (script/style/nav/...)");
         }

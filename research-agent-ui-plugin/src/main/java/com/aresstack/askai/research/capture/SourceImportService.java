@@ -4,6 +4,7 @@ import com.aresstack.askai.research.sources.ResearchSourceRecord;
 import com.aresstack.askai.research.sources.ResearchSourceRepository;
 import com.aresstack.askai.research.sources.SourceUpdate;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -16,9 +17,12 @@ import java.util.List;
  * and the knowledge-scheduler hook all apply identically; the Swing UI never writes a
  * {@code ResearchSourceRecord} directly.
  *
- * <p>Provenance is INSPECTABLE, not hidden: extractor id, content hash and extraction
- * warnings land in the source's comment field right after the commit (best effort — a
- * failed comment write never un-accepts the source).</p>
+ * <p>#39 correction — provenance is part of the EVIDENCE CHAIN, never a courtesy: the RAW
+ * delivery persists untouched in the {@link ImportedSourceStore} together with the structured
+ * extraction record BEFORE the acceptance commit ({@code raw sha256} is the hash of what the
+ * user actually delivered; the normalized text is derived and separately hashed). A failed
+ * snapshot write FAILS the import — an import never reports success after silently losing
+ * its provenance. The source's comment only mirrors a short display note.</p>
  */
 public final class SourceImportService {
 
@@ -62,12 +66,15 @@ public final class SourceImportService {
     private final CaptureStore captures;
     private final SourceAcceptanceService acceptance;
     private final ResearchSourceRepository repository;
+    private final ImportedSourceStore importStore;
 
     public SourceImportService(CaptureStore captures, SourceAcceptanceService acceptance,
-                               ResearchSourceRepository repository) {
+                               ResearchSourceRepository repository,
+                               ImportedSourceStore importStore) {
         this.captures = captures;
         this.acceptance = acceptance;
         this.repository = repository;
+        this.importStore = importStore;
     }
 
     /**
@@ -96,9 +103,23 @@ public final class SourceImportService {
         if (text.trim().isEmpty()) {
             return new ImportOutcome(Status.EMPTY, null, title, warnings);
         }
-        String contentHash = CaptureStore.sha256(text);
+        // The hash of record is the RAW delivery, not the derived text.
+        String rawSha256 = CaptureStore.sha256(input.rawContent);
+        String snapshotId = ImportedSourceStore.snapshotIdFor(rawSha256);
+        try {
+            importStore.save(
+                    new ImportedSourceStore.ImportedSourceSnapshot(snapshotId,
+                            input.kind.name(), input.rawContent, rawSha256, input.originUri,
+                            System.currentTimeMillis()),
+                    new ImportedSourceStore.ExtractionRecord(snapshotId, extractor,
+                            CaptureStore.sha256(text), warnings));
+        } catch (IOException lost) {
+            // No raw snapshot, no import — a success without provenance would be a lie.
+            warnings.add("raw snapshot could not be persisted: " + lost.getMessage());
+            return new ImportOutcome(Status.FAILED, null, title, warnings);
+        }
         String url = !input.originUri.isEmpty() ? input.originUri
-                : "user-import://" + contentHash.substring(0, 16);
+                : "user-import://" + rawSha256.substring(0, 16);
         VisitedCapture capture = captures.record(url, title, text);
         SourceAcceptanceService.Result result = acceptance.accept(capture.getCaptureId(),
                 "", false, languageCode == null ? "" : languageCode, "user-import");
@@ -108,15 +129,24 @@ public final class SourceImportService {
         boolean duplicate = result.duplicate
                 || result.status == SourceAcceptanceService.Status.ALREADY_ACCEPTED;
         if (!duplicate) {
-            recordProvenance(result.sourceId, input, extractor, contentHash, warnings);
+            try {
+                importStore.bindSource(snapshotId, result.sourceId);
+            } catch (IOException unbound) {
+                // The snapshot itself is safe; the missing link is reported, never silent.
+                warnings.add("provenance link could not be persisted: " + unbound.getMessage());
+            }
+            writeDisplayNote(result.sourceId, input, extractor, rawSha256, snapshotId, warnings);
         }
         return new ImportOutcome(duplicate ? Status.DUPLICATE : Status.IMPORTED,
                 result.sourceId, result.title, warnings);
     }
 
-    /** Inspectable provenance in the comment field — best effort AFTER the commit. */
-    private void recordProvenance(String sourceId, SourceInput input, String extractor,
-                                  String contentHash, List<String> warnings) {
+    /**
+     * A SHORT display note in the comment — pure convenience mirroring the
+     * {@link ImportedSourceStore} truth; best effort AFTER the commit, never authoritative.
+     */
+    private void writeDisplayNote(String sourceId, SourceInput input, String extractor,
+                                  String rawSha256, String snapshotId, List<String> warnings) {
         try {
             ResearchSourceRecord record = repository.get(sourceId);
             if (record == null) {
@@ -125,7 +155,8 @@ public final class SourceImportService {
             StringBuilder note = new StringBuilder("User import (")
                     .append(input.kind.name().toLowerCase(java.util.Locale.ROOT))
                     .append("), extractor=").append(extractor)
-                    .append(", sha256=").append(contentHash.substring(0, 16));
+                    .append(", sha256=").append(rawSha256.substring(0, 16))
+                    .append(", snapshot=").append(snapshotId);
             if (!input.originUri.isEmpty()) {
                 note.append(", origin=").append(input.originUri);
             }
@@ -137,8 +168,8 @@ public final class SourceImportService {
                     ? note.toString() : existing + "\n" + note;
             repository.update(sourceId, record.getRevision(),
                     SourceUpdate.from(record).comment(comment).build());
-        } catch (RuntimeException never) {
-            // provenance is a courtesy — a failed comment write never un-accepts the source
+        } catch (RuntimeException displayOnly) {
+            // the durable provenance lives in the ImportedSourceStore; the note is cosmetic
         }
     }
 

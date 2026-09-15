@@ -427,8 +427,12 @@ public final class ProductiveResearchBackendFactory {
                     }
                 }, index, highestSourceNumber(repository));
         // #39: user imports (HTML/text; files later) go through the SAME acceptance boundary.
+        // The raw snapshot + structured provenance persist under <project>/imports BEFORE the
+        // acceptance commit — losing them fails the import (evidence chain, never a courtesy).
         sourceImport[0] = new com.aresstack.askai.research.capture.SourceImportService(
-                captures, acceptance, repository);
+                captures, acceptance, repository,
+                new com.aresstack.askai.research.capture.ImportedSourceStore(
+                        new File(projectContext.getProjectDirectory(), "imports")));
         // Knowledge pipeline (§3): a persistent, project-scoped processing queue and the acceptance hook. The
         // enqueue is a reaction to source acceptance that is INDEPENDENT of the source-level Lucene index (a
         // stale index above never prevents it). Stranded PROCESSING jobs are recovered on open (§25). The
