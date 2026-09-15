@@ -4954,6 +4954,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
+    /** #28/#39.7: the ACTIVE passages derived from one source — read-only inspection. */
+    public java.util.List<com.aresstack.askai.research.domain.Passage> passagesForSource(
+            String sourceId) {
+        return productiveResources == null || productiveResources.isClosed()
+                ? java.util.Collections.<com.aresstack.askai.research.domain.Passage>emptyList()
+                : productiveResources.passagesForSource(sourceId);
+    }
+
     /** #39: import ONE user source through the canonical acceptance boundary. */
     public String importUserSource(
             com.aresstack.askai.research.capture.SourceImportService.SourceInput input) {

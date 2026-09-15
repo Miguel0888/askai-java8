@@ -150,6 +150,29 @@ public final class ProductiveResearchSessionResources {
     }
 
     /** The live-projection runner owned by this session (stopped in {@link #close()}); may be null. */
+    /** #28/#39.7: read-only per-source passage inspection, or null without the capability. */
+    private volatile com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader
+            corpusReader;
+
+    void setCorpusReader(
+            com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader reader) {
+        this.corpusReader = reader;
+    }
+
+    /** The ACTIVE passages derived from one source (empty without the knowledge capability). */
+    public java.util.List<com.aresstack.askai.research.domain.Passage> passagesForSource(String sourceId) {
+        com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader reader =
+                corpusReader;
+        if (reader == null) {
+            return java.util.Collections.emptyList();
+        }
+        try {
+            return reader.passagesForSource(sourceId);
+        } catch (RuntimeException unreadable) {
+            return java.util.Collections.emptyList();
+        }
+    }
+
     /** #39: the neutral user-import port in front of the ONE acceptance boundary. */
     private volatile com.aresstack.askai.research.capture.SourceImportService sourceImportService;
 

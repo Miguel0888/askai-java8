@@ -45,6 +45,13 @@ public final class ResearchSourcesViewContribution implements ArtifactViewContri
                     view.focusSource(sourceId);
                 }
             });
+            // #28/#39.7: the Passages tab reads the derived generation for the selected source.
+            view.setPassagesProvider(new ResearchSourcesView.PassagesProvider() {
+                public java.util.List<com.aresstack.askai.research.domain.Passage>
+                        passagesForSource(String sourceId) {
+                    return research.passagesForSource(sourceId);
+                }
+            });
             // #39: the Add-source dialog imports through the session's canonical boundary.
             view.setImportHandler(new ResearchSourcesView.ImportHandler() {
                 public String importSource(com.aresstack.askai.research.capture

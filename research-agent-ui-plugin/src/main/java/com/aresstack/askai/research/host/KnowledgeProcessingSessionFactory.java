@@ -69,6 +69,8 @@ final class KnowledgeProcessingSessionFactory {
         final com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery topics;
         /** #42: the OPTIONAL debounced background topics refresher; null when disabled. */
         final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner topicsRunner;
+        /** #28/#39.7: read-only per-source passage inspection over the active corpus. */
+        final com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader corpusReader;
 
         KnowledgeSession(KnowledgeProcessingRunner worker,
                          com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner
@@ -78,13 +80,16 @@ final class KnowledgeProcessingSessionFactory {
                          OutlineStalenessCheck staleness,
                          com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery topics,
                          com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner
-                                 topicsRunner) {
+                                 topicsRunner,
+                         com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader
+                                 corpusReader) {
             this.worker = worker;
             this.projection = projection;
             this.invalidator = invalidator;
             this.staleness = staleness;
             this.topics = topics;
             this.topicsRunner = topicsRunner;
+            this.corpusReader = corpusReader;
         }
     }
 
@@ -337,7 +342,7 @@ final class KnowledgeProcessingSessionFactory {
                     }, "topic-discovery-" + projectId, settings.projectionDebounceMillis);
         }
         return new KnowledgeSession(workerRunner, projection, projection, staleness,
-                sharedTopics, topicsRunner);
+                sharedTopics, topicsRunner, corpusReader);
     }
 
     /** Wrap the diagnostics listener so a COMPLETED job NOTIFIES the UI (staleness re-check) — no rebuild. */

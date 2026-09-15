@@ -255,8 +255,14 @@ public final class ResearchSourcesView extends JPanel {
         texts.addTab("Volltext", quietScroll(fullTextArea));
         texts.addTab("Suchausschnitt", quietScroll(excerptArea));
         texts.addTab("Kommentar", quietScroll(commentArea));
+        // #28/#39.7: what did the pipeline actually derive from THIS source? Read-only on
+        // purpose — segmentation quality is assessed before any correction semantics exist.
+        styleReadOnlyArea(passagesArea);
+        texts.addTab("Passages", quietScroll(passagesArea));
         texts.setToolTipTextAt(0, "Der gelesene Seitentext (leer = geparkt, noch nicht gelesen)");
         texts.setToolTipTextAt(1, "Der Fundstellenkontext aus der Suche (nur lesbar)");
+        texts.setToolTipTextAt(3, "The passages the knowledge pipeline derived from this "
+                + "source (read-only; empty = not processed yet)");
         texts.setToolTipTextAt(2, "Eigener Kommentar (editierbar)");
 
         com.aresstack.comiccontrols.control.ComicButton save =
@@ -424,6 +430,47 @@ public final class ResearchSourcesView extends JPanel {
         }
     }
 
+    /** #28/#39.7: supplies the derived passages of one source (wired by the contribution). */
+    public interface PassagesProvider {
+        java.util.List<com.aresstack.askai.research.domain.Passage> passagesForSource(
+                String sourceId);
+    }
+
+    private final javax.swing.JTextArea passagesArea = new javax.swing.JTextArea();
+    private PassagesProvider passagesProvider;
+
+    public void setPassagesProvider(PassagesProvider provider) {
+        this.passagesProvider = provider;
+    }
+
+    /** Render the derived passages of the selected source — ordinal, heading path, text. */
+    private void renderPassages(String sourceId) {
+        if (passagesProvider == null) {
+            passagesArea.setText("(no knowledge capability in this session)");
+            return;
+        }
+        java.util.List<com.aresstack.askai.research.domain.Passage> passages =
+                passagesProvider.passagesForSource(sourceId);
+        if (passages.isEmpty()) {
+            passagesArea.setText("(no passages yet — the source has not been processed, "
+                    + "or processing is still running)");
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        int ordinal = 1;
+        for (com.aresstack.askai.research.domain.Passage passage : passages) {
+            sb.append('#').append(ordinal++);
+            String heading = passage.getHeadingPath();
+            if (heading != null && !heading.trim().isEmpty()) {
+                sb.append("  [").append(heading.trim()).append(']');
+            }
+            sb.append('\n').append(passage.getText().trim()).append("\n\n");
+        }
+        sb.append(passages.size()).append(" passage(s)");
+        passagesArea.setText(sb.toString());
+        passagesArea.setCaretPosition(0);
+    }
+
     /** #39: the session-side import runner the contribution wires in (returns the outcome). */
     public interface ImportHandler {
         String importSource(
@@ -530,6 +577,7 @@ public final class ResearchSourcesView extends JPanel {
     }
 
     private void loadDetail(ResearchSourceRecord record) {
+        renderPassages(record.getSourceId());
         selectedId = record.getSourceId();
         loadedRevision = record.getRevision();
         titleField.setText(record.getTitle());

@@ -117,4 +117,19 @@ public class ActiveKnowledgeCorpusReaderTest {
         assertTrue("no passage of another vector world enters the corpus",
                 other.read(null).getPassages().isEmpty());
     }
+
+    /** #28/#39.7: per-source passage inspection — only THIS source's passages, stable order. */
+    @org.junit.Test
+    public void passagesForSourceReturnsOnlyThatSourcesPassagesInStableOrder() throws Exception {
+        File dir = storeTwoCaptures();
+        ActiveKnowledgeCorpusReader reader = new ActiveKnowledgeCorpusReader(
+                new FileResearchProjectRepository(dir), new FilePassageVectorStore(dir),
+                PROJECT, "fpA");
+        List<Passage> one = reader.passagesForSource("source-1");
+        assertEquals(1, one.size());
+        assertEquals("cap-1#p0@seg-v1-fpA", one.get(0).getPassageId());
+        assertTrue("an unknown source reads as empty, never as an error",
+                reader.passagesForSource("source-unknown").isEmpty());
+        assertTrue(reader.passagesForSource("").isEmpty());
+    }
 }
