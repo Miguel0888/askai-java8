@@ -40,14 +40,22 @@ public final class SourceImportService {
         public final String providedTitle;
         /** Optional origin (URL / base URI for HTML, a path label for files); may be empty. */
         public final String originUri;
-        public final String rawContent;
+        /** The CANONICAL raw payload — exactly the bytes the user delivered (PDF = bytes). */
+        public final byte[] rawBytes;
 
+        /** Text-shaped UI convenience: the delivery is the UTF-8 encoding of this string. */
         public SourceInput(Kind kind, String providedTitle, String originUri,
                            String rawContent) {
+            this(kind, providedTitle, originUri, (rawContent == null ? "" : rawContent)
+                    .getBytes(java.nio.charset.Charset.forName("UTF-8")));
+        }
+
+        public SourceInput(Kind kind, String providedTitle, String originUri,
+                           byte[] rawBytes) {
             this.kind = kind;
             this.providedTitle = providedTitle == null ? "" : providedTitle.trim();
             this.originUri = originUri == null ? "" : originUri.trim();
-            this.rawContent = rawContent == null ? "" : rawContent;
+            this.rawBytes = rawBytes == null ? new byte[0] : rawBytes;
         }
     }
 
@@ -96,7 +104,7 @@ public final class SourceImportService {
             return new ImportOutcome(Status.FAILED, null, input.providedTitle, warnings);
         }
         SourceExtractors.Extraction extracted =
-                formatExtractor.extract(input.rawContent, input.originUri);
+                formatExtractor.extract(input.rawBytes, input.originUri);
         String text = extracted.text;
         String title = !input.providedTitle.isEmpty() ? input.providedTitle : extracted.title;
         String extractor = formatExtractor.id();
@@ -104,14 +112,14 @@ public final class SourceImportService {
         if (text.trim().isEmpty()) {
             return new ImportOutcome(Status.EMPTY, null, title, warnings);
         }
-        // The hash of record is the RAW delivery, not the derived text; the import identity
-        // is content + origin (identical bytes from another origin = its own delivery).
-        String rawSha256 = CaptureStore.sha256(input.rawContent);
+        // The hash of record is over the RAW BYTES as delivered, not the derived text; the
+        // import identity is content + origin (same bytes, other origin = its own delivery).
+        String rawSha256 = CaptureStore.sha256(input.rawBytes);
         String snapshotId = ImportedSourceStore.snapshotIdFor(rawSha256, input.originUri);
         try {
             importStore.save(
                     new ImportedSourceStore.ImportedSourceSnapshot(snapshotId,
-                            input.kind.name(), input.rawContent, rawSha256, input.originUri,
+                            input.kind.name(), input.rawBytes, rawSha256, input.originUri,
                             System.currentTimeMillis()),
                     new ImportedSourceStore.ExtractionRecord(snapshotId, extractor,
                             CaptureStore.sha256(text), warnings));

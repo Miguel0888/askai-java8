@@ -14,13 +14,20 @@ import java.util.Map;
  */
 final class SourceExtractors {
 
-    /** One format's mechanical raw→normalized extraction. */
+    private static final java.nio.charset.Charset UTF8 =
+            java.nio.charset.Charset.forName("UTF-8");
+
+    /** One format's mechanical raw→normalized extraction over the DELIVERED BYTES. */
     interface SourceExtractor {
         /** The stable extractor identity recorded in the provenance. */
         String id();
 
-        /** Extract the normalized text (+ title suggestion + warnings) from ONE delivery. */
-        Extraction extract(String rawContent, String originUri);
+        /**
+         * Extract the normalized text (+ title suggestion + warnings) from ONE delivery.
+         * The payload is bytes on purpose: binary formats (PDF) read them directly; text
+         * formats decode EXPLICITLY — the port never round-trips through a String.
+         */
+        Extraction extract(byte[] rawBytes, String originUri);
     }
 
     /** The extraction result: non-empty title suggestion, normalized text, warnings. */
@@ -49,9 +56,9 @@ final class SourceExtractors {
                 return HtmlSourceExtraction.EXTRACTOR_ID;
             }
 
-            public Extraction extract(String rawContent, String originUri) {
-                HtmlSourceExtraction.Extracted extracted =
-                        HtmlSourceExtraction.extract(rawContent, originUri);
+            public Extraction extract(byte[] rawBytes, String originUri) {
+                HtmlSourceExtraction.Extracted extracted = HtmlSourceExtraction.extract(
+                        new String(rawBytes, UTF8), originUri);
                 return new Extraction(
                         extracted.title.isEmpty() ? "Imported HTML" : extracted.title,
                         extracted.text,
@@ -63,8 +70,8 @@ final class SourceExtractors {
                 return "text-passthrough-v1";
             }
 
-            public Extraction extract(String rawContent, String originUri) {
-                String text = rawContent == null ? "" : rawContent.trim();
+            public Extraction extract(byte[] rawBytes, String originUri) {
+                String text = new String(rawBytes, UTF8).trim();
                 return new Extraction(firstLineOf(text, "Imported text"), text,
                         new java.util.ArrayList<String>());
             }

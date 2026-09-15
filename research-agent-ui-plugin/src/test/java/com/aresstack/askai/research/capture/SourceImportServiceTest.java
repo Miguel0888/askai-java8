@@ -84,8 +84,8 @@ public class SourceImportServiceTest {
         String snapshotId = ImportedSourceStore.snapshotIdFor(rawSha, "https://docs.example/x");
         ImportedSourceStore.Loaded loaded = fx.importStore.load(snapshotId);
         assertNotNull("the raw snapshot is durable, not a comment", loaded);
-        assertEquals("the RAW delivery survives byte-identically", rawHtml,
-                loaded.snapshot.rawContent);
+        assertTrue("the RAW delivery survives byte-identically", java.util.Arrays.equals(
+                rawHtml.getBytes("UTF-8"), loaded.snapshot.rawBytes));
         assertEquals("the hash of record is the RAW input", rawSha, loaded.snapshot.rawSha256);
         assertEquals("HTML", loaded.snapshot.kind);
         assertEquals("https://docs.example/x", loaded.snapshot.originUri);
@@ -129,7 +129,7 @@ public class SourceImportServiceTest {
         assertEquals("one source only", 1, fx.repo.find(SourceQuery.all()).size());
         assertEquals("the duplicate re-import never rebinds the snapshot", first.sourceId,
                 fx.importStore.load(ImportedSourceStore.snapshotIdFor(
-                        CaptureStore.sha256(input.rawContent), "")).sourceId);
+                        CaptureStore.sha256(input.rawBytes), "")).sourceId);
     }
 
     @Test
@@ -224,6 +224,36 @@ public class SourceImportServiceTest {
         assertTrue("the origin is part of the record", record.getUrl()
                 .contains("docs.example"));
         assertTrue(record.getComment().contains("extractor=jsoup-structural-v1"));
+    }
+
+    @Test
+    public void arbitraryBinaryBytesSurviveTheStoreByteIdentically() throws Exception {
+        // A PDF-shaped payload with non-UTF8 bytes: any charset round trip would corrupt it.
+        byte[] binary = new byte[] {0x25, 0x50, 0x44, 0x46, 0x00, (byte) 0xFF, (byte) 0x9C,
+                0x0D, 0x0A, (byte) 0x80, 0x1A, 0x7F, (byte) 0xE2, 0x00, (byte) 0xC3};
+        ImportedSourceStore store = new ImportedSourceStore(tmp.newFolder("bin"));
+        String sha = CaptureStore.sha256(binary);
+        String snapshotId = ImportedSourceStore.snapshotIdFor(sha, "file:doc.pdf");
+        store.save(new ImportedSourceStore.ImportedSourceSnapshot(snapshotId, "PDF", binary,
+                        sha, "file:doc.pdf", 42L),
+                new ImportedSourceStore.ExtractionRecord(snapshotId, "none", "",
+                        java.util.Collections.<String>emptyList()));
+        ImportedSourceStore.Loaded loaded = store.load(snapshotId);
+        assertTrue("bytes in == bytes out",
+                java.util.Arrays.equals(binary, loaded.snapshot.rawBytes));
+        assertEquals("the hash is over exactly these bytes", sha, loaded.snapshot.rawSha256);
+    }
+
+    @Test
+    public void theStringConvenienceInputIsExactlyItsUtf8Bytes() throws Exception {
+        // Both ctors describe the SAME delivery — identity, hash and dedup must agree.
+        SourceImportService.SourceInput viaString = new SourceImportService.SourceInput(
+                SourceImportService.Kind.TEXT, "", "", "Grüße, ohm Ω text.");
+        SourceImportService.SourceInput viaBytes = new SourceImportService.SourceInput(
+                SourceImportService.Kind.TEXT, "", "", "Grüße, ohm Ω text.".getBytes("UTF-8"));
+        assertTrue(java.util.Arrays.equals(viaString.rawBytes, viaBytes.rawBytes));
+        assertEquals(CaptureStore.sha256(viaString.rawBytes),
+                CaptureStore.sha256(viaBytes.rawBytes));
     }
 
     @Test

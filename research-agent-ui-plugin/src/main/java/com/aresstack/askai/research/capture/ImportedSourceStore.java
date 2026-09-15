@@ -30,23 +30,28 @@ public final class ImportedSourceStore {
 
     private static final Charset UTF8 = Charset.forName("UTF-8");
 
-    /** The raw user delivery: content untouched, hashed, stamped. */
+    /** The raw user delivery: BYTES untouched (a PDF is a byte sequence), hashed, stamped. */
     public static final class ImportedSourceSnapshot {
         public final String snapshotId;
         public final String kind;
-        public final String rawContent;
+        public final byte[] rawBytes;
         public final String rawSha256;
         public final String originUri;
         public final long importedAtMillis;
 
-        public ImportedSourceSnapshot(String snapshotId, String kind, String rawContent,
+        public ImportedSourceSnapshot(String snapshotId, String kind, byte[] rawBytes,
                                       String rawSha256, String originUri, long importedAtMillis) {
             this.snapshotId = snapshotId;
             this.kind = kind;
-            this.rawContent = rawContent;
+            this.rawBytes = rawBytes == null ? new byte[0] : rawBytes;
             this.rawSha256 = rawSha256;
             this.originUri = originUri == null ? "" : originUri;
             this.importedAtMillis = importedAtMillis;
+        }
+
+        /** Text-shaped payloads read back as UTF-8 — a display convenience, never the truth. */
+        public String rawUtf8() {
+            return new String(rawBytes, UTF8);
         }
     }
 
@@ -98,8 +103,9 @@ public final class ImportedSourceStore {
         if (origin.isEmpty()) {
             return "imp-" + raw16;
         }
+        // 64 bits of origin discrimination — 32 was needlessly tight (review note).
         return "imp-" + raw16 + "-"
-                + CaptureStore.sha256(origin).substring(0, 8);
+                + CaptureStore.sha256(origin).substring(0, 16);
     }
 
     /**
@@ -111,7 +117,7 @@ public final class ImportedSourceStore {
         if (!dir.isDirectory() && !dir.mkdirs()) {
             throw new IOException("cannot create import store directory " + dir);
         }
-        atomicWrite(rawFile(snapshot.snapshotId), snapshot.rawContent);
+        atomicWriteBytes(rawFile(snapshot.snapshotId), snapshot.rawBytes);
         // Idempotent rewrite of the same content id must never wipe an existing binding.
         Properties existing = readProps(snapshot.snapshotId);
         String boundSourceId = existing == null ? null : existing.getProperty("sourceId");
@@ -150,7 +156,7 @@ public final class ImportedSourceStore {
         if (props == null || !raw.isFile()) {
             return null;
         }
-        byte[] bytes = java.nio.file.Files.readAllBytes(raw.toPath());
+        byte[] rawBytes = java.nio.file.Files.readAllBytes(raw.toPath());
         List<String> warnings = new ArrayList<String>();
         int count = Integer.parseInt(props.getProperty("warningCount", "0"));
         for (int index = 0; index < count; index++) {
@@ -162,7 +168,7 @@ public final class ImportedSourceStore {
         return new Loaded(
                 new ImportedSourceSnapshot(snapshotId,
                         props.getProperty("kind", ""),
-                        new String(bytes, UTF8),
+                        rawBytes,
                         props.getProperty("rawSha256", ""),
                         props.getProperty("originUri", ""),
                         Long.parseLong(props.getProperty("importedAtMillis", "0"))),
@@ -228,12 +234,17 @@ public final class ImportedSourceStore {
     }
 
     private static void atomicWrite(File target, String content) throws IOException {
+        atomicWriteBytes(target, content.getBytes(UTF8));
+    }
+
+    /** The raw payload writes BYTE-IDENTICALLY — no charset round trip, ever. */
+    private static void atomicWriteBytes(File target, byte[] content) throws IOException {
         File tmp = new File(target.getParentFile(), target.getName() + ".tmp");
-        Writer writer = new OutputStreamWriter(new FileOutputStream(tmp), UTF8);
+        java.io.OutputStream out = new FileOutputStream(tmp);
         try {
-            writer.write(content);
+            out.write(content);
         } finally {
-            writer.close();
+            out.close();
         }
         if (target.isFile() && !target.delete()) {
             throw new IOException("cannot replace " + target);
