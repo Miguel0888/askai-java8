@@ -18,11 +18,13 @@ import java.util.Properties;
  * most a display convenience — provenance never depends on it. Losing this store's write is
  * an import FAILURE, never a silent success (provenance is part of the evidence chain).
  *
- * <p>Layout under the store directory, keyed by a deterministic content id
- * ({@code imp-<rawSha256 prefix>}): {@code <id>.raw} is the untouched raw content,
+ * <p>Layout under the store directory, keyed by a deterministic IMPORT identity of raw
+ * content <em>plus origin</em>: {@code <id>.raw} is the untouched raw content,
  * {@code <id>.properties} the metadata (kind, hashes, origin, extractor, warnings, and the
- * source id once the acceptance bound one). Re-importing identical raw content rewrites the
- * same snapshot idempotently.</p>
+ * source id once the acceptance bound one). Identical raw bytes from two different origins
+ * are two deliveries with two provenance records — a snapshot binds exactly ONE source, so
+ * a content-only id would let the second origin's binding overwrite the first's.
+ * Re-importing the same content from the same origin rewrites its snapshot idempotently.</p>
  */
 public final class ImportedSourceStore {
 
@@ -85,9 +87,19 @@ public final class ImportedSourceStore {
         this.dir = dir;
     }
 
-    /** Deterministic content id — identical raw content maps to the same snapshot. */
-    public static String snapshotIdFor(String rawSha256) {
-        return "imp-" + rawSha256.substring(0, Math.min(16, rawSha256.length()));
+    /**
+     * Deterministic IMPORT identity: raw content + origin. Same content at the same origin
+     * is the same delivery (idempotent); the same content from another origin is its OWN
+     * delivery with its own provenance and source binding.
+     */
+    public static String snapshotIdFor(String rawSha256, String originUri) {
+        String origin = originUri == null ? "" : originUri.trim();
+        String raw16 = rawSha256.substring(0, Math.min(16, rawSha256.length()));
+        if (origin.isEmpty()) {
+            return "imp-" + raw16;
+        }
+        return "imp-" + raw16 + "-"
+                + CaptureStore.sha256(origin).substring(0, 8);
     }
 
     /**

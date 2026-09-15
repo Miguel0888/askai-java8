@@ -103,9 +103,10 @@ public final class SourceImportService {
         if (text.trim().isEmpty()) {
             return new ImportOutcome(Status.EMPTY, null, title, warnings);
         }
-        // The hash of record is the RAW delivery, not the derived text.
+        // The hash of record is the RAW delivery, not the derived text; the import identity
+        // is content + origin (identical bytes from another origin = its own delivery).
         String rawSha256 = CaptureStore.sha256(input.rawContent);
-        String snapshotId = ImportedSourceStore.snapshotIdFor(rawSha256);
+        String snapshotId = ImportedSourceStore.snapshotIdFor(rawSha256, input.originUri);
         try {
             importStore.save(
                     new ImportedSourceStore.ImportedSourceSnapshot(snapshotId,

@@ -81,7 +81,7 @@ public class SourceImportServiceTest {
         assertEquals(SourceImportService.Status.IMPORTED, outcome.status);
 
         String rawSha = CaptureStore.sha256(rawHtml);
-        String snapshotId = ImportedSourceStore.snapshotIdFor(rawSha);
+        String snapshotId = ImportedSourceStore.snapshotIdFor(rawSha, "https://docs.example/x");
         ImportedSourceStore.Loaded loaded = fx.importStore.load(snapshotId);
         assertNotNull("the raw snapshot is durable, not a comment", loaded);
         assertEquals("the RAW delivery survives byte-identically", rawHtml,
@@ -129,7 +129,7 @@ public class SourceImportServiceTest {
         assertEquals("one source only", 1, fx.repo.find(SourceQuery.all()).size());
         assertEquals("the duplicate re-import never rebinds the snapshot", first.sourceId,
                 fx.importStore.load(ImportedSourceStore.snapshotIdFor(
-                        CaptureStore.sha256(input.rawContent))).sourceId);
+                        CaptureStore.sha256(input.rawContent), "")).sourceId);
     }
 
     @Test
@@ -154,11 +154,42 @@ public class SourceImportServiceTest {
         assertFalse(first.sourceId.equals(second.sourceId));
         // BOTH records trace to their own raw delivery — a duplicate's provenance is
         // evidence too, never an orphaned snapshot.
-        String snapshotB = ImportedSourceStore.snapshotIdFor(CaptureStore.sha256(rawB));
+        String snapshotB = ImportedSourceStore.snapshotIdFor(CaptureStore.sha256(rawB),
+                "https://origin-b.example/mirror");
         assertEquals(second.sourceId, fx.importStore.load(snapshotB).sourceId);
         assertEquals(snapshotB, fx.importStore.snapshotIdForSource(second.sourceId));
-        assertEquals(ImportedSourceStore.snapshotIdFor(CaptureStore.sha256(rawA)),
+        assertEquals(ImportedSourceStore.snapshotIdFor(CaptureStore.sha256(rawA),
+                        "https://origin-a.example/doc"),
                 fx.importStore.snapshotIdForSource(first.sourceId));
+    }
+
+    @Test
+    public void identicalRawBytesFromTwoOriginsKeepTwoProvenanceRecordsWithBothBackLinks()
+            throws Exception {
+        Fx fx = fx();
+        // IDENTICAL raw bytes — only the origin differs. Content-only snapshot identity
+        // would collide and let origin B's binding overwrite origin A's.
+        String raw = "<html><head><title>T</title></head>"
+                + "<body><p>Mirrored evidence text.</p></body></html>";
+        SourceImportService.ImportOutcome first = fx.service.importSource(
+                new SourceImportService.SourceInput(SourceImportService.Kind.HTML, "",
+                        "https://origin-a.example/doc", raw), "en");
+        SourceImportService.ImportOutcome second = fx.service.importSource(
+                new SourceImportService.SourceInput(SourceImportService.Kind.HTML, "",
+                        "https://origin-b.example/mirror", raw), "en");
+        assertEquals(SourceImportService.Status.IMPORTED, first.status);
+        assertEquals("same content, other origin -> duplicate RECORD of its own",
+                SourceImportService.Status.DUPLICATE, second.status);
+        assertFalse(first.sourceId.equals(second.sourceId));
+        String rawSha = CaptureStore.sha256(raw);
+        String snapshotA = ImportedSourceStore.snapshotIdFor(rawSha, "https://origin-a.example/doc");
+        String snapshotB = ImportedSourceStore.snapshotIdFor(rawSha, "https://origin-b.example/mirror");
+        assertFalse("two deliveries, two import identities", snapshotA.equals(snapshotB));
+        assertEquals("origin A's back-link SURVIVES origin B's import", first.sourceId,
+                fx.importStore.load(snapshotA).sourceId);
+        assertEquals(second.sourceId, fx.importStore.load(snapshotB).sourceId);
+        assertEquals(snapshotA, fx.importStore.snapshotIdForSource(first.sourceId));
+        assertEquals(snapshotB, fx.importStore.snapshotIdForSource(second.sourceId));
     }
 
     @Test
