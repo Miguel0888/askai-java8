@@ -133,6 +133,35 @@ public class SourceImportServiceTest {
     }
 
     @Test
+    public void aContentDuplicateSourceStillGetsItsOwnSnapshotBinding() throws Exception {
+        Fx fx = fx();
+        // Two DIFFERENT raw deliveries (markup differs) from DIFFERENT origins that extract
+        // to the SAME normalized text: acceptance creates a second, DUPLICATE-status record.
+        String rawA = "<html><head><title>T</title></head>"
+                + "<body><p>Identical evidence text.</p></body></html>";
+        String rawB = "<html><head><title>T</title></head>"
+                + "<body><!-- mirrored copy --><p class='c'>Identical evidence text.</p>"
+                + "</body></html>";
+        SourceImportService.ImportOutcome first = fx.service.importSource(
+                new SourceImportService.SourceInput(SourceImportService.Kind.HTML, "",
+                        "https://origin-a.example/doc", rawA), "en");
+        SourceImportService.ImportOutcome second = fx.service.importSource(
+                new SourceImportService.SourceInput(SourceImportService.Kind.HTML, "",
+                        "https://origin-b.example/mirror", rawB), "en");
+        assertEquals(SourceImportService.Status.IMPORTED, first.status);
+        assertEquals(SourceImportService.Status.DUPLICATE, second.status);
+        assertNotNull("the duplicate is a persisted record of its own", second.sourceId);
+        assertFalse(first.sourceId.equals(second.sourceId));
+        // BOTH records trace to their own raw delivery — a duplicate's provenance is
+        // evidence too, never an orphaned snapshot.
+        String snapshotB = ImportedSourceStore.snapshotIdFor(CaptureStore.sha256(rawB));
+        assertEquals(second.sourceId, fx.importStore.load(snapshotB).sourceId);
+        assertEquals(snapshotB, fx.importStore.snapshotIdForSource(second.sourceId));
+        assertEquals(ImportedSourceStore.snapshotIdFor(CaptureStore.sha256(rawA)),
+                fx.importStore.snapshotIdForSource(first.sourceId));
+    }
+
+    @Test
     public void htmlIsExtractedStructurallyAndChromeNeverBecomesEvidence() throws Exception {
         Fx fx = fx();
         String html = "<html><head><title>Scheduling Guide</title>"

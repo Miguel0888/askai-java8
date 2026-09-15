@@ -128,13 +128,17 @@ public final class SourceImportService {
         }
         boolean duplicate = result.duplicate
                 || result.status == SourceAcceptanceService.Status.ALREADY_ACCEPTED;
-        if (!duplicate) {
+        // EVERY acceptance with a source id gets its snapshot binding — a content DUPLICATE
+        // is a persisted SourceRecord of its own and its raw delivery is evidence too.
+        if (result.sourceId != null && !result.sourceId.isEmpty()) {
             try {
                 importStore.bindSource(snapshotId, result.sourceId);
             } catch (IOException unbound) {
                 // The snapshot itself is safe; the missing link is reported, never silent.
                 warnings.add("provenance link could not be persisted: " + unbound.getMessage());
             }
+        }
+        if (!duplicate) {
             writeDisplayNote(result.sourceId, input, extractor, rawSha256, snapshotId, warnings);
         }
         return new ImportOutcome(duplicate ? Status.DUPLICATE : Status.IMPORTED,
