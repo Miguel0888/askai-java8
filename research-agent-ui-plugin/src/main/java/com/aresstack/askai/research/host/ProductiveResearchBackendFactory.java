@@ -557,6 +557,69 @@ public final class ProductiveResearchBackendFactory {
                             knowledgeRunner[0].wake();
                         }
                     });
+            // #39 processing reconciliation: a source accepted while NO embedding world was
+            // configured never got a job (the scheduler was NONE, and ALREADY_ACCEPTED
+            // returns before scheduling on a re-import). NOW a valid world exists — enqueue
+            // exactly the missing derivations through the SAME stamped scheduler (an empty/
+            // fake fingerprint is structurally impossible there); the deterministic capture
+            // id keeps restarts idempotent, the worker's durable reader rebuilds the capture
+            // from the persisted record. Additive repair: a failure never blocks the start.
+            try {
+                java.util.Set<String> processedSourceIds = new java.util.HashSet<String>();
+                com.aresstack.askai.research.domain.ResearchProject knowledgeProject =
+                        new com.aresstack.askai.research.knowledge.processing
+                                .FileResearchProjectRepository(projectContext.getProjectDirectory())
+                                .load(sessionKey);
+                for (com.aresstack.askai.research.domain.SourceCapture processedCapture
+                        : knowledgeProject.captures().values()) {
+                    processedSourceIds.add(processedCapture.getSourceId());
+                }
+                java.util.List<com.aresstack.askai.research.knowledge.processing
+                        .ProcessingReconciliation.CandidateSource> candidates =
+                        new java.util.ArrayList<com.aresstack.askai.research.knowledge.processing
+                                .ProcessingReconciliation.CandidateSource>();
+                for (final ResearchSourceRecord record
+                        : repository.find(com.aresstack.askai.research.sources.SourceQuery.all())) {
+                    candidates.add(new com.aresstack.askai.research.knowledge.processing
+                            .ProcessingReconciliation.CandidateSource() {
+                        public String sourceId() {
+                            return record.getSourceId();
+                        }
+
+                        public boolean hasSegmentableText() {
+                            return record.getFullText() != null
+                                    && !record.getFullText().trim().isEmpty();
+                        }
+
+                        public boolean corpusEligible() {
+                            com.aresstack.askai.research.sources.SourceStatus status =
+                                    record.getStatus();
+                            return status != com.aresstack.askai.research.sources
+                                            .SourceStatus.EXCLUDED
+                                    && status != com.aresstack.askai.research.sources
+                                            .SourceStatus.DUPLICATE
+                                    && status != com.aresstack.askai.research.sources
+                                            .SourceStatus.SUPERSEDED;
+                        }
+                    });
+                }
+                int missing = com.aresstack.askai.research.knowledge.processing
+                        .ProcessingReconciliation.reconcile(candidates, processedSourceIds,
+                        new com.aresstack.askai.research.knowledge.processing
+                                .ProcessingReconciliation.MissingJobScheduler() {
+                            public void enqueue(String captureId, String sourceId) {
+                                base.enqueue(captureId, sourceId, researchLanguageCode);
+                            }
+                        });
+                if (missing > 0) {
+                    System.err.println("[research-knowledge] reconciliation enqueued " + missing
+                            + " missing processing job(s) for sources accepted without an"
+                            + " embedding world");
+                }
+            } catch (RuntimeException reconciliationFailed) {
+                System.err.println("[research-knowledge] processing reconciliation failed: "
+                        + reconciliationFailed.getMessage());
+            }
         }
         OoResearchStateMachine stateMachine = new OoResearchStateMachine(sessionKey);
 
