@@ -917,6 +917,11 @@ public final class ProductiveResearchBackendFactory {
             holder[0] = resources;
             resourcesRef[0] = resources;
             control.refreshTools(); // now that the live context resolves, publish the initial tool set
+            // #39 review 2: importing a source ≠ semantically processing it. The import port
+            // only needs capture + acceptance + the raw-snapshot store — all wired above — so
+            // it is available even without an embedding/knowledge runner; such an import
+            // simply stays "not yet processed" until a knowledge world exists.
+            resources.setSourceImportService(sourceImport[0]);
             // Start the continuous knowledge worker LAST, once everything else is wired: it drains the
             // recovered persistent FIFO and processes newly accepted sources until the session closes.
             if (knowledgeRunner[0] != null) {
@@ -929,7 +934,6 @@ public final class ProductiveResearchBackendFactory {
                 if (topicDiscovery[0] != null) {
                     resources.setTopicDiscovery(topicDiscovery[0]);
                 }
-                resources.setSourceImportService(sourceImport[0]);
                 if (corpusReaderRef[0] != null) {
                     resources.setCorpusReader(corpusReaderRef[0]);
                 }
