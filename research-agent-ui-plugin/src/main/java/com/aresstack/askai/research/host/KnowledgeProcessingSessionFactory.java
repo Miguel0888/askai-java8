@@ -240,12 +240,15 @@ final class KnowledgeProcessingSessionFactory {
                                 // #42: BOTH consumers (this outline build and phase 1's
                                 // concept ideas) run through the ONE shared discovery — the
                                 // snapshot is persisted here, then the outline builds on it.
-                                com.aresstack.askai.research.knowledge.processing.live
-                                        .FileTopicSnapshotStore.TopicSnapshot topicSnapshot =
-                                        sharedTopics.refresh(System.currentTimeMillis());
+                                // ONE pinned corpus read feeds discovery AND outline: the
+                                // worker ingests concurrently, so two reads could pair
+                                // topics of corpus A with passages of corpus B.
                                 com.aresstack.askai.research.knowledge.processing.live
                                         .ActiveKnowledgeCorpusReader.Corpus corpus =
                                         corpusReader.read(sourceFilter);
+                                com.aresstack.askai.research.knowledge.processing.live
+                                        .FileTopicSnapshotStore.TopicSnapshot topicSnapshot =
+                                        sharedTopics.refresh(corpus, System.currentTimeMillis());
                                 java.util.List<com.aresstack.askai.research.knowledge.live
                                         .LiveTopicProjection> topics = topicSnapshot.topics;
                                 System.err.println("[research-knowledge] topics discovered passages="

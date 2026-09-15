@@ -118,6 +118,29 @@ public class SharedTopicDiscoveryTest {
     }
 
     @Test
+    public void thePinnedOverloadDiscoversOverExactlyTheGivenCorpusNeverARereadOne()
+            throws Exception {
+        MutableCorpus source = new MutableCorpus();
+        SharedTopicDiscovery discovery = new SharedTopicDiscovery(source,
+                new LiveOutlineProjectionBuilder(),
+                new FileTopicSnapshotStore(temp.newFolder("p")), "fpA");
+        // The outline build pins ONE corpus; the worker "ingests" before discovery runs.
+        ActiveKnowledgeCorpusReader.Corpus pinned = source.current;
+        source.current = corpus(4);
+        FileTopicSnapshotStore.TopicSnapshot snapshot = discovery.refresh(pinned, 1000L);
+        // The snapshot's identity is the PINNED corpus — topics and the passages an outline
+        // would build from can never straddle a generation.
+        List<String> pinnedIds = new ArrayList<String>();
+        for (Passage passage : pinned.getPassages()) {
+            pinnedIds.add(passage.getPassageId());
+        }
+        assertEquals(com.aresstack.askai.research.knowledge.live.LiveOutlineProjection
+                        .corpusFingerprintOf(pinnedIds), snapshot.corpusFingerprint);
+        assertTrue("the grown source corpus reads as stale against the pinned snapshot",
+                discovery.isStale());
+    }
+
+    @Test
     public void aDifferentEmbeddingWorldIsStaleEvenWithTheSameCorpus() throws Exception {
         MutableCorpus source = new MutableCorpus();
         java.io.File dir = temp.newFolder("p");

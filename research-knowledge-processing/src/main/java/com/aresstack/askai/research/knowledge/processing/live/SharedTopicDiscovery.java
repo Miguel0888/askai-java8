@@ -45,8 +45,19 @@ public final class SharedTopicDiscovery {
      * fingerprint, persist, return. Topics only — never an outline, never a concept
      * mutation, never a phase change.
      */
-    public synchronized FileTopicSnapshotStore.TopicSnapshot refresh(long nowMillis) {
-        ActiveKnowledgeCorpusReader.Corpus current = corpus.read();
+    public FileTopicSnapshotStore.TopicSnapshot refresh(long nowMillis) {
+        return refresh(corpus.read(), nowMillis);
+    }
+
+    /**
+     * Discovery over a caller-PINNED corpus snapshot. A consumer that combines the topics
+     * with the corpus itself (the outline build: passages + topics) MUST use this overload
+     * with the one corpus it also builds from — the worker keeps ingesting concurrently, so
+     * two separate reads can straddle a generation and pair topics of corpus A with passages
+     * of corpus B.
+     */
+    public synchronized FileTopicSnapshotStore.TopicSnapshot refresh(
+            ActiveKnowledgeCorpusReader.Corpus current, long nowMillis) {
         List<LiveTopicProjection> topics =
                 builder.discoverTopics(current.getPassages(), current.getVectors());
         FileTopicSnapshotStore.TopicSnapshot previous = store.load();
