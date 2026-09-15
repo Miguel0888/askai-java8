@@ -45,6 +45,13 @@ public final class ResearchSourcesViewContribution implements ArtifactViewContri
                     view.focusSource(sourceId);
                 }
             });
+            // #39: the Add-source dialog imports through the session's canonical boundary.
+            view.setImportHandler(new ResearchSourcesView.ImportHandler() {
+                public String importSource(com.aresstack.askai.research.capture
+                        .SourceImportService.SourceInput input) {
+                    return research.importUserSource(input);
+                }
+            });
             return view;
         }
         JPanel placeholder = new JPanel(new BorderLayout());

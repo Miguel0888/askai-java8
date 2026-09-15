@@ -4954,6 +4954,34 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
+    /** #39: import ONE user source through the canonical acceptance boundary. */
+    public String importUserSource(
+            com.aresstack.askai.research.capture.SourceImportService.SourceInput input) {
+        if (productiveResources == null || productiveResources.isClosed()
+                || productiveResources.sourceImportService() == null) {
+            return "rejected: this session has no import capability";
+        }
+        com.aresstack.askai.research.capture.SourceImportService.ImportOutcome outcome =
+                productiveResources.sourceImportService().importSource(input,
+                        sessionLanguage.currentLanguage().getCode());
+        technicalLog("source-import -> " + outcome.status
+                + (outcome.sourceId != null ? " id=" + outcome.sourceId : "")
+                + " warnings=" + outcome.warnings.size());
+        fireStateChanged(); // the sources table re-reads the repository
+        switch (outcome.status) {
+            case IMPORTED:
+                return "handled: imported \"" + outcome.title + "\" (" + outcome.sourceId
+                        + (outcome.warnings.isEmpty() ? ")"
+                                : ", " + outcome.warnings.size() + " warning(s))");
+            case DUPLICATE:
+                return "rejected: this content is already present (" + outcome.sourceId + ")";
+            case EMPTY:
+                return "rejected: no readable text in the input";
+            default:
+                return "rejected: import failed";
+        }
+    }
+
     /** #43 slice 9: the Sources view registers how a source gets focused (spike contract). */
     public interface SourcesFocusHandler {
         void focusSource(String sourceId);

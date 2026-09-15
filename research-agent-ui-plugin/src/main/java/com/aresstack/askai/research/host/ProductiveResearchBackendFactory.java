@@ -414,6 +414,7 @@ public final class ProductiveResearchBackendFactory {
         CaptureStore captures = new CaptureStore(200);
         final FileResearchSourceRepository repository = projectContext.getFileSourceRepository();
         ResearchSearchIndex.InMemory index = new ResearchSearchIndex.InMemory();
+        final com.aresstack.askai.research.capture.SourceImportService[] sourceImport = {null};
         SourceAcceptanceService acceptance = new SourceAcceptanceService(captures, repository,
                 new SourceAcceptanceService.SourceCreator() {
                     public void create(ResearchSourceRecord record) {
@@ -425,6 +426,9 @@ public final class ProductiveResearchBackendFactory {
                         }
                     }
                 }, index, highestSourceNumber(repository));
+        // #39: user imports (HTML/text; files later) go through the SAME acceptance boundary.
+        sourceImport[0] = new com.aresstack.askai.research.capture.SourceImportService(
+                captures, acceptance, repository);
         // Knowledge pipeline (§3): a persistent, project-scoped processing queue and the acceptance hook. The
         // enqueue is a reaction to source acceptance that is INDEPENDENT of the source-level Lucene index (a
         // stale index above never prevents it). Stranded PROCESSING jobs are recovered on open (§25). The
@@ -918,6 +922,7 @@ public final class ProductiveResearchBackendFactory {
                 if (topicDiscovery[0] != null) {
                     resources.setTopicDiscovery(topicDiscovery[0]);
                 }
+                resources.setSourceImportService(sourceImport[0]);
                 if (projectionRunner[0] != null) {
                     // The projection runner thread only WAITS for an explicit trigger — session open never
                     // invalidates or rebuilds the outline anymore (issue #29). The persisted projection is

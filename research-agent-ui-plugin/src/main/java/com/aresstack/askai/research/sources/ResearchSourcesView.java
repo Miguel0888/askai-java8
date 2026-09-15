@@ -92,6 +92,12 @@ public final class ResearchSourcesView extends JPanel {
         // No "Filter:" label — the bar's magnifier + placeholder say it; Enter AND ▶ apply.
         top.add(filterField, BorderLayout.CENTER);
         filterField.addSearchAction(e -> reloadTable());
+        // #39: the user-import entrance — HTML/text through the canonical acceptance boundary.
+        JButton addSource = new JButton("Add source");
+        addSource.setToolTipText(
+                "Add your own source (raw HTML or plain text) to the research corpus");
+        addSource.addActionListener(e -> openImportDialog());
+        top.add(addSource, BorderLayout.EAST);
 
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setAutoCreateRowSorter(true);
@@ -416,6 +422,66 @@ public final class ResearchSourcesView extends JPanel {
         } else {
             clearDetail();
         }
+    }
+
+    /** #39: the session-side import runner the contribution wires in (returns the outcome). */
+    public interface ImportHandler {
+        String importSource(
+                com.aresstack.askai.research.capture.SourceImportService.SourceInput input);
+    }
+
+    private ImportHandler importHandler;
+
+    public void setImportHandler(ImportHandler handler) {
+        this.importHandler = handler;
+    }
+
+    /** The import dialog: kind + optional title/origin + content; the outcome is shown honestly. */
+    private void openImportDialog() {
+        if (importHandler == null) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "This session has no import capability.", "Add source",
+                    javax.swing.JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        javax.swing.JComboBox<String> kind =
+                new javax.swing.JComboBox<String>(new String[] {"Plain text", "Raw HTML"});
+        javax.swing.JTextField title = new javax.swing.JTextField();
+        javax.swing.JTextField origin = new javax.swing.JTextField();
+        origin.setToolTipText("Optional: source URL / base URI (HTML) or a path label");
+        javax.swing.JTextArea content = new javax.swing.JTextArea(12, 60);
+        content.setLineWrap(true);
+        content.setWrapStyleWord(true);
+        JPanel form = new JPanel(new BorderLayout(4, 4));
+        JPanel head = new JPanel(new java.awt.GridLayout(0, 1, 2, 2));
+        head.add(new javax.swing.JLabel("Kind"));
+        head.add(kind);
+        head.add(new javax.swing.JLabel("Title (optional)"));
+        head.add(title);
+        head.add(new javax.swing.JLabel("Origin URL / base URI (optional)"));
+        head.add(origin);
+        head.add(new javax.swing.JLabel("Content"));
+        form.add(head, BorderLayout.NORTH);
+        form.add(new JScrollPane(content), BorderLayout.CENTER);
+        int choice = javax.swing.JOptionPane.showConfirmDialog(this, form, "Add source",
+                javax.swing.JOptionPane.OK_CANCEL_OPTION,
+                javax.swing.JOptionPane.PLAIN_MESSAGE);
+        if (choice != javax.swing.JOptionPane.OK_OPTION) {
+            return;
+        }
+        com.aresstack.askai.research.capture.SourceImportService.Kind selected =
+                kind.getSelectedIndex() == 1
+                        ? com.aresstack.askai.research.capture.SourceImportService.Kind.HTML
+                        : com.aresstack.askai.research.capture.SourceImportService.Kind.TEXT;
+        String outcome = importHandler.importSource(
+                new com.aresstack.askai.research.capture.SourceImportService.SourceInput(
+                        selected, title.getText(), origin.getText(), content.getText()));
+        refresh();
+        javax.swing.JOptionPane.showMessageDialog(this,
+                outcome == null ? "Import produced no result." : outcome, "Add source",
+                outcome != null && outcome.startsWith("handled")
+                        ? javax.swing.JOptionPane.INFORMATION_MESSAGE
+                        : javax.swing.JOptionPane.WARNING_MESSAGE);
     }
 
     /**

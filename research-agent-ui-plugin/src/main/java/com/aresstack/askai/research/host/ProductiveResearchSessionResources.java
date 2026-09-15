@@ -150,6 +150,17 @@ public final class ProductiveResearchSessionResources {
     }
 
     /** The live-projection runner owned by this session (stopped in {@link #close()}); may be null. */
+    /** #39: the neutral user-import port in front of the ONE acceptance boundary. */
+    private volatile com.aresstack.askai.research.capture.SourceImportService sourceImportService;
+
+    void setSourceImportService(com.aresstack.askai.research.capture.SourceImportService service) {
+        this.sourceImportService = service;
+    }
+
+    public com.aresstack.askai.research.capture.SourceImportService sourceImportService() {
+        return sourceImportService;
+    }
+
     /** #42: the shared phase-neutral topic discovery, or null without the capability. */
     private volatile com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery
             topicDiscovery;
