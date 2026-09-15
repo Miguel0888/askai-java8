@@ -11,6 +11,7 @@ dependencies {
     // split).
     implementation project(':browser-api')
     implementation 'org.jsoup:jsoup:1.17.2'   // #39: structural HTML import extraction (Java 8 bytecode)
+    implementation 'org.apache.pdfbox:pdfbox:2.0.31'   // #39: PDF text extraction (2.0.x = Java 8 line)
     // The knowledge-processing application layer (persistent FIFO + worker + scheduler) and, transitively,
     // :research-knowledge-pipeline + :research-domain. The plugin holds ONLY the neutral scheduler port + the
     // VisitedCapture→SourceCapture adapter; all queue/worker/NLP/embedding logic lives in these modules.

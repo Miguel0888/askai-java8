@@ -30,7 +30,7 @@ public final class SourceImportService {
      * The supported user-input kinds. PDF/file formats join as further
      * {@link SourceExtractors} registry entries — never as special paths in this service.
      */
-    public enum Kind { HTML, TEXT }
+    public enum Kind { HTML, TEXT, PDF }
 
     public enum Status { IMPORTED, DUPLICATE, EMPTY, FAILED }
 

@@ -492,7 +492,8 @@ public final class ResearchSourcesView extends JPanel {
             return;
         }
         javax.swing.JComboBox<String> kind =
-                new javax.swing.JComboBox<String>(new String[] {"Plain text", "Raw HTML"});
+                new javax.swing.JComboBox<String>(
+                        new String[] {"Plain text", "Raw HTML", "PDF file"});
         javax.swing.JTextField title = new javax.swing.JTextField();
         javax.swing.JTextField origin = new javax.swing.JTextField();
         origin.setToolTipText("Optional: source URL / base URI (HTML) or a path label");
@@ -516,13 +517,40 @@ public final class ResearchSourcesView extends JPanel {
         if (choice != javax.swing.JOptionPane.OK_OPTION) {
             return;
         }
-        com.aresstack.askai.research.capture.SourceImportService.Kind selected =
-                kind.getSelectedIndex() == 1
-                        ? com.aresstack.askai.research.capture.SourceImportService.Kind.HTML
-                        : com.aresstack.askai.research.capture.SourceImportService.Kind.TEXT;
-        String outcome = importHandler.importSource(
-                new com.aresstack.askai.research.capture.SourceImportService.SourceInput(
-                        selected, title.getText(), origin.getText(), content.getText()));
+        com.aresstack.askai.research.capture.SourceImportService.SourceInput input;
+        if (kind.getSelectedIndex() == 2) {
+            // PDF is a BYTE delivery: pick the file, bytes travel untouched to the port.
+            javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+            chooser.setDialogTitle("Import PDF file");
+            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                    "PDF documents (*.pdf)", "pdf"));
+            if (chooser.showOpenDialog(this) != javax.swing.JFileChooser.APPROVE_OPTION) {
+                return;
+            }
+            java.io.File file = chooser.getSelectedFile();
+            byte[] rawBytes;
+            try {
+                rawBytes = java.nio.file.Files.readAllBytes(file.toPath());
+            } catch (java.io.IOException unreadable) {
+                javax.swing.JOptionPane.showMessageDialog(this,
+                        "Could not read the file: " + unreadable.getMessage(), "Add source",
+                        javax.swing.JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            String pdfOrigin = origin.getText().trim().isEmpty()
+                    ? file.getAbsolutePath() : origin.getText().trim();
+            input = new com.aresstack.askai.research.capture.SourceImportService.SourceInput(
+                    com.aresstack.askai.research.capture.SourceImportService.Kind.PDF,
+                    title.getText(), pdfOrigin, rawBytes);
+        } else {
+            com.aresstack.askai.research.capture.SourceImportService.Kind selected =
+                    kind.getSelectedIndex() == 1
+                            ? com.aresstack.askai.research.capture.SourceImportService.Kind.HTML
+                            : com.aresstack.askai.research.capture.SourceImportService.Kind.TEXT;
+            input = new com.aresstack.askai.research.capture.SourceImportService.SourceInput(
+                    selected, title.getText(), origin.getText(), content.getText());
+        }
+        String outcome = importHandler.importSource(input);
         refresh();
         javax.swing.JOptionPane.showMessageDialog(this,
                 outcome == null ? "Import produced no result." : outcome, "Add source",

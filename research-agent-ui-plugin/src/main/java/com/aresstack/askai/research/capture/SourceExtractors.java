@@ -76,7 +76,32 @@ final class SourceExtractors {
                         new java.util.ArrayList<String>());
             }
         });
+        registry.put(SourceImportService.Kind.PDF, new SourceExtractor() {
+            public String id() {
+                return PdfSourceExtraction.EXTRACTOR_ID;
+            }
+
+            public Extraction extract(byte[] rawBytes, String originUri) {
+                PdfSourceExtraction.Extracted extracted = PdfSourceExtraction.extract(rawBytes);
+                // Title precedence: PDF metadata, else the delivered file name, else generic.
+                String title = !extracted.title.isEmpty() ? extracted.title
+                        : fileNameOf(originUri, "Imported PDF");
+                return new Extraction(title, extracted.text,
+                        new java.util.ArrayList<String>(extracted.warnings));
+            }
+        });
         return Collections.unmodifiableMap(registry);
+    }
+
+    /** The last path segment of an origin (URL or file path), or the fallback. */
+    private static String fileNameOf(String originUri, String fallback) {
+        if (originUri == null || originUri.trim().isEmpty()) {
+            return fallback;
+        }
+        String trimmed = originUri.trim();
+        int cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+        String name = cut >= 0 ? trimmed.substring(cut + 1) : trimmed;
+        return name.trim().isEmpty() ? fallback : name.trim();
     }
 
     private static String firstLineOf(String text, String fallback) {
