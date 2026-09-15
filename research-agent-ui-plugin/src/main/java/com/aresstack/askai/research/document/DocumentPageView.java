@@ -24,10 +24,10 @@ import java.util.List;
  * #43 slice 9 — the Document PAGE canvas (Java2D spike ahead of #41): the growing document
  * renders as a paper page (margins, chapter hierarchy, readable flowing text) instead of one
  * big markdown block. Inline source markers {@code [n]} are FIRST-CLASS: painted as accent
- * badges, hover shows the resolved source title, a click navigates to the source. The view
- * defines the CONTRACT (#41 couples the real writing/citation logic to it): a
- * {@link ReferenceResolver} answers what a number means, a {@link ReferenceListener} handles
- * the navigation — the view itself owns neither.
+ * badges. Until #41's citation registry wires the contract, they are visibly UNRESOLVED —
+ * hover says so, nothing navigates. The view defines the CONTRACT (#41 couples the real
+ * writing/citation logic to it): a {@link ReferenceResolver} answers what a number means, a
+ * {@link ReferenceListener} handles the navigation — the view itself owns neither.
  */
 public final class DocumentPageView extends JComponent implements Scrollable {
 
