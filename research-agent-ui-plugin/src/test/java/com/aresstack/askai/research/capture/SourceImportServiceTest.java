@@ -227,6 +227,19 @@ public class SourceImportServiceTest {
     }
 
     @Test
+    public void everyDeclaredKindHasExactlyOneRegisteredExtractor() {
+        // A future PDF kind without its registry entry must fail THIS pin, not a live import.
+        java.util.Map<SourceImportService.Kind, SourceExtractors.SourceExtractor> registry =
+                SourceExtractors.defaults();
+        for (SourceImportService.Kind kind : SourceImportService.Kind.values()) {
+            SourceExtractors.SourceExtractor extractor = registry.get(kind);
+            assertNotNull("kind " + kind + " needs an extractor", extractor);
+            assertFalse("extractor identity is part of the provenance",
+                    extractor.id().trim().isEmpty());
+        }
+    }
+
+    @Test
     public void emptyInputIsAnHonestEmptyNeverAPhantomSource() throws Exception {
         Fx fx = fx();
         SourceImportService.ImportOutcome outcome = fx.service.importSource(

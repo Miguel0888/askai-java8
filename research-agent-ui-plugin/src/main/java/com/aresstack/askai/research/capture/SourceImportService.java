@@ -26,7 +26,10 @@ import java.util.List;
  */
 public final class SourceImportService {
 
-    /** The supported user-input kinds; FILE/PDF joins behind the same port (issue slice 3). */
+    /**
+     * The supported user-input kinds. PDF/file formats join as further
+     * {@link SourceExtractors} registry entries — never as special paths in this service.
+     */
     public enum Kind { HTML, TEXT }
 
     public enum Status { IMPORTED, DUPLICATE, EMPTY, FAILED }
@@ -67,6 +70,8 @@ public final class SourceImportService {
     private final SourceAcceptanceService acceptance;
     private final ResearchSourceRepository repository;
     private final ImportedSourceStore importStore;
+    private final java.util.Map<Kind, SourceExtractors.SourceExtractor> extractors =
+            SourceExtractors.defaults();
 
     public SourceImportService(CaptureStore captures, SourceAcceptanceService acceptance,
                                ResearchSourceRepository repository,
@@ -83,23 +88,19 @@ public final class SourceImportService {
      */
     public synchronized ImportOutcome importSource(SourceInput input, String languageCode) {
         List<String> warnings = new ArrayList<String>();
-        String text;
-        String title;
-        String extractor;
-        if (input.kind == Kind.HTML) {
-            HtmlSourceExtraction.Extracted extracted =
-                    HtmlSourceExtraction.extract(input.rawContent, input.originUri);
-            text = extracted.text;
-            title = !input.providedTitle.isEmpty() ? input.providedTitle
-                    : !extracted.title.isEmpty() ? extracted.title : "Imported HTML";
-            warnings.addAll(extracted.warnings);
-            extractor = HtmlSourceExtraction.EXTRACTOR_ID;
-        } else {
-            text = input.rawContent.trim();
-            title = !input.providedTitle.isEmpty() ? input.providedTitle
-                    : firstLineOf(text, "Imported text");
-            extractor = "text-passthrough-v1";
+        // The per-format extraction is a REGISTRY entry, never a special path here — PDF
+        // and further formats join by adding an extractor, the service stays neutral.
+        SourceExtractors.SourceExtractor formatExtractor = extractors.get(input.kind);
+        if (formatExtractor == null) {
+            warnings.add("no extractor registered for kind " + input.kind);
+            return new ImportOutcome(Status.FAILED, null, input.providedTitle, warnings);
         }
+        SourceExtractors.Extraction extracted =
+                formatExtractor.extract(input.rawContent, input.originUri);
+        String text = extracted.text;
+        String title = !input.providedTitle.isEmpty() ? input.providedTitle : extracted.title;
+        String extractor = formatExtractor.id();
+        warnings.addAll(extracted.warnings);
         if (text.trim().isEmpty()) {
             return new ImportOutcome(Status.EMPTY, null, title, warnings);
         }
@@ -178,13 +179,4 @@ public final class SourceImportService {
         }
     }
 
-    private static String firstLineOf(String text, String fallback) {
-        for (String line : text.split("\r?\n")) {
-            String trimmed = line.trim();
-            if (!trimmed.isEmpty()) {
-                return trimmed.length() > 80 ? trimmed.substring(0, 77) + "..." : trimmed;
-            }
-        }
-        return fallback;
-    }
 }
