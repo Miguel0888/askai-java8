@@ -109,11 +109,11 @@ public final class SourceImportService {
         String title = !input.providedTitle.isEmpty() ? input.providedTitle : extracted.title;
         String extractor = formatExtractor.id();
         warnings.addAll(extracted.warnings);
-        if (text.trim().isEmpty()) {
-            return new ImportOutcome(Status.EMPTY, null, title, warnings);
-        }
         // The hash of record is over the RAW BYTES as delivered, not the derived text; the
         // import identity is content + origin (same bytes, other origin = its own delivery).
+        // EVERY syntactically received delivery persists — also when extraction yields no
+        // text: a scan-PDF's bytes are exactly what a later OCR slice needs, and throwing
+        // them away while answering EMPTY would lose the delivery silently.
         String rawSha256 = CaptureStore.sha256(input.rawBytes);
         String snapshotId = ImportedSourceStore.snapshotIdFor(rawSha256, input.originUri);
         try {
@@ -122,11 +122,16 @@ public final class SourceImportService {
                             input.kind.name(), input.rawBytes, rawSha256, input.originUri,
                             System.currentTimeMillis()),
                     new ImportedSourceStore.ExtractionRecord(snapshotId, extractor,
-                            CaptureStore.sha256(text), warnings));
+                            text.trim().isEmpty() ? "" : CaptureStore.sha256(text), warnings));
         } catch (IOException lost) {
             // No raw snapshot, no import — a success without provenance would be a lie.
             warnings.add("raw snapshot could not be persisted: " + lost.getMessage());
             return new ImportOutcome(Status.FAILED, null, title, warnings);
+        }
+        if (text.trim().isEmpty()) {
+            // Honest EMPTY: no capture, no acceptance, no source record — but the raw
+            // delivery and its extraction warnings are preserved above.
+            return new ImportOutcome(Status.EMPTY, null, title, warnings);
         }
         String url = !input.originUri.isEmpty() ? input.originUri
                 : "user-import://" + rawSha256.substring(0, 16);

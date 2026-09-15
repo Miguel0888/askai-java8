@@ -127,11 +127,12 @@ public class PdfImportTest {
     }
 
     @Test
-    public void anImageOnlyOrBlankPdfIsAnHonestEmptyNeverInventedText() throws Exception {
+    public void anImageOnlyOrBlankPdfIsAnHonestEmptyButItsRawDeliverySurvives() throws Exception {
         Fx fx = new Fx();
+        byte[] scan = blankPdf();
         SourceImportService.ImportOutcome outcome = fx.service.importSource(
                 new SourceImportService.SourceInput(SourceImportService.Kind.PDF,
-                        "Scan", "scan.pdf", blankPdf()), "en");
+                        "Scan", "scan.pdf", scan), "en");
         assertEquals(SourceImportService.Status.EMPTY, outcome.status);
         assertTrue("no phantom source", fx.repo.find(SourceQuery.all()).isEmpty());
         boolean explained = false;
@@ -139,20 +140,40 @@ public class PdfImportTest {
             explained |= warning.contains("no extractable text");
         }
         assertTrue("the emptiness names its cause (no OCR in this slice)", explained);
+        // The scan's bytes are exactly what a later OCR slice needs — EMPTY never means
+        // the delivery was thrown away.
+        ImportedSourceStore.Loaded loaded = fx.importStore.load(
+                ImportedSourceStore.snapshotIdFor(CaptureStore.sha256(scan), "scan.pdf"));
+        assertNotNull("the raw delivery is preserved despite EMPTY", loaded);
+        assertTrue(Arrays.equals(scan, loaded.snapshot.rawBytes));
+        assertEquals("no source was accepted, so none is bound", "", loaded.sourceId);
+        assertEquals("no derived text, no derived hash", "",
+                loaded.extraction.normalizedSha256);
     }
 
     @Test
     public void garbageBytesAreAnHonestEmptyWithAParseWarningNeverACrash() throws Exception {
         Fx fx = new Fx();
+        byte[] garbage = new byte[] {0x25, 0x50, 0x44, 0x46, 0x00, (byte) 0xFF, 0x13};
         SourceImportService.ImportOutcome outcome = fx.service.importSource(
                 new SourceImportService.SourceInput(SourceImportService.Kind.PDF,
-                        "Broken", "broken.pdf",
-                        new byte[] {0x25, 0x50, 0x44, 0x46, 0x00, (byte) 0xFF, 0x13}), "en");
+                        "Broken", "broken.pdf", garbage), "en");
         assertEquals(SourceImportService.Status.EMPTY, outcome.status);
         boolean explained = false;
         for (String warning : outcome.warnings) {
             explained |= warning.contains("could not be parsed");
         }
         assertTrue(explained);
+        // Even an unparseable delivery keeps its raw snapshot WITH the parse warning —
+        // the evidence of what was delivered never depends on it being readable.
+        ImportedSourceStore.Loaded loaded = fx.importStore.load(
+                ImportedSourceStore.snapshotIdFor(CaptureStore.sha256(garbage), "broken.pdf"));
+        assertNotNull(loaded);
+        assertTrue(Arrays.equals(garbage, loaded.snapshot.rawBytes));
+        boolean recorded = false;
+        for (String warning : loaded.extraction.warnings) {
+            recorded |= warning.contains("could not be parsed");
+        }
+        assertTrue("the parse warning is part of the persisted extraction record", recorded);
     }
 }
