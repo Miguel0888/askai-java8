@@ -118,25 +118,32 @@ public class SharedTopicDiscoveryTest {
     }
 
     @Test
-    public void thePinnedOverloadDiscoversOverExactlyTheGivenCorpusNeverARereadOne()
+    public void refreshPinnedReturnsOneCoherentCorpusTopicsPairForCombiningConsumers()
             throws Exception {
-        MutableCorpus source = new MutableCorpus();
-        SharedTopicDiscovery discovery = new SharedTopicDiscovery(source,
+        final MutableCorpus source = new MutableCorpus();
+        // A corpus source that MUTATES on every read (the concurrently ingesting worker):
+        // whatever refreshPinned returns must still be ONE coherent pair.
+        SharedTopicDiscovery discovery = new SharedTopicDiscovery(
+                new SharedTopicDiscovery.CorpusSource() {
+                    int reads;
+
+                    public ActiveKnowledgeCorpusReader.Corpus read() {
+                        source.current = corpus(2 + reads++);
+                        return source.current;
+                    }
+                },
                 new LiveOutlineProjectionBuilder(),
                 new FileTopicSnapshotStore(temp.newFolder("p")), "fpA");
-        // The outline build pins ONE corpus; the worker "ingests" before discovery runs.
-        ActiveKnowledgeCorpusReader.Corpus pinned = source.current;
-        source.current = corpus(4);
-        FileTopicSnapshotStore.TopicSnapshot snapshot = discovery.refresh(pinned, 1000L);
-        // The snapshot's identity is the PINNED corpus — topics and the passages an outline
-        // would build from can never straddle a generation.
+        SharedTopicDiscovery.Pinned pinned = discovery.refreshPinned(1000L);
+        // The snapshot's identity IS the returned corpus — the outline consumer building
+        // from pinned.corpus + pinned.snapshot can never straddle a generation.
         List<String> pinnedIds = new ArrayList<String>();
-        for (Passage passage : pinned.getPassages()) {
+        for (Passage passage : pinned.corpus.getPassages()) {
             pinnedIds.add(passage.getPassageId());
         }
         assertEquals(com.aresstack.askai.research.knowledge.live.LiveOutlineProjection
-                        .corpusFingerprintOf(pinnedIds), snapshot.corpusFingerprint);
-        assertTrue("the grown source corpus reads as stale against the pinned snapshot",
+                        .corpusFingerprintOf(pinnedIds), pinned.snapshot.corpusFingerprint);
+        assertTrue("the further-grown source corpus reads as stale against the snapshot",
                 discovery.isStale());
     }
 

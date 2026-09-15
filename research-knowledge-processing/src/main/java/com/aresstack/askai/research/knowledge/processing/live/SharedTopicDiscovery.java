@@ -40,24 +40,36 @@ public final class SharedTopicDiscovery {
         this.embeddingFingerprint = embeddingFingerprint == null ? "" : embeddingFingerprint;
     }
 
+    /** The atomically pinned pair a combining consumer builds from — never two reads. */
+    public static final class Pinned {
+        public final ActiveKnowledgeCorpusReader.Corpus corpus;
+        public final FileTopicSnapshotStore.TopicSnapshot snapshot;
+
+        Pinned(ActiveKnowledgeCorpusReader.Corpus corpus,
+               FileTopicSnapshotStore.TopicSnapshot snapshot) {
+            this.corpus = corpus;
+            this.snapshot = snapshot;
+        }
+    }
+
     /**
      * ONE deterministic discovery run over the CURRENT corpus: cluster (existing math),
      * fingerprint, persist, return. Topics only — never an outline, never a concept
      * mutation, never a phase change.
      */
     public FileTopicSnapshotStore.TopicSnapshot refresh(long nowMillis) {
-        return refresh(corpus.read(), nowMillis);
+        return refreshPinned(nowMillis).snapshot;
     }
 
     /**
-     * Discovery over a caller-PINNED corpus snapshot. A consumer that combines the topics
-     * with the corpus itself (the outline build: passages + topics) MUST use this overload
-     * with the one corpus it also builds from — the worker keeps ingesting concurrently, so
-     * two separate reads can straddle a generation and pair topics of corpus A with passages
-     * of corpus B.
+     * The corpus read, the clustering AND the snapshot write happen under ONE lock, and the
+     * corpus used is returned WITH the topics: a consumer that combines both (the outline
+     * build: passages + topics) gets one coherent pair, and two concurrent refreshes can
+     * never write an older corpus's snapshot over a newer one (reads outside the lock did
+     * exactly that).
      */
-    public synchronized FileTopicSnapshotStore.TopicSnapshot refresh(
-            ActiveKnowledgeCorpusReader.Corpus current, long nowMillis) {
+    public synchronized Pinned refreshPinned(long nowMillis) {
+        ActiveKnowledgeCorpusReader.Corpus current = corpus.read();
         List<LiveTopicProjection> topics =
                 builder.discoverTopics(current.getPassages(), current.getVectors());
         FileTopicSnapshotStore.TopicSnapshot previous = store.load();
@@ -65,7 +77,7 @@ public final class SharedTopicDiscovery {
                 (previous == null ? 0L : previous.revision) + 1L,
                 corpusFingerprintOf(current), embeddingFingerprint, nowMillis, topics);
         store.save(snapshot);
-        return snapshot;
+        return new Pinned(current, snapshot);
     }
 
     /** The persisted snapshot, or {@code null} when none exists yet. Pure read. */
