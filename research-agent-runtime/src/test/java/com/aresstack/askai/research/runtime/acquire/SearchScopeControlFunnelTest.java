@@ -320,6 +320,8 @@ public class SearchScopeControlFunnelTest {
         assertEquals("baseline behaviour after the degrade", 3, browser.openedUrls.size());
         assertTrue(status.toString().contains(
                 "search-scope inAffinity degraded to baseline at serp"));
+        assertTrue("the degrade releases the host snapshot — no handle lingers until "
+                + "session teardown", scope.ended);
     }
 
     /** SC1 regression: with the OUT filter active an evaluate failure stays FAIL-CLOSED. */

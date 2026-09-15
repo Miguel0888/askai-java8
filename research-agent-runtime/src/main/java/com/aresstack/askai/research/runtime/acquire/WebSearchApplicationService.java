@@ -820,6 +820,13 @@ public final class WebSearchApplicationService {
         }
         listener.status("search-scope inAffinity degraded to baseline at " + lane + " ("
                 + cause + ")");
+        // Release the host snapshot before forgetting the handle — the run's finally block
+        // no longer sees it, and the snapshot would otherwise linger until session teardown.
+        try {
+            scopeControl.end(scopeHandle);
+        } catch (Exception alreadyBroken) {
+            // best effort on an already-degraded channel; host teardown also clears
+        }
         scopeActive = false;
         scopeHandle = null;
         return java.util.Collections.emptyMap();
