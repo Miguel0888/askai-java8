@@ -517,9 +517,14 @@ public final class ResearchSourcesView extends JPanel {
         if (choice != javax.swing.JOptionPane.OK_OPTION) {
             return;
         }
-        com.aresstack.askai.research.capture.SourceImportService.SourceInput input;
+        // Everything the background work needs is read from the Swing widgets HERE, on the
+        // EDT — the worker thread never touches a component.
+        final String providedTitle = title.getText();
+        final String providedOrigin = origin.getText();
+        final String textContent = content.getText();
+        final java.io.File pdfFile;
         if (kind.getSelectedIndex() == 2) {
-            // PDF is a BYTE delivery: pick the file, bytes travel untouched to the port.
+            // PDF is a BYTE delivery: pick the file; reading + extraction run off the EDT.
             javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
             chooser.setDialogTitle("Import PDF file");
             chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
@@ -527,36 +532,58 @@ public final class ResearchSourcesView extends JPanel {
             if (chooser.showOpenDialog(this) != javax.swing.JFileChooser.APPROVE_OPTION) {
                 return;
             }
-            java.io.File file = chooser.getSelectedFile();
-            byte[] rawBytes;
-            try {
-                rawBytes = java.nio.file.Files.readAllBytes(file.toPath());
-            } catch (java.io.IOException unreadable) {
-                javax.swing.JOptionPane.showMessageDialog(this,
-                        "Could not read the file: " + unreadable.getMessage(), "Add source",
-                        javax.swing.JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-            String pdfOrigin = origin.getText().trim().isEmpty()
-                    ? file.getAbsolutePath() : origin.getText().trim();
-            input = new com.aresstack.askai.research.capture.SourceImportService.SourceInput(
-                    com.aresstack.askai.research.capture.SourceImportService.Kind.PDF,
-                    title.getText(), pdfOrigin, rawBytes);
+            pdfFile = chooser.getSelectedFile();
         } else {
-            com.aresstack.askai.research.capture.SourceImportService.Kind selected =
-                    kind.getSelectedIndex() == 1
-                            ? com.aresstack.askai.research.capture.SourceImportService.Kind.HTML
-                            : com.aresstack.askai.research.capture.SourceImportService.Kind.TEXT;
-            input = new com.aresstack.askai.research.capture.SourceImportService.SourceInput(
-                    selected, title.getText(), origin.getText(), content.getText());
+            pdfFile = null;
         }
-        String outcome = importHandler.importSource(input);
-        refresh();
-        javax.swing.JOptionPane.showMessageDialog(this,
-                outcome == null ? "Import produced no result." : outcome, "Add source",
-                outcome != null && outcome.startsWith("handled")
-                        ? javax.swing.JOptionPane.INFORMATION_MESSAGE
-                        : javax.swing.JOptionPane.WARNING_MESSAGE);
+        final com.aresstack.askai.research.capture.SourceImportService.Kind selected =
+                pdfFile != null
+                        ? com.aresstack.askai.research.capture.SourceImportService.Kind.PDF
+                        : kind.getSelectedIndex() == 1
+                                ? com.aresstack.askai.research.capture.SourceImportService.Kind.HTML
+                                : com.aresstack.askai.research.capture.SourceImportService.Kind.TEXT;
+        final ImportHandler handler = importHandler;
+        // File read + extraction + acceptance can take seconds on a big PDF — never on the
+        // EDT. Only the outcome dialog and the table refresh marshal back.
+        Thread importWorker = new Thread(new Runnable() {
+            public void run() {
+                com.aresstack.askai.research.capture.SourceImportService.SourceInput input;
+                if (pdfFile != null) {
+                    byte[] rawBytes;
+                    try {
+                        rawBytes = java.nio.file.Files.readAllBytes(pdfFile.toPath());
+                    } catch (java.io.IOException unreadable) {
+                        showImportOutcomeLater("rejected: could not read the file: "
+                                + unreadable.getMessage());
+                        return;
+                    }
+                    String pdfOrigin = providedOrigin.trim().isEmpty()
+                            ? pdfFile.getAbsolutePath() : providedOrigin.trim();
+                    input = new com.aresstack.askai.research.capture.SourceImportService
+                            .SourceInput(selected, providedTitle, pdfOrigin, rawBytes);
+                } else {
+                    input = new com.aresstack.askai.research.capture.SourceImportService
+                            .SourceInput(selected, providedTitle, providedOrigin, textContent);
+                }
+                showImportOutcomeLater(handler.importSource(input));
+            }
+        }, "source-import-ui");
+        importWorker.setDaemon(true);
+        importWorker.start();
+    }
+
+    /** Marshal the import outcome back to the EDT: refresh the table, tell the user. */
+    private void showImportOutcomeLater(final String outcome) {
+        javax.swing.SwingUtilities.invokeLater(new Runnable() {
+            public void run() {
+                refresh();
+                javax.swing.JOptionPane.showMessageDialog(ResearchSourcesView.this,
+                        outcome == null ? "Import produced no result." : outcome, "Add source",
+                        outcome != null && outcome.startsWith("handled")
+                                ? javax.swing.JOptionPane.INFORMATION_MESSAGE
+                                : javax.swing.JOptionPane.WARNING_MESSAGE);
+            }
+        });
     }
 
     /**
