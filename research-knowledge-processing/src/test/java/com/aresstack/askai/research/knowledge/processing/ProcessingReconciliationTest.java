@@ -55,13 +55,16 @@ public class ProcessingReconciliationTest {
     public void onlyNeverProcessedEligibleSourcesWithTextGetTheirMissingJob() {
         final List<String> enqueued = new ArrayList<String>();
         Set<String> processed = new HashSet<String>(Collections.singletonList("source-done"));
+        Set<String> scheduled = new HashSet<String>(
+                Collections.singletonList("source-scheduled"));
         int count = ProcessingReconciliation.reconcile(Arrays.asList(
                         new Src("source-missing", true, true),
                         new Src("source-done", true, true),      // already processed → not our gap
+                        new Src("source-scheduled", true, true), // queue knows it → respected
                         new Src("source-parked", false, true),   // no text → nothing to segment
                         new Src("source-excluded", true, false), // corpus-ineligible → never waste
                         new Src("", true, true)),                // blank id → skip
-                processed,
+                processed, scheduled,
                 new ProcessingReconciliation.MissingJobScheduler() {
                     public void enqueue(String captureId, String sourceId) {
                         enqueued.add(captureId + "->" + sourceId);
@@ -88,10 +91,13 @@ public class ProcessingReconciliationTest {
         List<Src> candidates =
                 Collections.singletonList(new Src("source-1", true, true));
         Set<String> processed = Collections.emptySet();
-        // Two session starts (restart) reconcile the same world: the deterministic capture
-        // id maps to the same idempotency key, so the queue holds exactly ONE job.
-        ProcessingReconciliation.reconcile(candidates, processed, adapter);
-        ProcessingReconciliation.reconcile(candidates, processed, adapter);
+        // Two session starts (restart) reconcile the same world. The SECOND run reads the
+        // queue observation like the host does — the first run's job counts as scheduled;
+        // and even ignoring the observation, the deterministic capture id dedups by key.
+        ProcessingReconciliation.reconcile(candidates, processed,
+                queue.sourceIdsWithKnownProcessing(), adapter);
+        ProcessingReconciliation.reconcile(candidates, processed,
+                queue.sourceIdsWithKnownProcessing(), adapter);
         SourceProcessingJob job = queue.takeNext();
         assertEquals("import-reconciled-source-1", job.getRequest().getCaptureId());
         assertEquals("source-1", job.getRequest().getSourceId());
@@ -99,6 +105,47 @@ public class ProcessingReconciliationTest {
                 job.getRequest().getEmbeddingModelFingerprint());
         assertTrue("exactly one job despite two reconciliation runs",
                 queue.takeNext() == null);
+    }
+
+    /** The crash window: acceptance enqueued, the app died BEFORE the worker ran. */
+    @Test
+    public void aPendingAcceptanceJobIsRespectedNeverDoubledUnderAReconciledCaptureId()
+            throws Exception {
+        FileSourceProcessingQueue queue =
+                new FileSourceProcessingQueue(tmp.newFolder("processing"));
+        final QueueBackedKnowledgeProcessingScheduler scheduler =
+                new QueueBackedKnowledgeProcessingScheduler(queue, "seg-v1", "fpReal");
+        // The normal acceptance-time job for source-1, persisted QUEUED, never worked:
+        // the knowledge project therefore has NO capture for source-1.
+        scheduler.enqueue("capture-original", "source-1", "en");
+
+        int enqueued = ProcessingReconciliation.reconcile(
+                Collections.singletonList(new Src("source-1", true, true)),
+                Collections.<String>emptySet(),
+                queue.sourceIdsWithKnownProcessing(),
+                new ProcessingReconciliation.MissingJobScheduler() {
+                    public void enqueue(String captureId, String sourceId) {
+                        scheduler.enqueue(captureId, sourceId, "en");
+                    }
+                });
+        assertEquals("scheduled work is respected — no second derivation", 0, enqueued);
+        SourceProcessingJob only = queue.takeNext();
+        assertEquals("the ORIGINAL acceptance job survives untouched", "capture-original",
+                only.getRequest().getCaptureId());
+        assertTrue("exactly one fachliche job for source-1", queue.takeNext() == null);
+    }
+
+    /** A retired SUPERSEDED job names a no-longer-active world — it never blocks repair. */
+    @Test
+    public void aSupersededJobAloneNeverCountsAsCurrentWorldTruth() throws Exception {
+        FileSourceProcessingQueue queue =
+                new FileSourceProcessingQueue(tmp.newFolder("processing"));
+        QueueBackedKnowledgeProcessingScheduler oldWorld =
+                new QueueBackedKnowledgeProcessingScheduler(queue, "seg-v1", "fpOld");
+        oldWorld.enqueue("capture-old", "source-1", "en");
+        queue.markSuperseded(queue.takeNext());
+        assertTrue("SUPERSEDED does not read as known processing",
+                queue.sourceIdsWithKnownProcessing().isEmpty());
     }
 
     @Test

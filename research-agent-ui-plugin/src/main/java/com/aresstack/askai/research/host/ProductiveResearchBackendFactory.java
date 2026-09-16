@@ -605,6 +605,10 @@ public final class ProductiveResearchBackendFactory {
                 }
                 int missing = com.aresstack.askai.research.knowledge.processing
                         .ProcessingReconciliation.reconcile(candidates, processedSourceIds,
+                        // Scheduled-but-unworked jobs (the crash window between acceptance
+                        // and processing) are respected — never a second derivation under
+                        // the reconciled capture id.
+                        processingQueue.sourceIdsWithKnownProcessing(),
                         new com.aresstack.askai.research.knowledge.processing
                                 .ProcessingReconciliation.MissingJobScheduler() {
                             public void enqueue(String captureId, String sourceId) {

@@ -45,4 +45,14 @@ public interface SourceProcessingQueue {
 
     /** True when this exact processing (idempotency key) already completed — used to short-circuit (§4.3). */
     boolean isAlreadyCompleted(String idempotencyKey);
+
+    /**
+     * READ-ONLY observation for reconciliation (#39): the source ids owning a job the
+     * reconciliation must respect — QUEUED, PROCESSING, FAILED and COMPLETED all count as
+     * "processing is known for this source" (a FAILED job is a deliberate outcome a repair
+     * must not sneak past). Only a retired SUPERSEDED job does NOT count: it names a
+     * no-longer-active world and must never masquerade as current-world truth. Never
+     * mutates the queue.
+     */
+    java.util.Set<String> sourceIdsWithKnownProcessing();
 }
