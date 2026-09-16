@@ -4975,7 +4975,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         technicalLog("source-import -> " + outcome.status
                 + (outcome.sourceId != null ? " id=" + outcome.sourceId : "")
                 + " warnings=" + outcome.warnings.size());
-        fireStateChanged(); // the sources table re-reads the repository
+        // The import runs on a background worker (off-EDT slice); the state notification
+        // marshals to the UI executor like every other background-triggered refresh —
+        // listeners touch Swing and must never run on the import worker.
+        onUi(new Runnable() {
+            public void run() {
+                fireStateChanged(); // the sources table re-reads the repository
+            }
+        });
         switch (outcome.status) {
             case IMPORTED:
                 return "handled: imported \"" + outcome.title + "\" (" + outcome.sourceId
