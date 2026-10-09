@@ -6,9 +6,9 @@ import com.aresstack.askai.java8.hf.HuggingFaceClient;
 import com.aresstack.askai.java8.hf.HuggingFaceConnectionTestResult;
 import com.aresstack.askai.java8.net.CertificateTrustConfiguration;
 import com.aresstack.askai.java8.net.HttpClientConfiguration;
-import com.aresstack.askai.java8.net.PacUrlDiscoveryService;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
 import com.aresstack.winproxy.ProxyDefaults;
+import com.aresstack.winproxy.ProxyDiagnostics;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -75,7 +75,7 @@ public final class ProxyPanel extends JPanel {
         ProxyConfiguration cfg = configurationRepository.load().getProxyConfiguration();
         this.manualPacUrlText = "";
         this.powerShellScriptText = ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT;
-        this.wScriptText = PacUrlDiscoveryService.defaultScript();
+        this.wScriptText = ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_WSCRIPT;
         this.otherScriptText = "";
         rememberScriptText(cfg.getModeName(), cfg.getPacUrlDiscoveryScript());
         this.activeScriptMode = cfg.getModeName();
@@ -237,7 +237,7 @@ public final class ProxyPanel extends JPanel {
         if (ProxyConfiguration.PAC_URL_MANUAL.equals(modeName)) {
             manualPacUrlText = text;
         } else if (ProxyConfiguration.PAC_URL_WSCRIPT.equals(modeName)) {
-            wScriptText = text.length() == 0 ? PacUrlDiscoveryService.defaultScript() : text;
+            wScriptText = text.length() == 0 ? ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_WSCRIPT : text;
         } else if (ProxyConfiguration.PAC_URL_POWERSHELL.equals(modeName)) {
             powerShellScriptText = text.length() == 0 ? ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT : text;
         } else {
@@ -250,7 +250,7 @@ public final class ProxyPanel extends JPanel {
             return manualPacUrlText;
         }
         if (ProxyConfiguration.PAC_URL_WSCRIPT.equals(modeName)) {
-            return wScriptText == null || wScriptText.length() == 0 ? PacUrlDiscoveryService.defaultScript() : wScriptText;
+            return wScriptText == null || wScriptText.length() == 0 ? ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_WSCRIPT : wScriptText;
         }
         if (ProxyConfiguration.PAC_URL_POWERSHELL.equals(modeName)) {
             return powerShellScriptText == null || powerShellScriptText.length() == 0 ? ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT : powerShellScriptText;
@@ -293,7 +293,7 @@ public final class ProxyPanel extends JPanel {
         ProxyConfiguration cfg = ProxyConfiguration.defaults();
         manualPacUrlText = "";
         powerShellScriptText = ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT;
-        wScriptText = PacUrlDiscoveryService.defaultScript();
+        wScriptText = ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_WSCRIPT;
         otherScriptText = "";
         activeScriptMode = cfg.getModeName();
         mode.setSelectedItem(cfg.getModeName());
@@ -338,11 +338,12 @@ public final class ProxyPanel extends JPanel {
         append("Resolving " + url + " ...");
         new SwingWorker<Object, Void>() {
             protected Object doInBackground() {
-                String diagnostic = cfg.describePacSource();
-                if (diagnostic != null) {
-                    append(diagnostic);
+                // One resolution, recorded step by step (PAC URL + source, PAC script size, failure detail).
+                ProxyDiagnostics diagnostics = cfg.diagnose(url);
+                for (String step : diagnostics.getSteps()) {
+                    append("  " + step);
                 }
-                return cfg.resolve(url);
+                return diagnostics.getResult();
             }
 
             protected void done() {
