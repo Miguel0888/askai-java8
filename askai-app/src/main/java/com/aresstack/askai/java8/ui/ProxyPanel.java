@@ -4,7 +4,7 @@ import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.hf.HuggingFaceClient;
 import com.aresstack.askai.java8.hf.HuggingFaceConnectionTestResult;
-import com.aresstack.askai.java8.net.CertificateTrustConfiguration;
+import com.aresstack.wintrust.CertificateTrustConfiguration;
 import com.aresstack.askai.java8.net.HttpClientConfiguration;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
 import com.aresstack.winproxy.ProxyDefaults;

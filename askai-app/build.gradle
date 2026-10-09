@@ -46,6 +46,9 @@ dependencies {
     implementation project(':acp-client-api')
     implementation project(':acp-solon-client')
     implementation 'com.aresstack:win-proxy-java:0.2.0'
+    // TLS trust from the JVM cacerts and the Windows Root/Intermediate CA stores (the former AskAI
+    // CertificateTrustConfiguration / SystemTrustSslSocketFactory / WindowsCertificateStores).
+    implementation 'com.aresstack:win-trust-java:0.1.0'
     // HTML parsing for the Ollama Library scraper (Jerry/Lagarto). Java 8 bytecode, pulls
     // jodd-core transitively; only used to parse ollama.com HTML, the HTTP fetch goes through
     // the app's own proxy/TLS plumbing.
