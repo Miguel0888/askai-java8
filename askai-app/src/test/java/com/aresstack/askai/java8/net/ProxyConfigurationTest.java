@@ -19,7 +19,9 @@ public class ProxyConfigurationTest {
         assertEquals(ProxyMode.PAC_URL_WSCRIPT, cfg.getMode());
         assertEquals(ProxyMode.PAC_URL_WSCRIPT, cfg.toWinProxyConfiguration().getMode());
         assertEquals(ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_WSCRIPT, cfg.getPacUrlDiscoveryScript());
-        assertEquals(ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_WSCRIPT, cfg.toWinProxyConfiguration().getPacUrlDiscoveryScript());
+        // The library normalizes the script (trimToNull), so the default's trailing newline is gone.
+        assertEquals(ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_WSCRIPT.trim(),
+                cfg.toWinProxyConfiguration().getPacUrlDiscoveryScript());
     }
 
     @Test
