@@ -175,18 +175,21 @@ public final class SidebarTabRibbon extends JPanel {
         // An arrow appears only on a side where more entries follow (per spec).
         boolean overflow = contentWidth > visibleWidth;
         boolean showLeft = overflow && scrollOffset > 0;
-        int viewportWidth = visibleWidth - (showLeft ? ARROW_WIDTH : 0);
-        boolean showRight = overflow && scrollOffset + viewportWidth - ARROW_WIDTH < contentWidth;
-        if (showRight) {
-            viewportWidth -= ARROW_WIDTH;
-        }
-        viewportWidth = Math.max(0, viewportWidth);
+        int viewportWidth = Math.max(0, visibleWidth - (showLeft ? ARROW_WIDTH : 0));
+        // Clamp against the arrow-less viewport first: the far end is reached when the content is
+        // flush with the right edge, and only before that do more entries follow. Deciding the right
+        // arrow before clamping made it flicker at the far end: the arrow narrows the viewport by
+        // ARROW_WIDTH, which moved the clamp and re-enabled the arrow on every other scroll step.
         int maxOffset = Math.max(0, contentWidth - viewportWidth);
         if (scrollOffset > maxOffset) {
             scrollOffset = maxOffset;
         }
         if (scrollOffset < 0) {
             scrollOffset = 0;
+        }
+        boolean showRight = overflow && scrollOffset < maxOffset;
+        if (showRight) {
+            viewportWidth = Math.max(0, viewportWidth - ARROW_WIDTH);
         }
 
         int x = 0;
