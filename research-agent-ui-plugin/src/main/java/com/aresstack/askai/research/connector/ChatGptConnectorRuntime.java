@@ -64,8 +64,12 @@ public final class ChatGptConnectorRuntime {
             System.out.println("[chatgpt-connector] not started: " + startFailure);
             return;
         }
+        ConnectorAuthentication authentication = config.isCentralMode()
+                ? new CentralJwtAuthentication(config.getCentralIssuer(),
+                        config.getPublicOrigin() + "/")
+                : new ConnectorOAuthService(config);
         ChatGptConnectorServer created = new ChatGptConnectorServer(config,
-                new ConnectorOAuthService(config), new ChatGptConnectorServer.ToolProvider() {
+                authentication, new ChatGptConnectorServer.ToolProvider() {
                     public List<McpToolContribution> tools() {
                         // STABLE surface: the four tools exist even with no live session (sessions_list
                         // then returns an empty list), so a connected client never sees them vanish.
@@ -161,7 +165,8 @@ public final class ChatGptConnectorRuntime {
                 && a.getPort() == b.getPort()
                 && a.getPublicOrigin().equals(b.getPublicOrigin())
                 && a.getClientId().equals(b.getClientId())
-                && a.getClientSecret().equals(b.getClientSecret());
+                && a.getClientSecret().equals(b.getClientSecret())
+                && a.getCentralIssuer().equals(b.getCentralIssuer());
     }
 
     public synchronized boolean isRunning() {

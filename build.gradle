@@ -3,6 +3,16 @@ allprojects {
     version = (findProperty('releaseVersion') ?: '0.1.0').toString()
 
     repositories {
+        // EXCEPTION to the no-mavenLocal rule below, tightly scoped: the AnAuthentia OAuth/JWT
+        // library is consumed from mavenLocal (publishToMavenLocal in C:/Projects/anauthentia)
+        // until its first Maven Central release. The content filter keeps every other
+        // dependency on the reproducible Central path.
+        mavenLocal {
+            content {
+                includeModule 'com.aresstack', 'anauthentia'
+                includeModule 'com.aresstack', 'anauthentia-jwt'
+            }
+        }
         // The win-directml-java model catalog + generation runtime are consumed from the PUBLISHED
         // Maven Central release (com.aresstack:*:0.2.1). No mavenLocal / SNAPSHOT — the build must
         // resolve reproducibly on a fresh machine.

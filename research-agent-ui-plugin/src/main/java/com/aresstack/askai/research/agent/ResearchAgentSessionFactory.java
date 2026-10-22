@@ -276,7 +276,8 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
             runtime.ensureStarted(new com.aresstack.askai.research.connector.ConnectorConfig(
                     connector.getPort(), connector.getPublicOrigin(), connector.getClientId(),
                     connector.getClientSecret(),
-                    com.aresstack.askai.research.connector.ChatGptConnectorRuntime.defaultRefreshStore()));
+                    com.aresstack.askai.research.connector.ChatGptConnectorRuntime.defaultRefreshStore(),
+                    connector.getCentralIssuer()));
         } else {
             runtime.stopListener();
         }

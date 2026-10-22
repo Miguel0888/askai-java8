@@ -28,7 +28,16 @@ import java.util.Map;
  * refresh-token store so a ChatGPT connection survives AskAI restarts. Redirect URIs are restricted to
  * the ChatGPT domains. All state except refresh tokens is in-memory.
  */
-public final class ConnectorOAuthService {
+public final class ConnectorOAuthService implements ConnectorAuthentication {
+
+    public boolean handlesOAuthLocally() {
+        return true;
+    }
+
+    public String externalIssuer() {
+        return null;
+    }
+
 
     /** Test seam for time. */
     public interface TimeSource {

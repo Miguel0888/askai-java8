@@ -42,13 +42,13 @@ public final class ChatGptConnectorServer {
     private static final Gson GSON = new Gson();
 
     private final ConnectorConfig config;
-    private final ConnectorOAuthService oauth;
+    private final ConnectorAuthentication oauth;
     private final ToolProvider toolProvider;
     private HttpServer server;
     /** The request workers; owned here so stop() really releases them (never leaked across restarts). */
     private java.util.concurrent.ExecutorService workers;
 
-    public ChatGptConnectorServer(ConnectorConfig config, ConnectorOAuthService oauth,
+    public ChatGptConnectorServer(ConnectorConfig config, ConnectorAuthentication oauth,
                                   ToolProvider toolProvider) {
         this.config = config;
         this.oauth = oauth;
@@ -115,7 +115,14 @@ public final class ChatGptConnectorServer {
             String path = exchange.getRequestURI().getPath();
             String method = exchange.getRequestMethod();
             if ("GET".equals(method) && isAuthorizationServerMetadataPath(path)) {
-                authorizationServerMetadata(exchange);
+                if (oauth.handlesOAuthLocally()) {
+                    authorizationServerMetadata(exchange);
+                } else {
+                    // Central mode: the AS metadata of the issuer are served by
+                    // the central service (the reverse proxy routes them there);
+                    // this process must never advertise ITSELF as issuer.
+                    centralModeRefusal(exchange);
+                }
             } else if ("GET".equals(method) && path.startsWith("/.well-known/oauth-protected-resource")) {
                 protectedResourceMetadata(exchange);
             } else if ("GET".equals(method) && "/oauth/authorize".equals(path)) {
@@ -167,12 +174,19 @@ public final class ChatGptConnectorServer {
     }
 
     private void protectedResourceMetadata(HttpExchange exchange) throws Exception {
+        String issuer = oauth.externalIssuer() != null
+                ? oauth.externalIssuer() : config.getPublicOrigin();
         JsonObject body = new JsonObject();
         body.addProperty("resource", config.getPublicOrigin() + "/");
-        body.add("authorization_servers", array(config.getPublicOrigin()));
+        body.add("authorization_servers", array(issuer));
         body.add("scopes_supported", array("mcp"));
         body.add("bearer_methods_supported", array("header"));
         sendJson(exchange, 200, body);
+    }
+
+    private void centralModeRefusal(HttpExchange exchange) throws Exception {
+        sendOAuthError(exchange, new OAuthError(404, "invalid_request",
+                "OAuth is handled by the central authorization server at " + oauth.externalIssuer()));
     }
 
     private void authorize(HttpExchange exchange) throws Exception {

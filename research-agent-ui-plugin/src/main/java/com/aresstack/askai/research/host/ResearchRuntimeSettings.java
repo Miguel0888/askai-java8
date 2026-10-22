@@ -424,6 +424,7 @@ public final class ResearchRuntimeSettings {
     static final String KEY_CONNECTOR_ORIGIN = KEY_CONNECTOR + ".publicOrigin";
     static final String KEY_CONNECTOR_CLIENT_ID = KEY_CONNECTOR + ".clientId";
     static final String KEY_CONNECTOR_CLIENT_SECRET = KEY_CONNECTOR + ".clientSecret";
+    static final String KEY_CONNECTOR_CENTRAL_ISSUER = KEY_CONNECTOR + ".centralIssuer";
     /** Pre-global legacy keys (may exist frozen in session scopes) — read-only migration fallback. */
     private static final String LEGACY_CONNECTOR = "research.runtime.chatgptConnector";
 
@@ -462,7 +463,8 @@ public final class ResearchRuntimeSettings {
                 store.get(KEY_CONNECTOR_CLIENT_ID,
                         store.get(LEGACY_CONNECTOR + ".clientId", "")),
                 store.get(KEY_CONNECTOR_CLIENT_SECRET,
-                        store.get(LEGACY_CONNECTOR + ".clientSecret", "")));
+                        store.get(LEGACY_CONNECTOR + ".clientSecret", "")),
+                store.get(KEY_CONNECTOR_CENTRAL_ISSUER, ""));
     }
 
     public static void saveChatGptConnectorSettings(WorkspaceStateStore store,
@@ -475,6 +477,7 @@ public final class ResearchRuntimeSettings {
         store.put(KEY_CONNECTOR_ORIGIN, settings.getPublicOrigin());
         store.put(KEY_CONNECTOR_CLIENT_ID, settings.getClientId());
         store.put(KEY_CONNECTOR_CLIENT_SECRET, settings.getClientSecret());
+        store.put(KEY_CONNECTOR_CENTRAL_ISSUER, settings.getCentralIssuer());
     }
 
     /** The typed ChatGPT-connector configuration (persisted; applies to NEW sessions). */
@@ -484,14 +487,22 @@ public final class ResearchRuntimeSettings {
         private final String publicOrigin;
         private final String clientId;
         private final String clientSecret;
+        /** Non-empty = CENTRAL mode: the AresStack webserver issues the tokens. */
+        private final String centralIssuer;
 
         public ChatGptConnectorSettings(boolean enabled, int port, String publicOrigin,
                                         String clientId, String clientSecret) {
+            this(enabled, port, publicOrigin, clientId, clientSecret, "");
+        }
+
+        public ChatGptConnectorSettings(boolean enabled, int port, String publicOrigin,
+                                        String clientId, String clientSecret, String centralIssuer) {
             this.enabled = enabled;
             this.port = port;
             this.publicOrigin = nullToEmpty(publicOrigin);
             this.clientId = nullToEmpty(clientId);
             this.clientSecret = nullToEmpty(clientSecret);
+            this.centralIssuer = nullToEmpty(centralIssuer);
         }
 
         public boolean isEnabled() { return enabled; }
@@ -499,6 +510,7 @@ public final class ResearchRuntimeSettings {
         public String getPublicOrigin() { return publicOrigin; }
         public String getClientId() { return clientId; }
         public String getClientSecret() { return clientSecret; }
+        public String getCentralIssuer() { return centralIssuer; }
     }
 
     static final String KEY_SEARCH_STRATEGY = "research.search.strategy";
