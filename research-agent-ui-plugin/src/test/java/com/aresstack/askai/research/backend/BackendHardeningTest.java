@@ -2,6 +2,7 @@ package com.aresstack.askai.research.backend;
 
 import com.aresstack.askai.research.state.ResearchCommandType;
 import com.aresstack.askai.research.state.oo.ResearchStateIds;
+import com.aresstack.askai.research.state.oo.ResearchStateMemento;
 
 import org.junit.Test;
 
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -102,30 +104,40 @@ public class BackendHardeningTest {
         // Creation is passive now: the first user question starts the run.
         backend.submitPrompt(handle, new ResearchPrompt("investigate pf4j", ""));
 
-        // Advance all the way to the FINAL approval gate, where "request changes" has no valid transition.
-        for (int i = 0; i < 6; i++) {
+        // #43: advance to the FINAL approval gate — Document ("draft") waiting_approval. In
+        // the 4-phase model every gate has a request-changes command, so a reject RETURNS to
+        // drafting instead of being a no-op; the gate machinery must survive that round trip.
+        String finalGateId = null;
+        for (int i = 0; i < 8; i++) {
             scheduler.runUntilIdle();
             ResearchBackendEvent approval = recorder.last(ResearchBackendEventType.APPROVAL_REQUESTED);
             assertNotNull("expected an approval gate", approval);
-            if (ResearchStateIds.FINALIZATION.equals(
-                    recorder.last(ResearchBackendEventType.SESSION_STATE_CHANGED)
-                            .getStateMemento().getPhaseId())) {
+            ResearchStateMemento m = recorder.last(ResearchBackendEventType.SESSION_STATE_CHANGED)
+                    .getStateMemento();
+            if (ResearchStateIds.DRAFT.equals(m.getPhaseId())
+                    && ResearchStateIds.WAITING_APPROVAL.equals(m.getStateId())) {
+                finalGateId = approval.getApprovalId();
                 break;
             }
             backend.approve(handle, approval.getApprovalId());
         }
-        ResearchBackendEvent finalApproval = recorder.last(ResearchBackendEventType.APPROVAL_REQUESTED);
-        assertEquals(ResearchStateIds.FINALIZATION,
-                recorder.last(ResearchBackendEventType.SESSION_STATE_CHANGED).getStateMemento().getPhaseId());
+        assertNotNull("expected to reach the Document approval gate", finalGateId);
 
-        // A reject here has no valid "request changes" command -> it must be a no-op, NOT mark the id processed.
-        backend.reject(handle, finalApproval.getApprovalId(), "nope");
+        // Reject → back to drafting; the fake then re-requests the review with a FRESH gate.
+        backend.reject(handle, finalGateId, "nope");
+        assertEquals(ResearchStateIds.RUNNING,
+                recorder.last(ResearchBackendEventType.SESSION_STATE_CHANGED)
+                        .getStateMemento().getStateId());
         scheduler.runUntilIdle();
+        ResearchBackendEvent reraised = recorder.last(ResearchBackendEventType.APPROVAL_REQUESTED);
+        assertNotNull(reraised);
+        assertFalse("a NEW approval id after the round trip", finalGateId.equals(
+                reraised.getApprovalId()));
 
-        // The same approval id is still pending and actionable: approving it completes the run.
-        backend.approve(handle, finalApproval.getApprovalId());
+        // The re-raised gate completes the run.
+        backend.approve(handle, reraised.getApprovalId());
         scheduler.runUntilIdle();
-        assertTrue("the gate must still be actionable after a no-op reject",
+        assertTrue("the gate must stay actionable after the reject round trip",
                 recorder.last(ResearchBackendEventType.COMPLETED) != null
                         || ResearchStateIds.COMPLETED.equals(
                         recorder.last(ResearchBackendEventType.SESSION_STATE_CHANGED)

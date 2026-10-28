@@ -58,6 +58,32 @@ public final class ConceptBranchService {
     private final FileConceptStore store;
     private final Map<String, Handle> handles = new HashMap<String, Handle>();
     private long handleCounter;
+
+    // ------------------------------------------------------------------ identity state (V3)
+    /** The current identity core — loaded/minted by the staged recovery, advanced per commit. */
+    private ConceptIdentity identity;
+    /** The confirmed document hash (manifest truth, memory-tracked) for the no-op check. */
+    private String confirmedDocumentHash;
+    /** Fail-closed: manifest AND backup invalid — the store is write-protected (V3 §7.4). */
+    private boolean failClosed;
+    private String failClosedReason;
+    private final java.util.List<String> pendingDiagnostics = new java.util.ArrayList<String>();
+    private DiagnosticSink diagnosticSink;
+    private LifecycleListener lifecycleListener;
+
+    /** Technical-log lines from identity recovery/migration (buffered until a sink exists). */
+    public interface DiagnosticSink {
+        void line(String line);
+    }
+
+    /**
+     * Fired INSIDE the mutation lock right after a commit that crossed a transient boundary
+     * (raw save, restore, degraded restore, legacy graft): the session discards conflicts,
+     * plans and UI handles before anything else can observe the new state (V3 §8a).
+     */
+    public interface LifecycleListener {
+        void onTransientBoundary(String reason, String newEpoch);
+    }
     /**
      * Observers of COMMITTED changes. The service is the ONE shared instance per session, so a
      * view that subscribes HERE is in sync by construction — no delegation chain (tool → context
@@ -69,6 +95,506 @@ public final class ConceptBranchService {
 
     public ConceptBranchService(FileConceptStore store) {
         this.store = store;
+        ensureIdentity();
+    }
+
+    /** Buffered recovery/migration diagnostics flush into the sink as soon as one exists. */
+    public synchronized void setDiagnosticSink(DiagnosticSink sink) {
+        this.diagnosticSink = sink;
+        if (sink != null) {
+            for (String line : pendingDiagnostics) {
+                sink.line(line);
+            }
+            pendingDiagnostics.clear();
+        }
+    }
+
+    public synchronized void setLifecycleListener(LifecycleListener listener) {
+        this.lifecycleListener = listener;
+    }
+
+    private void diagnostic(String line) {
+        if (diagnosticSink != null) {
+            diagnosticSink.line(line);
+        } else {
+            pendingDiagnostics.add(line);
+        }
+    }
+
+    private void transientBoundary(String reason, String newEpoch) {
+        diagnostic("concept identity -> transient boundary (" + reason + ", epoch "
+                + newEpoch + ")");
+        if (lifecycleListener != null) {
+            try {
+                lifecycleListener.onTransientBoundary(reason, newEpoch);
+            } catch (RuntimeException broken) {
+                // the boundary observer must never take the commit down
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ staged recovery (V3 §7)
+
+    /**
+     * Load-or-mint the identity for the store's confirmed state. Stages, never guessing:
+     * (1) working files off the manifest → self-heal from the confirmed history pair;
+     * (2) manifest-confirmed document without valid identity → mint (migration when the
+     * manifest is pre-identity, otherwise an explicit new epoch);
+     * (3) manifest corrupt → validated backup manifest;
+     * (4) both invalid → fail-closed, write-protected, recovery diagnosis.
+     */
+    private void ensureIdentity() {
+        FileConceptStore.Manifest manifest = store.manifest();
+        if (manifest == null) {
+            FileConceptStore.Manifest backup = store.backupManifest();
+            if (backup != null && backup.revision > 0 && confirmedDocumentOf(backup) != null) {
+                store.restoreManifestFromBackup();
+                diagnostic("concept identity -> manifest RESTORED FROM BACKUP (rev "
+                        + backup.revision + "; the last unconfirmed commit is lost by design)");
+                manifest = store.manifest();
+            } else {
+                failClosed = true;
+                failClosedReason = "RECOVERY REQUIRED — manifest and backup are invalid; the "
+                        + "concept store is write-protected (repair the files on disk)";
+                diagnostic("concept identity -> " + failClosedReason);
+                return;
+            }
+        }
+        if (manifest == null) { // backup restore raced/failed to parse — stay safe
+            failClosed = true;
+            failClosedReason = "RECOVERY REQUIRED — manifest unreadable after backup restore";
+            diagnostic("concept identity -> " + failClosedReason);
+            return;
+        }
+        for (Long orphan : store.orphanHistoryRevisions(manifest.revision)) {
+            diagnostic("concept identity -> orphan rev " + orphan + " ignored (uncommitted)");
+        }
+        if (manifest.revision == 0) {
+            // Fresh store: identity lives in memory until the first commit persists the pair.
+            identity = ConceptIdentity.mintFor(parseOrEmpty(store.effectiveContent()));
+            confirmedDocumentHash = null;
+            return;
+        }
+        String confirmedDocument = confirmedDocumentOf(manifest);
+        if (confirmedDocument == null) {
+            FileConceptStore.Manifest backup = store.backupManifest();
+            if (backup != null && backup.revision > 0 && backup.revision != manifest.revision
+                    && confirmedDocumentOf(backup) != null) {
+                store.restoreManifestFromBackup();
+                diagnostic("concept identity -> manifest FELL BACK TO BACKUP (rev "
+                        + backup.revision + "): rev " + manifest.revision
+                        + " has no confirmable document");
+                manifest = store.manifest();
+                confirmedDocument = manifest == null ? null : confirmedDocumentOf(manifest);
+            }
+            if (confirmedDocument == null || manifest == null) {
+                failClosed = true;
+                failClosedReason = "RECOVERY REQUIRED — no manifest-confirmed document exists; "
+                        + "the concept store is write-protected";
+                diagnostic("concept identity -> " + failClosedReason);
+                return;
+            }
+        }
+        if (!confirmedDocument.equals(store.rawWorkingContent())) {
+            store.publishWorking(confirmedDocument, null);
+            diagnostic("concept identity -> SELF-HEALED working document from history rev "
+                    + manifest.revision);
+        }
+        confirmedDocumentHash = manifest.documentHash;
+        com.google.gson.JsonElement documentRoot = parseOrEmpty(confirmedDocument);
+        ConceptIdentity candidate = validIdentity(store.workingIdentityContent(), manifest,
+                documentRoot);
+        if (candidate == null) {
+            String historical = store.identityHistoryContent(manifest.revision);
+            candidate = validIdentity(historical, manifest, documentRoot);
+            if (candidate != null) {
+                store.publishWorking(confirmedDocument, historical);
+                diagnostic("concept identity -> SELF-HEALED identity from history rev "
+                        + manifest.revision);
+            }
+        }
+        if (candidate != null) {
+            identity = candidate;
+            return;
+        }
+        // Mint over the CONFIRMED document only (never over an unconfirmed stand).
+        identity = ConceptIdentity.mintFor(documentRoot);
+        store.adoptIdentityForCurrentRevision(
+                identity.stampedJson(manifest.revision, manifest.documentHash),
+                FileConceptStore.sha256(identity.coreJson()), identity.epoch(),
+                System.currentTimeMillis());
+        diagnostic(manifest.epoch == null
+                ? "concept identity -> MIGRATED (epoch " + identity.epoch() + ", rev "
+                        + manifest.revision + ")"
+                : "concept identity -> NEW EPOCH " + identity.epoch()
+                        + " (reason: identity missing or invalid at rev "
+                        + manifest.revision + ")");
+    }
+
+    /** The manifest-confirmed document text: working file if it hashes right, else history. */
+    private String confirmedDocumentOf(FileConceptStore.Manifest manifest) {
+        String working = store.rawWorkingContent();
+        if (working != null && FileConceptStore.sha256(working).equals(manifest.documentHash)) {
+            return working;
+        }
+        String historical = store.workingHistoryContent(manifest.revision);
+        if (historical != null && FileConceptStore.sha256(historical).equals(manifest.documentHash)) {
+            return historical;
+        }
+        return null;
+    }
+
+    /** Full identity validation against manifest + confirmed document; null when invalid. */
+    private static ConceptIdentity validIdentity(String sidecarJson,
+                                                 FileConceptStore.Manifest manifest,
+                                                 com.google.gson.JsonElement documentRoot) {
+        if (sidecarJson == null) {
+            return null;
+        }
+        ConceptIdentity parsed = ConceptIdentity.parse(sidecarJson);
+        if (parsed == null || parsed.stampedRevision() != manifest.revision
+                || !manifest.documentHash.equals(parsed.stampedDocumentHash())
+                || (manifest.epoch != null && !manifest.epoch.equals(parsed.epoch()))
+                || (manifest.identityCoreHash != null
+                        && !manifest.identityCoreHash.equals(
+                                FileConceptStore.sha256(parsed.coreJson())))
+                || !parsed.matchesShape(documentRoot)) {
+            return null;
+        }
+        return parsed;
+    }
+
+    private static com.google.gson.JsonElement parseOrEmpty(String documentJson) {
+        try {
+            return com.google.gson.JsonParser.parseString(documentJson);
+        } catch (RuntimeException broken) {
+            return com.google.gson.JsonParser.parseString(FileConceptStore.EMPTY_DOCUMENT);
+        }
+    }
+
+    /** The current identity epoch (never null after construction unless fail-closed). */
+    public synchronized String currentEpoch() {
+        return identity == null ? null : identity.epoch();
+    }
+
+    /** The stable node id of the card at {@code names}, or {@code null}. */
+    public synchronized String nodeIdAtPath(List<String> names) {
+        return identity == null ? null
+                : identity.idAtPath(parseOrEmpty(store.effectiveContent()), names);
+    }
+
+    /** The CURRENT name path of the card carrying {@code nodeId}, or {@code null} (gone). */
+    public synchronized List<String> pathOfNodeId(String nodeId) {
+        return identity == null ? null
+                : identity.pathOfId(parseOrEmpty(store.effectiveContent()), nodeId);
+    }
+
+    /** All positive concept node ids (novelty window: renames/moves mint none). */
+    public synchronized java.util.List<String> allNodeIds() {
+        return identity == null ? java.util.Collections.<String>emptyList()
+                : identity.allIds();
+    }
+
+    /** Fail-closed state (manifest and backup invalid): every write is refused. */
+    public synchronized boolean isFailClosed() {
+        return failClosed;
+    }
+
+    // --------------------------------------------------- ID-based adapters (tree-editor UI)
+    //
+    // The tree editor's writing gestures carry (epoch, nodeId) — never a render-time path
+    // (GPT's tree-editor ruling: an agent commit between render and click must not make an
+    // old path hit a DIFFERENT card, and a stale epoch aborts instead of guessing). The path
+    // resolves HERE, inside the same synchronized call that executes the operation — id
+    // resolution and mutation are one atomic step.
+
+    /**
+     * Insert {@code names} (empty leaves, list order kept) into the parent level's FLAT card
+     * sequence: before {@code anchorName}'s property inside ITS container (order-preserving
+     * container rebuild, the renameNode technique), or at the TRUE flat end ({@code null}
+     * anchor = the LAST container; containers stay invisible storage, never order).
+     */
+    private static void insertCards(JsonArray parentArray, List<String> names,
+                                    String anchorName) {
+        List<JsonElement> values = new ArrayList<JsonElement>();
+        for (int index = 0; index < names.size(); index++) {
+            values.add(new JsonArray());
+        }
+        insertCardValues(parentArray, names, values, anchorName);
+    }
+
+    /** The one positional writer: named cards WITH their values land before the anchor's
+     *  property (order-preserving container rebuild) or at the TRUE flat end (last container). */
+    private static void insertCardValues(JsonArray parentArray, List<String> names,
+                                         List<JsonElement> cardValues, String anchorName) {
+        if (anchorName == null) {
+            JsonObject last = null;
+            for (JsonElement element : parentArray) {
+                if (element.isJsonObject()) {
+                    last = element.getAsJsonObject();
+                }
+            }
+            if (last == null) {
+                last = new JsonObject();
+                parentArray.add(last);
+            }
+            for (int index = 0; index < names.size(); index++) {
+                last.add(names.get(index), cardValues.get(index));
+            }
+            return;
+        }
+        for (JsonElement element : parentArray) {
+            if (!element.isJsonObject() || !element.getAsJsonObject().has(anchorName)) {
+                continue;
+            }
+            JsonObject owner = element.getAsJsonObject();
+            List<String> keys = new ArrayList<String>();
+            List<JsonElement> values = new ArrayList<JsonElement>();
+            for (Map.Entry<String, JsonElement> entry : owner.entrySet()) {
+                keys.add(entry.getKey());
+                values.add(entry.getValue());
+            }
+            for (String key : keys) {
+                owner.remove(key);
+            }
+            for (int index = 0; index < keys.size(); index++) {
+                if (keys.get(index).equals(anchorName)) {
+                    for (int card = 0; card < names.size(); card++) {
+                        owner.add(names.get(card), cardValues.get(card));
+                    }
+                }
+                owner.add(keys.get(index), values.get(index));
+            }
+            return;
+        }
+    }
+
+    /** The parent level's FLAT card-name sequence (containers are storage, never order). */
+    private static List<String> flatCardNames(JsonArray parentArray) {
+        List<String> names = new ArrayList<String>();
+        for (JsonElement element : parentArray) {
+            if (!element.isJsonObject()) {
+                continue;
+            }
+            for (Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
+                if (entry.getValue().isJsonArray()) {
+                    names.add(entry.getKey());
+                }
+            }
+        }
+        return names;
+    }
+
+    /** Resolve an (epoch, nodeId) reference to the CURRENT path, or set a refusal. */
+    private List<String> resolveById(String epoch, String nodeId) {
+        idResolveError = null;
+        if (failClosed) {
+            idResolveError = failClosedError().getDiagnostic();
+            return null;
+        }
+        if (identity == null || epoch == null || !epoch.equals(identity.epoch())) {
+            idResolveError = JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "The document state changed (identity epoch differs) — the action was "
+                            + "aborted; nothing was modified. Reload the view and retry.")
+                    .build();
+            return null;
+        }
+        List<String> path = identity.pathOfId(parseOrEmpty(store.effectiveContent()), nodeId);
+        if (path == null) {
+            idResolveError = JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                    "The card no longer exists — nothing was modified.").build();
+        }
+        return path;
+    }
+
+    /**
+     * The RATIFIED positional leaf move (slice B, UI path): everything resolves by
+     * (epoch, nodeId) under THIS lock, and {@code insertBeforeNodeId} targets the POST-IMAGE —
+     * the source leaves the sibling sequence first, then the anchor is located in the
+     * remaining sequence and the source lands immediately before it ({@code null} = the true
+     * flat end). Same-parent reorders are legal single-revision moves; the ratified NO_CHANGE
+     * cases (source==anchor, already directly before the anchor, already last with a null
+     * anchor) commit nothing. {@code targetParent == source} is INVALID_TARGET. The MODEL path
+     * ({@link #moveLeaf}) deliberately keeps its accepted PRESENCE semantics — a spoken
+     * "verschiebe X unter Y" names no position, so "already under Y" stays ALREADY_AT_TARGET.
+     */
+    public synchronized MoveLeafResult moveLeafById(String epoch, String sourceNodeId,
+                                                    String targetParentNodeId,
+                                                    String insertBeforeNodeId) {
+        List<String> sourcePath = resolveById(epoch, sourceNodeId);
+        if (sourcePath == null) {
+            return moveError(idResolveError);
+        }
+        if (sourceNodeId.equals(targetParentNodeId)) {
+            return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "INVALID_TARGET — a card cannot become its own parent; nothing was "
+                            + "moved.").build());
+        }
+        String document = store.effectiveContent();
+        StrictJsonParseResult parsed = StrictJsonParser.parse(document);
+        if (!parsed.isOk()) {
+            return moveError(parsed.getDiagnostic());
+        }
+        String label = sourcePath.get(sourcePath.size() - 1);
+        if (!isLeafShape(parsed.getElement(), sourcePath)) {
+            return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "SOURCE_NOT_LEAF \"" + label + "\" — only a LEAF moves with this tool; "
+                            + "branches stay manual editor work.").build());
+        }
+        List<String> targetPath;
+        if (targetParentNodeId == null) {
+            targetPath = java.util.Collections.emptyList();
+        } else {
+            targetPath = identity.pathOfId(parsed.getElement(), targetParentNodeId);
+            if (targetPath == null) {
+                return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                        "TARGET_PARENT_NOT_FOUND — the target parent no longer exists; "
+                                + "nothing was moved.").build());
+            }
+        }
+        String anchorName = null;
+        if (insertBeforeNodeId != null) {
+            if (insertBeforeNodeId.equals(sourceNodeId)) {
+                // Ratified: moving before yourself is the position you already occupy.
+                return new MoveLeafResult(true, true, store.workingRevision(), label,
+                        new ArrayList<String>(sourcePath), new ArrayList<String>(sourcePath),
+                        sourceNodeId, null);
+            }
+            List<String> anchorPath =
+                    identity.pathOfId(parsed.getElement(), insertBeforeNodeId);
+            if (anchorPath == null) {
+                return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                        "INSERT_ANCHOR_NOT_FOUND — the neighbour card no longer exists; "
+                                + "nothing was moved.").build());
+            }
+            if (!anchorPath.subList(0, anchorPath.size() - 1).equals(targetPath)) {
+                return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                        "ANCHOR_NOT_IN_TARGET — the neighbour card is not a direct child of "
+                                + "the target parent anymore; nothing was moved.").build());
+            }
+            anchorName = anchorPath.get(anchorPath.size() - 1);
+        }
+        List<String> currentParent = sourcePath.subList(0, sourcePath.size() - 1);
+        boolean sameParent = currentParent.equals(targetPath);
+        Resolution sourceResolution = resolve(parsed.getElement(), sourcePath);
+        if (sourceResolution.diagnostic != null) {
+            return moveError(sourceResolution.diagnostic);
+        }
+        JsonElement candidate = parsed.getElement().deepCopy();
+        JsonArray targetArray;
+        if (targetPath.isEmpty()) {
+            targetArray = candidate.getAsJsonObject().get(CONCEPT_PROPERTY).getAsJsonArray();
+        } else {
+            Resolution targetResolution = resolve(parsed.getElement(), targetPath);
+            if (targetResolution.diagnostic != null) {
+                return moveError(targetResolution.diagnostic);
+            }
+            targetArray = arrayAt(candidate, targetResolution.path);
+            if (targetArray == null) {
+                return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                        "TARGET_PARENT_NOT_FOUND " + targetPath + ".").build());
+            }
+        }
+        if (sameParent) {
+            // The ratified NO_CHANGE pins, judged on the POST-IMAGE outcome.
+            List<String> sequence = flatCardNames(targetArray);
+            int at = sequence.indexOf(label);
+            boolean unchanged = anchorName == null
+                    ? at == sequence.size() - 1
+                    : at >= 0 && at + 1 < sequence.size()
+                            && sequence.get(at + 1).equals(anchorName);
+            if (unchanged) {
+                return new MoveLeafResult(true, true, store.workingRevision(), label,
+                        new ArrayList<String>(sourcePath), new ArrayList<String>(sourcePath),
+                        sourceNodeId, null);
+            }
+        } else {
+            for (JsonElement element : targetArray) {
+                if (element.isJsonObject() && element.getAsJsonObject().has(label)) {
+                    return moveError(JsonTreeDiagnostic.of(
+                            JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                            "TARGET_NAME_COLLISION \"" + label + "\" — a different card "
+                                    + "with this name already sits at the target; nothing "
+                                    + "was merged or overwritten.").build());
+                }
+            }
+        }
+        // POST-IMAGE algorithm: detach first, then place before the anchor in what remains.
+        JsonElement leafValue = valueAt(candidate, sourceResolution.path);
+        JsonTreeDiagnostic removal = removeAt(candidate, sourceResolution.path);
+        if (removal != null) {
+            return moveError(removal);
+        }
+        insertCardValues(targetArray, java.util.Collections.singletonList(label),
+                java.util.Collections.singletonList(
+                        leafValue == null ? (JsonElement) new JsonArray() : leafValue),
+                anchorName);
+        List<String> newPath = new ArrayList<String>(targetPath);
+        newPath.add(label);
+        ConceptIdentity identityAfter = identity.afterMoveLeaf(parsed.getElement(), sourcePath,
+                candidate, newPath);
+        EditResult committed = commitCandidate(candidate, identityAfter, null);
+        if (!committed.isApplied()) {
+            return moveError(committed.getDiagnostic());
+        }
+        return new MoveLeafResult(true, false, committed.getNewRevision(), label,
+                new ArrayList<String>(sourcePath), newPath, sourceNodeId, null);
+    }
+
+    private JsonTreeDiagnostic idResolveError;
+
+    public synchronized EditResult renameNodeById(String epoch, String nodeId, String newName) {
+        List<String> path = resolveById(epoch, nodeId);
+        return path == null ? editError(idResolveError) : renameNode(path, newName);
+    }
+
+    /** The guarded delete (leaf/terminal) by identity. */
+    public synchronized EditResult deleteTerminalBranchById(String epoch, String nodeId) {
+        List<String> path = resolveById(epoch, nodeId);
+        return path == null ? editError(idResolveError) : deleteTerminalBranch(path);
+    }
+
+    /** The DEEP removal by identity — the confirmed tree-editor branch delete. */
+    public synchronized EditResult removeNodeById(String epoch, String nodeId) {
+        List<String> path = resolveById(epoch, nodeId);
+        return path == null ? editError(idResolveError) : removeNodeAt(path);
+    }
+
+    /** The atomic list add under an identity ({@code parentNodeId == null} = the top level). */
+    public synchronized AddCardsResult addCardsUnderId(String epoch, String parentNodeId,
+                                                       List<String> names) {
+        return addCardsUnderId(epoch, parentNodeId, names, null);
+    }
+
+    /** As above with the ratified {@code insertBeforeNodeId} position (null = flat end). */
+    public synchronized AddCardsResult addCardsUnderId(String epoch, String parentNodeId,
+                                                       List<String> names,
+                                                       String insertBeforeNodeId) {
+        List<String> parentPath;
+        if (parentNodeId == null) {
+            // Root has no node id; the epoch check alone guards the state.
+            if (failClosed || identity == null || epoch == null
+                    || !epoch.equals(identity.epoch())) {
+                resolveById(epoch, "-"); // sets the honest refusal
+                return new AddCardsResult(false, -1L,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList(), null, idResolveError);
+            }
+            parentPath = java.util.Collections.emptyList();
+        } else {
+            parentPath = resolveById(epoch, parentNodeId);
+            if (parentPath == null) {
+                return new AddCardsResult(false, -1L,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList(), null, idResolveError);
+            }
+        }
+        return addCards(parentPath, names, insertBeforeNodeId);
+    }
+
+    private EditResult failClosedError() {
+        return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.CANDIDATE_DOCUMENT_INVALID,
+                failClosedReason == null ? "RECOVERY REQUIRED" : failClosedReason).build());
     }
 
     /** Subscribe to committed changes (addIfAbsent — re-registering on re-show is safe). */
@@ -196,10 +722,16 @@ public final class ConceptBranchService {
     public static final class DocumentSnapshot {
         private final String documentJson;
         private final long workingRevision;
+        private final String recoveryNotice;
 
         DocumentSnapshot(String documentJson, long workingRevision) {
+            this(documentJson, workingRevision, null);
+        }
+
+        DocumentSnapshot(String documentJson, long workingRevision, String recoveryNotice) {
             this.documentJson = documentJson;
             this.workingRevision = workingRevision;
+            this.recoveryNotice = recoveryNotice;
         }
 
         public String getDocumentJson() {
@@ -209,6 +741,11 @@ public final class ConceptBranchService {
         public long getWorkingRevision() {
             return workingRevision;
         }
+
+        /** Non-null in fail-closed recovery: the document is an UNCONFIRMED preview. */
+        public String getRecoveryNotice() {
+            return recoveryNotice;
+        }
     }
 
     /**
@@ -216,7 +753,8 @@ public final class ConceptBranchService {
      * JSON view, revision label) from one snapshot — never mixing revision N's tree with N+1's text.
      */
     public synchronized DocumentSnapshot snapshot() {
-        return new DocumentSnapshot(store.effectiveContent(), store.workingRevision());
+        return new DocumentSnapshot(store.effectiveContent(), store.workingRevision(),
+                failClosed ? failClosedReason : null);
     }
 
     /**
@@ -226,6 +764,11 @@ public final class ConceptBranchService {
      * read-only orientation handle.
      */
     public synchronized ReadResult readBranch(List<String> names, int depth) {
+        if (failClosed) {
+            // The unconfirmed preview must never GROUND model work (V3 ratification note).
+            return error(JsonTreeDiagnostic.of(JsonTreeErrorCode.CANDIDATE_DOCUMENT_INVALID,
+                    failClosedReason == null ? "RECOVERY REQUIRED" : failClosedReason).build());
+        }
         pruneExpiredHandles();
         String document = store.effectiveContent();
         StrictJsonParseResult parsed = StrictJsonParser.parse(document);
@@ -250,6 +793,128 @@ public final class ConceptBranchService {
         handles.put(handleId, new Handle(resolution.path, store.workingRevision(), editable));
         return new ReadResult(handleId, store.workingRevision(), branchJson,
                 resolution.parentName, resolution.siblingNames, editable, null);
+    }
+
+    // ------------------------------------------------------------------ manual whole-document edit
+
+    /**
+     * Replace the WHOLE working document — the user's raw-JSON edit in the concept tab (the
+     * Zielbild raw mode). The same discipline as every other write: STRICT parse (a diagnostic
+     * names line/column, never creative repair), envelope check ({@code concept} must be an
+     * ARRAY), compare-and-swap against {@code expectedRevision} (a concurrent agent edit wins,
+     * the user reloads), then the text is Gson-pretty-printed and committed atomically. Invalid
+     * input never reaches the store.
+     */
+    public synchronized EditResult replaceDocument(String documentJson, long expectedRevision) {
+        if (failClosed) {
+            return failClosedError();
+        }
+        long currentRevision = store.workingRevision();
+        if (expectedRevision != currentRevision) {
+            return editError(stale(expectedRevision, currentRevision));
+        }
+        StrictJsonParseResult parsed = StrictJsonParser.parse(
+                documentJson == null ? "" : documentJson);
+        if (!parsed.isOk()) {
+            return editError(parsed.getDiagnostic());
+        }
+        com.google.gson.JsonElement root;
+        try {
+            root = com.google.gson.JsonParser.parseString(documentJson);
+        } catch (RuntimeException impossible) {
+            // The strict parse above accepted it; Gson is more lenient — this cannot happen.
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.JSON_SYNTAX_ERROR,
+                    "The document could not be re-read: " + impossible.getMessage()).build());
+        }
+        if (!root.isJsonObject() || !root.getAsJsonObject().has(CONCEPT_PROPERTY)
+                || !root.getAsJsonObject().get(CONCEPT_PROPERTY).isJsonArray()) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.CANDIDATE_DOCUMENT_INVALID,
+                    "The document envelope needs a \"" + CONCEPT_PROPERTY + "\" ARRAY at the "
+                            + "top level ({\"title\":\"\",\"subtitle\":\"\",\"concept\":[...]}).")
+                    .hint("Keep the envelope and edit inside the concept array.")
+                    .build());
+        }
+        String pretty = new com.google.gson.GsonBuilder().setPrettyPrinting()
+                .disableHtmlEscaping().create().toJson(root);
+        // V3 §8: a dirty raw save ALWAYS opens a new identity epoch — fresh UUIDs for every
+        // node, never a no-op (even when the user typed their way back to the same JSON), and
+        // the transient boundary fires before anything can observe the new state.
+        ConceptIdentity fresh = ConceptIdentity.mintFor(root);
+        String documentHash = FileConceptStore.sha256(pretty);
+        long newRevision = store.commitPair(pretty,
+                fresh.stampedJson(store.workingRevision() + 1, documentHash),
+                FileConceptStore.sha256(fresh.coreJson()), fresh.epoch(),
+                System.currentTimeMillis());
+        identity = fresh;
+        confirmedDocumentHash = documentHash;
+        transientBoundary("raw-save", fresh.epoch());
+        notifyChanged();
+        return new EditResult(true, newRevision, null);
+    }
+
+    /**
+     * Restore an earlier working revision as the NEW head (V3 §5) — the concept editor's
+     * ◀▶-browse Save on an UNCHANGED historical text. The historical document/identity pair is
+     * validated against each other, the identity CORE (epoch, UUIDs, tree) is taken over, and
+     * the pair is re-stamped as revision N+1 — a historical epoch can become current again.
+     * The historical files stay byte-identical. A pre-identity revision degrades explicitly to
+     * raw-save semantics (fresh epoch), never to silent reconstruction.
+     */
+    public synchronized EditResult restoreRevision(long revision) {
+        if (failClosed) {
+            return failClosedError();
+        }
+        String document = store.workingHistoryContent(revision);
+        if (document == null) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                    "No stored history for working revision " + revision + ".").build());
+        }
+        String documentHash = FileConceptStore.sha256(document);
+        String identityJson = store.identityHistoryContent(revision);
+        JsonElement root = parseOrEmpty(document);
+        if (identityJson == null) {
+            ConceptIdentity fresh = ConceptIdentity.mintFor(root);
+            long newRevision = store.commitPair(document,
+                    fresh.stampedJson(store.workingRevision() + 1, documentHash),
+                    FileConceptStore.sha256(fresh.coreJson()), fresh.epoch(),
+                    System.currentTimeMillis());
+            identity = fresh;
+            confirmedDocumentHash = documentHash;
+            diagnostic("concept identity -> restore rev " + revision
+                    + " DEGRADED to a fresh epoch (pre-identity revision)");
+            transientBoundary("restore-degraded", fresh.epoch());
+            notifyChanged();
+            return new EditResult(true, newRevision, null);
+        }
+        ConceptIdentity restored = ConceptIdentity.parse(identityJson);
+        if (restored == null || restored.stampedRevision() != revision
+                || !documentHash.equals(restored.stampedDocumentHash())
+                || !restored.matchesShape(root)) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.CANDIDATE_DOCUMENT_INVALID,
+                    "The historical document/identity pair of revision " + revision
+                            + " does not validate — restore refused.").build());
+        }
+        if (identity != null && documentHash.equals(confirmedDocumentHash)
+                && restored.epoch().equals(identity.epoch())
+                && restored.coreJson().equals(identity.coreJson())) {
+            return new EditResult(true, store.workingRevision(), null); // restoring the head
+        }
+        long newRevision = store.commitPair(document,
+                restored.stampedJson(store.workingRevision() + 1, documentHash),
+                FileConceptStore.sha256(restored.coreJson()), restored.epoch(),
+                System.currentTimeMillis());
+        identity = restored;
+        confirmedDocumentHash = documentHash;
+        diagnostic("concept identity -> RESTORED rev " + revision + " as head rev "
+                + newRevision + " (epoch " + restored.epoch() + ")");
+        transientBoundary("restore", restored.epoch());
+        notifyChanged();
+        return new EditResult(true, newRevision, null);
+    }
+
+    /** The document at an earlier WORKING revision, or {@code null} (pre-history commits). */
+    public synchronized String workingHistoryContent(long revision) {
+        return store.workingHistoryContent(revision);
     }
 
     // ------------------------------------------------------------------ update
@@ -290,8 +955,24 @@ public final class ConceptBranchService {
         if (!result.isCommitted()) {
             return editError(result.getDiagnostic());
         }
-        long newRevision = store.commitWorking(result.getDocumentJson(),
+        if (failClosed) {
+            return failClosedError();
+        }
+        String documentHash = FileConceptStore.sha256(result.getDocumentJson());
+        if (documentHash.equals(confirmedDocumentHash)) {
+            return new EditResult(true, currentRevision, null); // no-op graft, identity kept
+        }
+        // LEGACY graft: an arbitrary structural rewrite cannot be mapped onto stable identity
+        // per-operation, and V3 forbids heuristic reuse — so a real graft cuts a NEW epoch.
+        // Not model-reachable (no concept_update tool); only old tests and future host paths.
+        ConceptIdentity fresh = ConceptIdentity.mintFor(parseOrEmpty(result.getDocumentJson()));
+        long newRevision = store.commitPair(result.getDocumentJson(),
+                fresh.stampedJson(store.workingRevision() + 1, documentHash),
+                FileConceptStore.sha256(fresh.coreJson()), fresh.epoch(),
                 System.currentTimeMillis());
+        identity = fresh;
+        confirmedDocumentHash = documentHash;
+        transientBoundary("legacy-graft", fresh.epoch());
         notifyChanged();
         return new EditResult(true, newRevision, null);
     }
@@ -306,6 +987,9 @@ public final class ConceptBranchService {
 
     /** Add one new EMPTY card under the parent path (empty parent = the concept root). */
     public synchronized EditResult addNode(List<String> parentNames, String name) {
+        if (failClosed) {
+            return failClosedError();
+        }
         String cardName = name == null ? "" : name.trim();
         if (cardName.isEmpty()) {
             return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
@@ -352,11 +1036,537 @@ public final class ConceptBranchService {
             parentArray.add(container);
         }
         container.add(cardName, new JsonArray());
-        return commitCandidate(candidate);
+        List<String> cardPath = new ArrayList<String>(
+                parentNames == null ? java.util.Collections.<String>emptyList() : parentNames);
+        cardPath.add(cardName);
+        return commitCandidate(candidate, identity.afterAdd(candidate, cardPath), null);
+    }
+
+    /** Outcome of the atomic list add: what was added, what already sat there, one revision. */
+    public static final class AddCardsResult {
+        private final boolean applied;
+        private final long newRevision;
+        private final List<String> added;
+        private final List<String> alreadyPresent;
+        private final String createdParent;
+        private final JsonTreeDiagnostic diagnostic;
+
+        private AddCardsResult(boolean applied, long newRevision, List<String> added,
+                               List<String> alreadyPresent, String createdParent,
+                               JsonTreeDiagnostic diagnostic) {
+            this.applied = applied;
+            this.newRevision = newRevision;
+            this.added = added;
+            this.alreadyPresent = alreadyPresent;
+            this.createdParent = createdParent;
+            this.diagnostic = diagnostic;
+        }
+
+        /** The ONE missing terminal parent created with its cards, or {@code null}. */
+        public String getCreatedParent() {
+            return createdParent;
+        }
+
+        public boolean isApplied() {
+            return applied;
+        }
+
+        public long getNewRevision() {
+            return newRevision;
+        }
+
+        public List<String> getAdded() {
+            return added;
+        }
+
+        public List<String> getAlreadyPresent() {
+            return alreadyPresent;
+        }
+
+        public JsonTreeDiagnostic getDiagnostic() {
+            return diagnostic;
+        }
+    }
+
+    /**
+     * The ATOMIC list add (add_cards slice): every genuinely new card of {@code names} appears
+     * under the ONE resolved parent in a single commit — all together or none at all. In-list
+     * duplicates collapse (order kept), existing siblings come back as ALREADY_PRESENT
+     * (idempotent: repeating the same list is a no-op without a revision bump), a missing or
+     * unresolvable parent rejects the WHOLE operation without any mutation. Multi-word names
+     * ("Computer Science") are single names by construction — the list is typed, the host
+     * never splits on spaces. Each new card mints one UUID in the shared identity candidate.
+     */
+    public synchronized AddCardsResult addCards(List<String> parentNames, List<String> names) {
+        return addCards(parentNames, names, null);
+    }
+
+    /**
+     * As {@link #addCards(List, List)} with the RATIFIED position semantics:
+     * {@code insertBeforeNodeId} is the stable neighbour reference — the new cards land
+     * immediately BEFORE that card in the parent's FLAT card sequence (containers are storage,
+     * never order); {@code null} appends at the TRUE flat end (deliberate correction: appends
+     * used to land at the end of the FIRST container, which is not the flat end on
+     * multi-container levels). The anchor resolves under THIS lock and must be a direct child
+     * of the target parent — otherwise the WHOLE call rejects without mutation.
+     */
+    public synchronized AddCardsResult addCards(List<String> parentNames, List<String> names,
+                                                String insertBeforeNodeId) {
+        if (failClosed) {
+            EditResult refused = failClosedError();
+            return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(), null, refused.getDiagnostic());
+        }
+        java.util.LinkedHashSet<String> cleaned = new java.util.LinkedHashSet<String>();
+        for (String name : names == null ? java.util.Collections.<String>emptyList() : names) {
+            String card = name == null ? "" : name.trim();
+            if (!card.isEmpty()) {
+                cleaned.add(card);
+            }
+        }
+        if (cleaned.isEmpty()) {
+            return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(), null,
+                    JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                            "add_cards needs at least one non-empty card name.").build());
+        }
+        String document = store.effectiveContent();
+        StrictJsonParseResult parsed = StrictJsonParser.parse(document);
+        if (!parsed.isOk()) {
+            return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(), null, parsed.getDiagnostic());
+        }
+        // Parent semantics (add_cards gate corrections): a full path resolves as always; a
+        // SINGLE segment additionally resolves as a globally UNIQUE exact card name (the small
+        // model addresses "Architektur", not a path chain); and the ONE missing TERMINAL
+        // parent — explicitly asked for or plausibly derived, like the book's core topic on
+        // the first turn — is created together with its cards in the SAME atomic revision.
+        // Deeper missing chains and ambiguous names reject the WHOLE call without mutation.
+        JsonElement candidate = parsed.getElement().deepCopy();
+        List<String> trimmedParent = new ArrayList<String>();
+        for (String segment : parentNames == null
+                ? java.util.Collections.<String>emptyList() : parentNames) {
+            String value = segment == null ? "" : segment.trim();
+            if (!value.isEmpty()) {
+                trimmedParent.add(value);
+            }
+        }
+        List<String> effectiveParent = trimmedParent;
+        String createdParent = null;
+        JsonArray parentArray = null;
+        Resolution resolution = resolve(parsed.getElement(), effectiveParent);
+        if (resolution.diagnostic == null) {
+            parentArray = arrayAt(candidate, resolution.path);
+        } else if (effectiveParent.size() == 1) {
+            String shortName = effectiveParent.get(0);
+            List<List<String>> matches = new ArrayList<List<String>>();
+            for (List<String> path : ConceptTopicScanner.collectCardPaths(document)) {
+                if (path.get(path.size() - 1).equals(shortName)) {
+                    matches.add(path);
+                }
+            }
+            if (matches.size() > 1) {
+                StringBuilder candidates = new StringBuilder();
+                for (List<String> match : matches) {
+                    candidates.append(candidates.length() > 0 ? ", " : "").append(match);
+                }
+                return new AddCardsResult(false, -1L,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList(), null,
+                        JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                                "AMBIGUOUS_PARENT \"" + shortName + "\" — candidates: "
+                                        + candidates + ".")
+                                .hint("Use the full path to the intended parent.")
+                                .build());
+            }
+            if (matches.size() == 1) {
+                effectiveParent = matches.get(0);
+                Resolution unique = resolve(parsed.getElement(), effectiveParent);
+                parentArray = unique.diagnostic == null
+                        ? arrayAt(candidate, unique.path) : null;
+            } else {
+                // No such card anywhere: create the ONE missing terminal parent at the root.
+                JsonArray root = candidate.getAsJsonObject()
+                        .get(CONCEPT_PROPERTY).getAsJsonArray();
+                JsonObject rootContainer = null;
+                for (JsonElement element : root) {
+                    if (element.isJsonObject()) {
+                        rootContainer = element.getAsJsonObject();
+                        break;
+                    }
+                }
+                if (rootContainer == null) {
+                    rootContainer = new JsonObject();
+                    root.add(rootContainer);
+                }
+                parentArray = new JsonArray();
+                rootContainer.add(shortName, parentArray);
+                createdParent = shortName;
+            }
+        } else if (effectiveParent.size() > 1) {
+            List<String> prefix = effectiveParent.subList(0, effectiveParent.size() - 1);
+            String terminal = effectiveParent.get(effectiveParent.size() - 1);
+            Resolution prefixResolution = resolve(parsed.getElement(), prefix);
+            if (prefixResolution.diagnostic != null) {
+                // Never silently create a deep chain — only the ONE terminal parent may.
+                return new AddCardsResult(false, -1L,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList(), null,
+                        resolution.diagnostic);
+            }
+            JsonArray prefixArray = arrayAt(candidate, prefixResolution.path);
+            if (prefixArray != null) {
+                JsonObject prefixContainer = null;
+                for (JsonElement element : prefixArray) {
+                    if (element.isJsonObject()) {
+                        prefixContainer = element.getAsJsonObject();
+                        break;
+                    }
+                }
+                if (prefixContainer == null) {
+                    prefixContainer = new JsonObject();
+                    prefixArray.add(prefixContainer);
+                }
+                parentArray = new JsonArray();
+                prefixContainer.add(terminal, parentArray);
+                createdParent = terminal;
+            }
+        }
+        if (parentArray == null) {
+            return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(), null,
+                    resolution.diagnostic != null ? resolution.diagnostic
+                            : JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                                    "The parent no longer exists.").build());
+        }
+        // Resolve the ratified anchor BEFORE any mutation: it must be a DIRECT child of the
+        // target parent right now, or the whole call rejects.
+        String anchorName = null;
+        if (insertBeforeNodeId != null) {
+            List<String> anchorPath = identity == null ? null
+                    : identity.pathOfId(parsed.getElement(), insertBeforeNodeId);
+            if (anchorPath == null) {
+                return new AddCardsResult(false, -1L,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList(), null,
+                        JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                                "INSERT_ANCHOR_NOT_FOUND — the neighbour card no longer "
+                                        + "exists; nothing was inserted.").build());
+            }
+            List<String> anchorParent = anchorPath.subList(0, anchorPath.size() - 1);
+            if (createdParent != null || !anchorParent.equals(effectiveParent)) {
+                return new AddCardsResult(false, -1L,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList(), null,
+                        JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                                "ANCHOR_NOT_IN_TARGET — the neighbour card is not a direct "
+                                        + "child of the target parent anymore; nothing was "
+                                        + "inserted.").build());
+            }
+            anchorName = anchorPath.get(anchorPath.size() - 1);
+        }
+        List<String> added = new ArrayList<String>();
+        List<String> alreadyPresent = new ArrayList<String>();
+        List<String> toInsert = new ArrayList<String>();
+        for (String card : cleaned) {
+            boolean exists = false;
+            for (JsonElement element : parentArray) {
+                if (element.isJsonObject() && element.getAsJsonObject().has(card)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (exists) {
+                alreadyPresent.add(card);
+            } else {
+                toInsert.add(card);
+            }
+        }
+        if (!toInsert.isEmpty()) {
+            insertCards(parentArray, toInsert, anchorName);
+            added.addAll(toInsert);
+        }
+        if (added.isEmpty() && createdParent == null) {
+            // Idempotent repeat: nothing new, no commit, no revision bump (receipt: NO_CHANGE).
+            return new AddCardsResult(true, store.workingRevision(), added, alreadyPresent,
+                    null, null);
+        }
+        ConceptIdentity identityAfter = identity;
+        if (createdParent != null) {
+            // The created parent mints its identity node first; the children hang below it.
+            identityAfter = identityAfter.afterAdd(candidate, effectiveParent);
+        }
+        for (String card : added) {
+            List<String> cardPath = new ArrayList<String>(effectiveParent);
+            cardPath.add(card);
+            identityAfter = identityAfter.afterAdd(candidate, cardPath);
+        }
+        EditResult committed = commitCandidate(candidate, identityAfter, null);
+        if (!committed.isApplied()) {
+            return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(), null,
+                    committed.getDiagnostic());
+        }
+        return new AddCardsResult(true, committed.getNewRevision(), added, alreadyPresent,
+                createdParent, null);
+    }
+
+    /** Outcome of a leaf move: the receipt facts, or NO_CHANGE, or a diagnostic. */
+    public static final class MoveLeafResult {
+        private final boolean applied;
+        private final boolean noChange;
+        private final long newRevision;
+        private final String label;
+        private final List<String> fromPath;
+        private final List<String> toPath;
+        private final String nodeId;
+        private final JsonTreeDiagnostic diagnostic;
+
+        private MoveLeafResult(boolean applied, boolean noChange, long newRevision, String label,
+                               List<String> fromPath, List<String> toPath, String nodeId,
+                               JsonTreeDiagnostic diagnostic) {
+            this.applied = applied;
+            this.noChange = noChange;
+            this.newRevision = newRevision;
+            this.label = label;
+            this.fromPath = fromPath;
+            this.toPath = toPath;
+            this.nodeId = nodeId;
+            this.diagnostic = diagnostic;
+        }
+
+        public boolean isApplied() {
+            return applied;
+        }
+
+        /** {@code true}: the leaf already sat under the target — nothing was committed. */
+        public boolean isNoChange() {
+            return noChange;
+        }
+
+        public long getNewRevision() {
+            return newRevision;
+        }
+
+        public String getLabel() {
+            return label;
+        }
+
+        public List<String> getFromPath() {
+            return fromPath;
+        }
+
+        public List<String> getToPath() {
+            return toPath;
+        }
+
+        public String getNodeId() {
+            return nodeId;
+        }
+
+        public JsonTreeDiagnostic getDiagnostic() {
+            return diagnostic;
+        }
+    }
+
+    /**
+     * The ATOMIC leaf move (move_leaf slice): exactly one existing LEAF changes its parent —
+     * UUID, label and card data stay, only the path changes, document and sidecar commit as
+     * one pair in exactly one revision. Resolution happens COMPLETELY before the mutation:
+     * source and target accept a full path or a globally unique exact short name; ambiguity
+     * ({@code AMBIGUOUS_SOURCE}/{@code AMBIGUOUS_PARENT}), a branch source
+     * ({@code SOURCE_NOT_LEAF}), a missing target ({@code TARGET_PARENT_NOT_FOUND} — never
+     * auto-created) and a same-name card at the target ({@code TARGET_NAME_COLLISION} — never
+     * merged or overwritten) all reject the WHOLE call with zero mutation. Moving a leaf onto
+     * its current parent is the honest idempotent {@code NO_CHANGE}.
+     */
+    public synchronized MoveLeafResult moveLeaf(List<String> sourceNames,
+                                                List<String> targetParentNames) {
+        if (failClosed) {
+            return moveError(failClosedError().getDiagnostic());
+        }
+        String document = store.effectiveContent();
+        StrictJsonParseResult parsed = StrictJsonParser.parse(document);
+        if (!parsed.isOk()) {
+            return moveError(parsed.getDiagnostic());
+        }
+        // ---- source resolution (full path, or globally unique exact short name)
+        List<String> sourcePath = resolveUnique(document, parsed.getElement(), sourceNames,
+                "AMBIGUOUS_SOURCE");
+        if (sourcePath == null) {
+            return moveError(lastResolveDiagnostic);
+        }
+        // ---- target resolution ([] = root; full path; globally unique short name; NO create)
+        List<String> targetPath;
+        if (targetParentNames == null || trimmedSegments(targetParentNames).isEmpty()) {
+            targetPath = java.util.Collections.emptyList();
+        } else {
+            targetPath = resolveUnique(document, parsed.getElement(),
+                    trimmedSegments(targetParentNames), "AMBIGUOUS_PARENT");
+            if (targetPath == null) {
+                // Ambiguity keeps its candidate-path diagnostic; anything else is the honest
+                // "no such parent — and this tool NEVER creates one" refusal.
+                return moveError(lastResolveDiagnostic != null
+                        && lastResolveDiagnostic.describeForModel().contains("AMBIGUOUS")
+                        ? lastResolveDiagnostic
+                        : JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                                "TARGET_PARENT_NOT_FOUND " + trimmedSegments(targetParentNames)
+                                        + " — the target parent must already exist; "
+                                        + "move_leaf never creates it.").build());
+            }
+        }
+        String label = sourcePath.get(sourcePath.size() - 1);
+        String nodeId = identity == null ? null
+                : identity.idAtPath(parsed.getElement(), sourcePath);
+        // ---- leaf-only + same-parent + collision checks, all BEFORE any mutation
+        if (!isLeafShape(parsed.getElement(), sourcePath)) {
+            return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "SOURCE_NOT_LEAF \"" + label + "\" — only a LEAF moves with this tool; "
+                            + "branches stay manual editor work.").build());
+        }
+        List<String> currentParent = sourcePath.subList(0, sourcePath.size() - 1);
+        if (currentParent.equals(targetPath)) {
+            return new MoveLeafResult(true, true, store.workingRevision(), label,
+                    new ArrayList<String>(sourcePath), new ArrayList<String>(sourcePath),
+                    nodeId, null);
+        }
+        // ---- mutate ONE candidate: detach at the source, attach under the target
+        Resolution sourceResolution = resolve(parsed.getElement(), sourcePath);
+        if (sourceResolution.diagnostic != null) {
+            return moveError(sourceResolution.diagnostic);
+        }
+        JsonElement candidate = parsed.getElement().deepCopy();
+        JsonArray targetArray;
+        if (targetPath.isEmpty()) {
+            targetArray = candidate.getAsJsonObject().get(CONCEPT_PROPERTY).getAsJsonArray();
+        } else {
+            Resolution targetResolution = resolve(parsed.getElement(), targetPath);
+            if (targetResolution.diagnostic != null) {
+                return moveError(targetResolution.diagnostic);
+            }
+            targetArray = arrayAt(candidate, targetResolution.path);
+            if (targetArray == null) {
+                return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                        "TARGET_PARENT_NOT_FOUND " + targetPath + ".").build());
+            }
+        }
+        for (JsonElement element : targetArray) {
+            if (element.isJsonObject() && element.getAsJsonObject().has(label)) {
+                return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                        "TARGET_NAME_COLLISION \"" + label + "\" — a different card with this "
+                                + "name already sits at the target; nothing was merged or "
+                                + "overwritten.").build());
+            }
+        }
+        JsonElement leafValue = valueAt(candidate, sourceResolution.path);
+        JsonTreeDiagnostic removal = removeAt(candidate, sourceResolution.path);
+        if (removal != null) {
+            return moveError(removal);
+        }
+        JsonObject targetContainer = null;
+        for (JsonElement element : targetArray) {
+            if (element.isJsonObject()) {
+                targetContainer = element.getAsJsonObject();
+                break;
+            }
+        }
+        if (targetContainer == null) {
+            targetContainer = new JsonObject();
+            targetArray.add(targetContainer);
+        }
+        targetContainer.add(label, leafValue == null ? new JsonArray() : leafValue);
+        List<String> newPath = new ArrayList<String>(targetPath);
+        newPath.add(label);
+        ConceptIdentity identityAfter = identity.afterMoveLeaf(parsed.getElement(), sourcePath,
+                candidate, newPath);
+        EditResult committed = commitCandidate(candidate, identityAfter, null);
+        if (!committed.isApplied()) {
+            return moveError(committed.getDiagnostic());
+        }
+        return new MoveLeafResult(true, false, committed.getNewRevision(), label,
+                new ArrayList<String>(sourcePath), newPath, nodeId, null);
+    }
+
+    /** Set by {@link #resolveUnique} when it returns {@code null}. */
+    private JsonTreeDiagnostic lastResolveDiagnostic;
+
+    /** Full path or globally unique exact short name → full path; {@code null} + diagnostic. */
+    private List<String> resolveUnique(String document, JsonElement documentRoot,
+                                       List<String> names, String ambiguityMarker) {
+        List<String> trimmed = trimmedSegments(names);
+        lastResolveDiagnostic = null;
+        if (trimmed.isEmpty()) {
+            lastResolveDiagnostic = JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "Name the card (a full path, or one globally unique card name).").build();
+            return null;
+        }
+        Resolution direct = resolve(documentRoot, trimmed);
+        if (direct.diagnostic == null) {
+            return trimmed;
+        }
+        if (trimmed.size() == 1) {
+            List<List<String>> matches = new ArrayList<List<String>>();
+            for (List<String> path : ConceptTopicScanner.collectCardPaths(document)) {
+                if (path.get(path.size() - 1).equals(trimmed.get(0))) {
+                    matches.add(path);
+                }
+            }
+            if (matches.size() == 1) {
+                return matches.get(0);
+            }
+            if (matches.size() > 1) {
+                StringBuilder candidates = new StringBuilder();
+                for (List<String> match : matches) {
+                    candidates.append(candidates.length() > 0 ? ", " : "").append(match);
+                }
+                lastResolveDiagnostic = JsonTreeDiagnostic.of(
+                        JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                        ambiguityMarker + " \"" + trimmed.get(0) + "\" — candidates: "
+                                + candidates + ".")
+                        .hint("Use the full path.").build();
+                return null;
+            }
+        }
+        lastResolveDiagnostic = direct.diagnostic;
+        return null;
+    }
+
+    private static List<String> trimmedSegments(List<String> names) {
+        List<String> trimmed = new ArrayList<String>();
+        for (String name : names == null ? java.util.Collections.<String>emptyList() : names) {
+            String value = name == null ? "" : name.trim();
+            if (!value.isEmpty()) {
+                trimmed.add(value);
+            }
+        }
+        return trimmed;
+    }
+
+    /** Whether the card at {@code names} has NO children (leaf) in {@code documentRoot}. */
+    private boolean isLeafShape(JsonElement documentRoot, List<String> names) {
+        Resolution resolution = resolve(documentRoot, names);
+        if (resolution.diagnostic != null) {
+            return false;
+        }
+        JsonArray value = arrayAt(documentRoot, resolution.path);
+        return value != null && value.size() == 0;
+    }
+
+    /** The card's own array value at a resolved path (deep-copied candidate), or null. */
+    private static JsonElement valueAt(JsonElement documentRoot, JsonBranchPath path) {
+        JsonArray value = arrayAt(documentRoot, path);
+        return value;
+    }
+
+    private static MoveLeafResult moveError(JsonTreeDiagnostic diagnostic) {
+        return new MoveLeafResult(false, false, -1L, null, null, null, null, diagnostic);
     }
 
     /** Remove the card at the name path with its whole subtree. Deliberately destructive. */
     public synchronized EditResult removeNodeAt(List<String> names) {
+        if (failClosed) {
+            return failClosedError();
+        }
         if (names == null || names.isEmpty()) {
             return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
                     "The concept's working surface itself cannot be removed — name the card "
@@ -372,15 +1582,251 @@ public final class ConceptBranchService {
             return editError(resolution.diagnostic);
         }
         JsonElement candidate = parsed.getElement().deepCopy();
+        // The identity mirror needs the PRE-image ordinals — computed before the removal.
+        ConceptIdentity identityAfter = identity.afterRemove(parsed.getElement(), names);
         JsonTreeDiagnostic removal = removeAt(candidate, resolution.path);
         if (removal != null) {
             return editError(removal);
         }
-        return commitCandidate(candidate);
+        return commitCandidate(candidate, identityAfter, null);
     }
 
-    /** Full-candidate validation + atomic commit — the shared tail of every atomic operation. */
-    private EditResult commitCandidate(JsonElement candidate) {
+    // ------------------------------------------------------------------ Zielbild slice 2 ops
+
+    /**
+     * Rename ONE card, any depth — never a deletion, children and order stay untouched. The
+     * duplicate guard spans all containers of the parent (a second card with the new name would
+     * make name-chain addressing ambiguous).
+     */
+    public synchronized EditResult renameNode(List<String> names, String newName) {
+        if (failClosed) {
+            return failClosedError();
+        }
+        String cardName = newName == null ? "" : newName.trim();
+        if (cardName.isEmpty()) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "The new card name must not be empty.").build());
+        }
+        Located located = locateForEdit(names);
+        if (located.error != null) {
+            return located.error;
+        }
+        if (cardName.equals(located.property)) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "The card is already named \"" + cardName + "\".").build());
+        }
+        for (JsonElement element : located.parentArray) {
+            if (element.isJsonObject() && element.getAsJsonObject().has(cardName)) {
+                return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                        "A sibling card named \"" + cardName + "\" already exists — renaming "
+                                + "would make the name ambiguous.").build());
+            }
+        }
+        // Rebuild the owner object so the card keeps its POSITION (order is structure).
+        JsonObject renamed = new JsonObject();
+        List<String> keys = new ArrayList<String>();
+        for (Map.Entry<String, JsonElement> entry : located.owner.entrySet()) {
+            keys.add(entry.getKey());
+            renamed.add(entry.getKey().equals(located.property) ? cardName : entry.getKey(),
+                    entry.getValue());
+        }
+        for (String key : keys) {
+            located.owner.remove(key);
+        }
+        for (Map.Entry<String, JsonElement> entry : renamed.entrySet()) {
+            located.owner.add(entry.getKey(), entry.getValue());
+        }
+        // A rename is identity-NEUTRAL (invariant 1): the sidecar carries no names.
+        return commitCandidate(located.candidate, identity, null);
+    }
+
+    /**
+     * Replace a TERMINAL branch's leaves in one atomic step — the "häppchenweise" rewrite: the
+     * node keeps its name and position, its children become exactly the given leaf names. A
+     * branch with deeper structure is refused (work bottom-up); this is also the designed spot
+     * where blacklisted leaves silently LEAVE the stored mindmap — the caller checks the
+     * replacement against the blacklist before it gets here.
+     */
+    public synchronized EditResult rewriteTerminalBranch(List<String> names, List<String> leaves) {
+        if (failClosed) {
+            return failClosedError();
+        }
+        Located located = locateForEdit(names);
+        if (located.error != null) {
+            return located.error;
+        }
+        if (!allChildrenAreLeaves(located.children)) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "\"" + located.property + "\" has deeper structure — only a TERMINAL branch "
+                            + "(children without own children) can be rewritten in one step.")
+                    .hint("Work bottom-up: rewrite or delete the deeper branches first.")
+                    .build());
+        }
+        java.util.LinkedHashSet<String> cleaned = new java.util.LinkedHashSet<String>();
+        for (String leaf : leaves == null ? java.util.Collections.<String>emptyList() : leaves) {
+            String name = leaf == null ? "" : leaf.trim();
+            if (!name.isEmpty()) {
+                cleaned.add(name); // duplicates collapse — the same leaf twice is never intent
+            }
+        }
+        while (located.children.size() > 0) {
+            located.children.remove(0);
+        }
+        if (!cleaned.isEmpty()) {
+            JsonObject container = new JsonObject();
+            for (String leaf : cleaned) {
+                container.add(leaf, new JsonArray());
+            }
+            located.children.add(container);
+        }
+        // Replaced leaves are NEW content — their old IDs die with their cards; the branch's
+        // own ordinals are untouched by the child swap, so the post-image resolves them.
+        return commitCandidate(located.candidate,
+                identity.afterRewrite(located.candidate, names, cleaned.size()), null);
+    }
+
+    /**
+     * The GUARDED delete for the model contract: leaves and terminal branches only — a small
+     * model must never be able to vaporise a deep part of the book in one call. Deep removals
+     * remain host-authorized paths ({@code removeNodeAt} via the concept-conflict resolution).
+     */
+    public synchronized EditResult deleteTerminalBranch(List<String> names) {
+        if (failClosed) {
+            return failClosedError();
+        }
+        Located located = locateForEdit(names);
+        if (located.error != null) {
+            return located.error;
+        }
+        if (!allChildrenAreLeaves(located.children)) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "\"" + located.property + "\" has deeper structure — deep branches are "
+                            + "never deleted in one step.")
+                    .hint("Work bottom-up: rewrite or delete the deeper branches first, or ask "
+                            + "the user to remove it in the concept editor.")
+                    .build());
+        }
+        // Pre-image ordinals for the identity mirror, then the actual removal.
+        ConceptIdentity identityAfter = identity.afterRemove(located.candidate, names);
+        JsonTreeDiagnostic removal = removeAt(located.candidate,
+                located.resolutionPath);
+        if (removal != null) {
+            return editError(removal);
+        }
+        return commitCandidate(located.candidate, identityAfter, null);
+    }
+
+    /**
+     * Whether the card at {@code names} is a LEAF (no children at all). The conflict flow's
+     * double guard (safety-slice gate: the host itself deleted a non-terminal root through
+     * {@code removeNodeAt}): only a leaf conflict may be offered for removal, and the resolver
+     * re-checks IMMEDIATELY before the commit — the card may have grown children between
+     * question and answer. Unresolvable paths report {@code false} (nothing removable there).
+     */
+    public synchronized boolean isLeafAt(List<String> names) {
+        Located located = locateForEdit(names);
+        return located.error == null && located.children.size() == 0;
+    }
+
+    /** One located, edit-ready node inside a deep-copied candidate document. */
+    private static final class Located {
+        JsonElement candidate;
+        JsonBranchPath resolutionPath;
+        JsonArray parentArray;
+        JsonObject owner;
+        String property;
+        JsonArray children;
+        EditResult error;
+    }
+
+    private Located locateForEdit(List<String> names) {
+        Located located = new Located();
+        if (names == null || names.isEmpty()) {
+            located.error = editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "Name the card to edit (e.g. [\"FreeRTOS\",\"Praxis\"]).").build());
+            return located;
+        }
+        String document = store.effectiveContent();
+        StrictJsonParseResult parsed = StrictJsonParser.parse(document);
+        if (!parsed.isOk()) {
+            located.error = editError(parsed.getDiagnostic());
+            return located;
+        }
+        Resolution resolution = resolve(parsed.getElement(), names);
+        if (resolution.diagnostic != null) {
+            located.error = editError(resolution.diagnostic);
+            return located;
+        }
+        located.candidate = parsed.getElement().deepCopy();
+        located.resolutionPath = resolution.path;
+        JsonObject container = located.candidate.getAsJsonObject();
+        JsonArray parentArray = null;
+        List<JsonBranchPath.Step> steps = resolution.path.getSteps();
+        for (int i = 0; i < steps.size(); i++) {
+            JsonBranchPath.Step step = steps.get(i);
+            JsonElement value = container.get(step.getProperty());
+            if (value == null || !value.isJsonArray()) {
+                located.error = editError(JsonTreeDiagnostic.of(
+                        JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                        "Concept node \"" + step.getProperty() + "\" no longer exists.").build());
+                return located;
+            }
+            if (i == steps.size() - 1) {
+                located.parentArray = parentArray;
+                located.owner = container;
+                located.property = step.getProperty();
+                located.children = value.getAsJsonArray();
+                if (located.parentArray == null) {
+                    // The target is the concept surface itself — never editable this way.
+                    located.error = editError(JsonTreeDiagnostic.of(
+                            JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                            "The concept's working surface itself cannot be edited — name a "
+                                    + "card.").build());
+                }
+                return located;
+            }
+            JsonArray array = value.getAsJsonArray();
+            if (step.getElementIndex() < 0 || step.getElementIndex() >= array.size()
+                    || !array.get(step.getElementIndex()).isJsonObject()) {
+                located.error = editError(JsonTreeDiagnostic.of(
+                        JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                        "The path into \"" + step.getProperty() + "\" no longer matches.")
+                        .build());
+                return located;
+            }
+            parentArray = array;
+            container = array.get(step.getElementIndex()).getAsJsonObject();
+        }
+        throw new IllegalStateException("unreachable: loop returns on the last step");
+    }
+
+    /** TERMINAL test (three-node rule): every child of every container is an EMPTY array. */
+    private static boolean allChildrenAreLeaves(JsonArray children) {
+        for (JsonElement element : children) {
+            if (!element.isJsonObject()) {
+                continue; // sealed/value leaves are not structure — they never block
+            }
+            for (Map.Entry<String, JsonElement> child : element.getAsJsonObject().entrySet()) {
+                JsonElement value = child.getValue();
+                if (value.isJsonArray() && value.getAsJsonArray().size() > 0) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Full-candidate validation + atomic CO-commit (document + identity as one pair) — the
+     * shared tail of every atomic operation. The no-op rule for normal operations compares
+     * document hash + epoch only: their identity delta is derivative of the document delta, so
+     * an unchanged document means freshly minted no-op UUIDs are DISCARDED, never committed.
+     */
+    private EditResult commitCandidate(JsonElement candidate, ConceptIdentity identityAfter,
+                                       String boundaryReason) {
+        if (failClosed) {
+            return failClosedError();
+        }
         String candidateJson = GSON.toJson(candidate);
         JsonTreeParseResult validated = JsonTreeParser.parse(candidateJson);
         if (!validated.isOk()) {
@@ -389,9 +1835,22 @@ public final class ConceptBranchService {
                             + "problem: " + validated.getDiagnostic().getMessage())
                     .build());
         }
-        long newRevision = store.commitWorking(candidateJson, System.currentTimeMillis());
+        String documentHash = FileConceptStore.sha256(candidateJson);
+        boolean sameEpoch = identity != null && identityAfter.epoch().equals(identity.epoch());
+        if (boundaryReason == null && sameEpoch && documentHash.equals(confirmedDocumentHash)) {
+            return new EditResult(true, store.workingRevision(), null);
+        }
+        long committed = store.commitPair(candidateJson,
+                identityAfter.stampedJson(store.workingRevision() + 1, documentHash),
+                FileConceptStore.sha256(identityAfter.coreJson()), identityAfter.epoch(),
+                System.currentTimeMillis());
+        identity = identityAfter;
+        confirmedDocumentHash = documentHash;
+        if (boundaryReason != null) {
+            transientBoundary(boundaryReason, identityAfter.epoch());
+        }
         notifyChanged();
-        return new EditResult(true, newRevision, null);
+        return new EditResult(true, committed, null);
     }
 
     /** Walk a resolved path to its target ARRAY inside {@code root} (a deep copy), or null. */

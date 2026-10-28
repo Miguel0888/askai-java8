@@ -453,8 +453,8 @@ public class ResearchRunCardsTest {
         assertTrue("the limitation is stated visibly", lastMessage.contains("Limitation recorded"));
         assertEquals("issue #32: no research-notes artifact is written anymore",
                 "", fx.resources.getArtifactStore().read("research-notes").getMarkdown());
-        assertEquals("the state moved on towards the evidence review",
-                ResearchStateIds.EVIDENCE, fx.resources.currentState().getPhaseId());
+        assertEquals("the state moved on towards the evidence review (inside Sources, #43)",
+                ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
     }
 
     @Test
@@ -469,7 +469,7 @@ public class ResearchRunCardsTest {
                         true, "NONE", "REVIEW_EVIDENCE")));
 
         fx.press("review"); // the outcome card offers "review" for SUFFICIENT_EVIDENCE
-        assertEquals(ResearchStateIds.EVIDENCE, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.WAITING_APPROVAL, fx.resources.currentState().getStateId());
 
         // Unified action surface: the gate presents its decision as RED action tags, not a chat card.

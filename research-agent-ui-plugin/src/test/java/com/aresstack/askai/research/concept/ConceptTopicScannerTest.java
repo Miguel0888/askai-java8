@@ -27,6 +27,21 @@ public class ConceptTopicScannerTest {
     }
 
     @Test
+    public void collectCardPathsWalksEveryCardInDocumentOrder() {
+        java.util.List<java.util.List<String>> paths =
+                ConceptTopicScanner.collectCardPaths(DOCUMENT);
+        assertEquals(4, paths.size());
+        assertEquals(Arrays.asList("RTOS-Grundlagen"), paths.get(0));
+        assertEquals(Arrays.asList("RTOS-Grundlagen", "ESP32 und FreeRTOS Setup"), paths.get(1));
+        assertEquals(Arrays.asList("RTOS-Grundlagen", "ESP32 und FreeRTOS Setup", "ESP-IDF"),
+                paths.get(2));
+        assertEquals(Arrays.asList("RTOS-Grundlagen", "Kernfunktionen"), paths.get(3));
+        assertEquals("unreadable input yields nothing, never a crash",
+                0, ConceptTopicScanner.collectCardPaths("broken").size());
+        assertEquals(0, ConceptTopicScanner.collectCardPaths(null).size());
+    }
+
+    @Test
     public void noMatchAndBrokenInputStayQuietInsteadOfCrashing() {
         assertNull("similar is NOT equal — semantic matching is a later, separate step",
                 ConceptTopicScanner.findExactPath(DOCUMENT, "ESP-IDF Task Notifications"));

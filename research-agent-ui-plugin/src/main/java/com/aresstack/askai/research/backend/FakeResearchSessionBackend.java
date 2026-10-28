@@ -327,15 +327,11 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
                     dispatch(session, ResearchCommandType.SUBMIT_SCOPE, null);
                 }
                 break;
-            case OUTLINE:
-                if (run == ResearchRunState.RUNNING) {
-                    toolRun(session, "Draft outline", "Proposing sections");
-                    dispatch(session, ResearchCommandType.PROPOSE_OUTLINE, null); // → WAITING_APPROVAL, auto-raises
-                }
-                break;
             case RESEARCH:
-                if (run == ResearchRunState.WAITING_FOR_USER) {
-                    dispatch(session, ResearchCommandType.START_RESEARCH, null); // auto-start after approval
+                // Sources: the evidence review raises ITS approval gate; approval opens Outline.
+                if (run == ResearchRunState.WAITING_FOR_USER
+                        && session.state.getPendingApprovalId() == null) {
+                    dispatch(session, ResearchCommandType.START_RESEARCH, null); // ready gate
                 } else if (run == ResearchRunState.RUNNING) {
                     toolRun(session, "Search web", "Capturing sources");
                     emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.SOURCE_ADDED)
@@ -345,22 +341,20 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
                     dispatch(session, ResearchCommandType.REQUEST_EVIDENCE_REVIEW, null); // → WAITING_APPROVAL
                 }
                 break;
-            case EVIDENCE:
-                // WAITING_APPROVAL here is the approval gate (raised on entry); nothing automatic.
+            case OUTLINE:
+                if (run == ResearchRunState.RUNNING) {
+                    toolRun(session, "Draft outline", "Proposing sections");
+                    dispatch(session, ResearchCommandType.PROPOSE_OUTLINE, null); // → WAITING_APPROVAL, auto-raises
+                }
                 break;
             case DRAFT:
-                if (run == ResearchRunState.WAITING_FOR_USER) {
+                // Document: drafting + review/finalization approval live inside this phase.
+                if (run == ResearchRunState.WAITING_FOR_USER
+                        && session.state.getPendingApprovalId() == null) {
                     dispatch(session, ResearchCommandType.START_DRAFTING, null);
                 } else if (run == ResearchRunState.RUNNING) {
                     assistant(session, "Drafting the sections.");
                     dispatch(session, ResearchCommandType.REQUEST_DRAFT_REVIEW, null); // → WAITING_APPROVAL
-                }
-                break;
-            case REVIEW:
-                break;
-            case FINALIZATION:
-                if (run == ResearchRunState.RUNNING) {
-                    dispatch(session, ResearchCommandType.REQUEST_FINAL_REVIEW, null); // → WAITING_APPROVAL
                 }
                 break;
             default:
@@ -459,15 +453,12 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
             // The proposal SHOWS what is being approved and where it came from — never a bare gate.
             return "Proposed outline for: " + (char) 34 + session.researchQuestion + (char) 34 + "\n"
                     + "1. Background" + "\n" + "2. Evidence" + "\n" + "3. Conclusions" + "\n"
-                    + "Approve to start the web research, or request changes.";
+                    + "Approve to start writing the document, or request changes.";
         }
-        if (ResearchStateIds.EVIDENCE.equals(phaseId)) {
+        if (ResearchStateIds.RESEARCH.equals(phaseId)) {
             return "Approve the collected evidence?";
         }
-        if (ResearchStateIds.REVIEW.equals(phaseId)) {
-            return "Approve the draft?";
-        }
-        if (ResearchStateIds.FINALIZATION.equals(phaseId)) {
+        if (ResearchStateIds.DRAFT.equals(phaseId)) {
             return "Approve the final document?";
         }
         return "Approval required.";
@@ -477,12 +468,10 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         switch (phase) {
             case OUTLINE:
                 return ResearchCommandType.APPROVE_OUTLINE;
-            case EVIDENCE:
-                return ResearchCommandType.APPROVE_EVIDENCE;
-            case REVIEW:
-                return ResearchCommandType.APPROVE_DRAFT;
-            case FINALIZATION:
-                return ResearchCommandType.APPROVE_FINAL;
+            case RESEARCH:
+                return ResearchCommandType.APPROVE_EVIDENCE; // Sources' closing approval
+            case DRAFT:
+                return ResearchCommandType.APPROVE_FINAL; // Document's closing approval
             default:
                 return null;
         }
@@ -492,8 +481,8 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         switch (phase) {
             case OUTLINE:
                 return ResearchCommandType.REQUEST_OUTLINE_CHANGES;
-            case EVIDENCE:
-            case REVIEW:
+            case RESEARCH:
+            case DRAFT:
                 return ResearchCommandType.REQUEST_REVISION;
             default:
                 return null;

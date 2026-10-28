@@ -92,6 +92,12 @@ public final class ResearchSourcesView extends JPanel {
         // No "Filter:" label — the bar's magnifier + placeholder say it; Enter AND ▶ apply.
         top.add(filterField, BorderLayout.CENTER);
         filterField.addSearchAction(e -> reloadTable());
+        // #39: the user-import entrance — HTML/text through the canonical acceptance boundary.
+        JButton addSource = new JButton("Add source");
+        addSource.setToolTipText(
+                "Add your own source (raw HTML or plain text) to the research corpus");
+        addSource.addActionListener(e -> openImportDialog());
+        top.add(addSource, BorderLayout.EAST);
 
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setAutoCreateRowSorter(true);
@@ -212,8 +218,12 @@ public final class ResearchSourcesView extends JPanel {
         addRow(identity, row++, "Abschnitte", sectionsField);
 
         // Status/Relevanz/Verlässlichkeit/Stern/Score belong together — ONE readable block.
+        // #43: WrapRowLayout instead of plain FlowLayout — a narrow splitter WRAPS the
+        // controls onto further rows (the plate grows vertically) instead of clipping the
+        // right-hand fields out of view.
         com.aresstack.comiccontrols.control.ComicSectionPanel ratingPlate = detailPlate();
-        ratingPlate.setLayout(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 2));
+        ratingPlate.setLayout(new com.aresstack.comiccontrols.control.WrapRowLayout(
+                java.awt.FlowLayout.LEFT, 0, 2));
         ratingPlate.add(mutedLabel("Status "));
         ratingPlate.add(statusCombo);
         ratingPlate.add(javax.swing.Box.createHorizontalStrut(10));
@@ -245,8 +255,14 @@ public final class ResearchSourcesView extends JPanel {
         texts.addTab("Volltext", quietScroll(fullTextArea));
         texts.addTab("Suchausschnitt", quietScroll(excerptArea));
         texts.addTab("Kommentar", quietScroll(commentArea));
+        // #28/#39.7: what did the pipeline actually derive from THIS source? Read-only on
+        // purpose — segmentation quality is assessed before any correction semantics exist.
+        styleReadOnlyArea(passagesArea);
+        texts.addTab("Passages", quietScroll(passagesArea));
         texts.setToolTipTextAt(0, "Der gelesene Seitentext (leer = geparkt, noch nicht gelesen)");
         texts.setToolTipTextAt(1, "Der Fundstellenkontext aus der Suche (nur lesbar)");
+        texts.setToolTipTextAt(3, "The passages the knowledge pipeline derived from this "
+                + "source (read-only; empty = not processed yet)");
         texts.setToolTipTextAt(2, "Eigener Kommentar (editierbar)");
 
         com.aresstack.comiccontrols.control.ComicButton save =
@@ -414,6 +430,182 @@ public final class ResearchSourcesView extends JPanel {
         }
     }
 
+    /** #28/#39.7: supplies the derived passages of one source (wired by the contribution). */
+    public interface PassagesProvider {
+        java.util.List<com.aresstack.askai.research.domain.Passage> passagesForSource(
+                String sourceId);
+    }
+
+    private final javax.swing.JTextArea passagesArea = new javax.swing.JTextArea();
+    private PassagesProvider passagesProvider;
+
+    public void setPassagesProvider(PassagesProvider provider) {
+        this.passagesProvider = provider;
+    }
+
+    /** Render the derived passages of the selected source — ordinal, heading path, text. */
+    private void renderPassages(String sourceId) {
+        if (passagesProvider == null) {
+            passagesArea.setText("(no knowledge capability in this session)");
+            return;
+        }
+        java.util.List<com.aresstack.askai.research.domain.Passage> passages =
+                passagesProvider.passagesForSource(sourceId);
+        if (passages.isEmpty()) {
+            passagesArea.setText("(no passages yet — the source has not been processed, "
+                    + "or processing is still running)");
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        int ordinal = 1;
+        for (com.aresstack.askai.research.domain.Passage passage : passages) {
+            sb.append('#').append(ordinal++);
+            String heading = passage.getHeadingPath();
+            if (heading != null && !heading.trim().isEmpty()) {
+                sb.append("  [").append(heading.trim()).append(']');
+            }
+            sb.append('\n').append(passage.getText().trim()).append("\n\n");
+        }
+        sb.append(passages.size()).append(" passage(s)");
+        passagesArea.setText(sb.toString());
+        passagesArea.setCaretPosition(0);
+    }
+
+    /** #39: the session-side import runner the contribution wires in (returns the outcome). */
+    public interface ImportHandler {
+        String importSource(
+                com.aresstack.askai.research.capture.SourceImportService.SourceInput input);
+    }
+
+    private ImportHandler importHandler;
+
+    public void setImportHandler(ImportHandler handler) {
+        this.importHandler = handler;
+    }
+
+    /** The import dialog: kind + optional title/origin + content; the outcome is shown honestly. */
+    private void openImportDialog() {
+        if (importHandler == null) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "This session has no import capability.", "Add source",
+                    javax.swing.JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        javax.swing.JComboBox<String> kind =
+                new javax.swing.JComboBox<String>(
+                        new String[] {"Plain text", "Raw HTML", "PDF file"});
+        javax.swing.JTextField title = new javax.swing.JTextField();
+        javax.swing.JTextField origin = new javax.swing.JTextField();
+        origin.setToolTipText("Optional: source URL / base URI (HTML) or a path label");
+        javax.swing.JTextArea content = new javax.swing.JTextArea(12, 60);
+        content.setLineWrap(true);
+        content.setWrapStyleWord(true);
+        JPanel form = new JPanel(new BorderLayout(4, 4));
+        JPanel head = new JPanel(new java.awt.GridLayout(0, 1, 2, 2));
+        head.add(new javax.swing.JLabel("Kind"));
+        head.add(kind);
+        head.add(new javax.swing.JLabel("Title (optional)"));
+        head.add(title);
+        head.add(new javax.swing.JLabel("Origin URL / base URI (optional)"));
+        head.add(origin);
+        head.add(new javax.swing.JLabel("Content"));
+        form.add(head, BorderLayout.NORTH);
+        form.add(new JScrollPane(content), BorderLayout.CENTER);
+        int choice = javax.swing.JOptionPane.showConfirmDialog(this, form, "Add source",
+                javax.swing.JOptionPane.OK_CANCEL_OPTION,
+                javax.swing.JOptionPane.PLAIN_MESSAGE);
+        if (choice != javax.swing.JOptionPane.OK_OPTION) {
+            return;
+        }
+        // Everything the background work needs is read from the Swing widgets HERE, on the
+        // EDT — the worker thread never touches a component.
+        final String providedTitle = title.getText();
+        final String providedOrigin = origin.getText();
+        final String textContent = content.getText();
+        final java.io.File pdfFile;
+        if (kind.getSelectedIndex() == 2) {
+            // PDF is a BYTE delivery: pick the file; reading + extraction run off the EDT.
+            javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+            chooser.setDialogTitle("Import PDF file");
+            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                    "PDF documents (*.pdf)", "pdf"));
+            if (chooser.showOpenDialog(this) != javax.swing.JFileChooser.APPROVE_OPTION) {
+                return;
+            }
+            pdfFile = chooser.getSelectedFile();
+        } else {
+            pdfFile = null;
+        }
+        final com.aresstack.askai.research.capture.SourceImportService.Kind selected =
+                pdfFile != null
+                        ? com.aresstack.askai.research.capture.SourceImportService.Kind.PDF
+                        : kind.getSelectedIndex() == 1
+                                ? com.aresstack.askai.research.capture.SourceImportService.Kind.HTML
+                                : com.aresstack.askai.research.capture.SourceImportService.Kind.TEXT;
+        final ImportHandler handler = importHandler;
+        // File read + extraction + acceptance can take seconds on a big PDF — never on the
+        // EDT. Only the outcome dialog and the table refresh marshal back.
+        Thread importWorker = new Thread(new Runnable() {
+            public void run() {
+                com.aresstack.askai.research.capture.SourceImportService.SourceInput input;
+                if (pdfFile != null) {
+                    byte[] rawBytes;
+                    try {
+                        rawBytes = java.nio.file.Files.readAllBytes(pdfFile.toPath());
+                    } catch (java.io.IOException unreadable) {
+                        showImportOutcomeLater("rejected: could not read the file: "
+                                + unreadable.getMessage());
+                        return;
+                    }
+                    String pdfOrigin = providedOrigin.trim().isEmpty()
+                            ? pdfFile.getAbsolutePath() : providedOrigin.trim();
+                    input = new com.aresstack.askai.research.capture.SourceImportService
+                            .SourceInput(selected, providedTitle, pdfOrigin, rawBytes);
+                } else {
+                    input = new com.aresstack.askai.research.capture.SourceImportService
+                            .SourceInput(selected, providedTitle, providedOrigin, textContent);
+                }
+                showImportOutcomeLater(handler.importSource(input));
+            }
+        }, "source-import-ui");
+        importWorker.setDaemon(true);
+        importWorker.start();
+    }
+
+    /** Marshal the import outcome back to the EDT: refresh the table, tell the user. */
+    private void showImportOutcomeLater(final String outcome) {
+        javax.swing.SwingUtilities.invokeLater(new Runnable() {
+            public void run() {
+                refresh();
+                javax.swing.JOptionPane.showMessageDialog(ResearchSourcesView.this,
+                        outcome == null ? "Import produced no result." : outcome, "Add source",
+                        outcome != null && outcome.startsWith("handled")
+                                ? javax.swing.JOptionPane.INFORMATION_MESSAGE
+                                : javax.swing.JOptionPane.WARNING_MESSAGE);
+            }
+        });
+    }
+
+    /**
+     * #43 slice 9: focus ONE source by id (a Document [n] badge navigated here) — selects its
+     * row and scrolls it into view; an unknown id changes nothing.
+     */
+    public void focusSource(String sourceId) {
+        if (sourceId == null || sourceId.trim().isEmpty()) {
+            return;
+        }
+        for (int modelRow = 0; modelRow < tableModel.getRowCount(); modelRow++) {
+            if (sourceId.equals(tableModel.rowAt(modelRow).getSourceId())) {
+                selectModelRow(modelRow);
+                int viewRow = table.convertRowIndexToView(modelRow);
+                if (viewRow >= 0) {
+                    table.scrollRectToVisible(table.getCellRect(viewRow, 0, true));
+                }
+                return;
+            }
+        }
+    }
+
     /** Selection is a VIEW concern: with the sorter active, model row i is not view row i. */
     private void selectModelRow(int modelRow) {
         int viewRow = table.convertRowIndexToView(modelRow);
@@ -440,6 +632,7 @@ public final class ResearchSourcesView extends JPanel {
     }
 
     private void loadDetail(ResearchSourceRecord record) {
+        renderPassages(record.getSourceId());
         selectedId = record.getSourceId();
         loadedRevision = record.getRevision();
         titleField.setText(record.getTitle());

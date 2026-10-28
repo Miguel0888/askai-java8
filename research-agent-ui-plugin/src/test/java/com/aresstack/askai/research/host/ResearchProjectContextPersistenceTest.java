@@ -80,15 +80,15 @@ public class ResearchProjectContextPersistenceTest {
         assertEquals(1, restoredContext.getSourceRepository().find(SourceQuery.all()).size());
 
         ResearchStateMemento state = restored.currentState();
-        assertEquals(ResearchStateIds.EVIDENCE, state.getPhaseId());
+        assertEquals(ResearchStateIds.RESEARCH, state.getPhaseId());
         assertEquals(ResearchStateIds.WAITING_APPROVAL, state.getStateId());
         assertEquals("the SAME pending approval survives the restart",
                 pendingApproval, state.getPendingApprovalId());
 
         // ---- continuation from the restored state — no repeated scoping ceremony ----
         assertTrue(restored.dispatch(ResearchCommandType.APPROVE_EVIDENCE).isAccepted());
-        assertEquals(ResearchStateIds.DRAFT, restored.currentState().getPhaseId());
-        assertEquals(ResearchStateIds.WAITING, restored.currentState().getStateId());
+        assertEquals(ResearchStateIds.OUTLINE, restored.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.RUNNING, restored.currentState().getStateId());
     }
 
     @Test

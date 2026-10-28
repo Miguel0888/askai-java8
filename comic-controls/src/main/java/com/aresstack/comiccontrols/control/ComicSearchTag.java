@@ -4,19 +4,23 @@ import com.aresstack.comiccontrols.theme.ComicPalette;
 
 import java.awt.Color;
 import java.awt.Dimension;
-import java.awt.Font;
 
 /**
- * The third search-bar variant: a {@link ComicSearchBar} dressed as a YELLOW suggestion tag —
- * same chip yellow, same rounded-chip arc, ink contour and ink magnifier — but with a real text
- * field, so the user can type a query and fire it directly (the tag surface's typed twin of a
- * suggestion click). Compact by design: it sits inline in a tag flow, not in a toolbar.
+ * The third search-bar variant: the WEB-SEARCH tag in the top bar. At rest it reads like its
+ * toolbar neighbours (the Research Agent / tab pills): calm surface, INK contour, the controls'
+ * corner radius, a quiet grey go arrow — only the amber magnifier stays as the eye catcher.
+ * Focusing keeps the amber family: warm cream surface and the amber contour of the find bar.
+ * Compact by design: it sits inline in a tag flow, not in a toolbar. (History: v1 filled the
+ * whole chip suggestion-yellow, v2 wore a permanent amber rim — both too loud at rest.)
  */
 public class ComicSearchTag extends ComicSearchBar {
 
-    /** Matches the suggestion chips' rounding so the tag row reads as one family. */
-    private static final int TAG_ARC = 14;
+    /** The toolbar controls' rounding (ResearchUiMetrics.RADIUS_CONTROL equivalent). */
+    private static final int TAG_ARC = 10;
     private static final int MIN_WIDTH = 200;
+
+    /** The find bar's warm cream — the shared "amber family" focus surface. */
+    private static final Color WARM_FOCUS_BACKGROUND = new Color(0xFFF8E1);
 
     public ComicSearchTag(String placeholder, String tooltip) {
         this(placeholder, tooltip, ComicPalette.defaultPalette());
@@ -24,13 +28,12 @@ public class ComicSearchTag extends ComicSearchBar {
 
     public ComicSearchTag(String placeholder, String tooltip, ComicPalette palette) {
         super(placeholder, tooltip,
-                palette.getAccentYellow(), palette.getAccentYellow().brighter(),
-                palette.getInk(), palette.getInk(),
-                palette.getInk(), withAlpha(palette.getInk(), 140), TAG_ARC, 1.4f);
+                palette.getSurface(), WARM_FOCUS_BACKGROUND,
+                palette.getInk(), palette.getAccentOrange(),
+                palette.getAccentOrange(), new Color(0xAAAAAA), TAG_ARC, 1.4f);
         getTextField().setForeground(palette.getInk());
         getTextField().setCaretColor(palette.getInk());
-        getTextField().setFont(getTextField().getFont().deriveFont(Font.BOLD, 11.5f));
-        getGoButton().setForeground(palette.getInk());
+        getGoButton().setForeground(new Color(0x888888));
     }
 
     @Override
@@ -39,7 +42,4 @@ public class ComicSearchTag extends ComicSearchBar {
         return new Dimension(Math.max(MIN_WIDTH, size.width), Math.max(24, size.height));
     }
 
-    private static Color withAlpha(Color color, int alpha) {
-        return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
-    }
 }

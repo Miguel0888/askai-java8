@@ -1,12 +1,10 @@
 package com.aresstack.askai.research.runtime.team;
 
 /**
- * The SCOPING phase contract: {@link ScopingAssistantOutputParser} producing a {@link ScopingAssistantOutput},
- * with the stricter USEFUL-FIRST-TURN rule enforced on top (RA-P6.5): a substantive scoping turn must HELP
- * before it asks — so besides the required research brief it must also carry an exploration map AND at least
- * one search suggestion. A reply that only asks the user to narrow the topic (brief-only, no map, no
- * suggestion) is rejected here, triggering one bounded repair and then an honest failure — it is no longer a
- * valid first scoping turn. The phase-agnostic GREETING is exempt: it uses the generic contract, not this one.
+ * The SCOPING phase contract: {@link ScopingAssistantOutputParser} producing a
+ * {@link ScopingAssistantOutput}. (Historical note: the RA-P6.5 USEFUL-FIRST-TURN rejection —
+ * brief-only first turns failing the parse — is long gone; only a non-blank assistantMessage is
+ * required, and the first-turn HELP pressure lives in the prompt plus the gate-9b offer nudge.)
  *
  * <p>With the concept tools active the contract additionally publishes a GENERATION-TIME schema
  * (Ollama structured outputs): the K2c gate showed gemma emitting well-intentioned turns (good
@@ -57,7 +55,8 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
         }
         return "{\"type\":\"object\",\"properties\":{"
                 + "\"assistantMessage\":{\"type\":\"string\"},"
-                + "\"researchBriefMarkdown\":{\"type\":\"string\"},"
+                // K4: the concept is the ONE scoping artifact — the legacy brief field left the
+                // grammar entirely (this schema only exists WITH the concept tools).
                 + "\"searchSuggestions\":{\"type\":\"array\",\"maxItems\":5,\"items\":"
                 + "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\","
                 + "\"minLength\":1},"
@@ -69,12 +68,19 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "\"required\":[\"recommendation\"]},"
                 + "\"scopePatch\":{\"type\":\"object\",\"properties\":{"
                 + "\"operations\":{\"type\":\"array\",\"maxItems\":8,\"items\":"
+                // Zielbild slice 1: the concept (mindmap) IS the positive working space —
+                // addFacet/confirmFacet left the model contract (no more facet duplication of
+                // card names), and excludeFacet has its own one-command action. The runtime
+                // validator still accepts them for host paths and old transcripts.
+                // Enum AUDIT (add_cards gate): the flat grammar can only carry kind+facetId+
+                // label, so every kind whose REQUIRED fields exceed that (the {value} family,
+                // setCrossCuttingEmphasis{dimension}, the issue ops) was an advertised trap —
+                // the model kept emitting them, the runtime validator kept rejecting them
+                // ("addExclusion/addConstraint without 'value'" noise). Only the two
+                // flat-expressible kinds remain emittable; the validator still ACCEPTS the
+                // full set for host paths and legacy transcripts.
                 + "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":\"string\","
-                + "\"enum\":[\"addFacet\",\"confirmFacet\",\"excludeFacet\","
-                + "\"setFacetEmphasis\",\"setCrossCuttingEmphasis\",\"setDeliverable\","
-                + "\"addDomain\",\"addContext\",\"addPerspective\",\"addConstraint\","
-                + "\"addExclusion\",\"addTerminology\",\"setGeographicScope\","
-                + "\"setTemporalScope\",\"addUnresolvedIssue\",\"resolveIssue\"]},"
+                + "\"enum\":[\"setFacetEmphasis\",\"setDeliverable\"]},"
                 + "\"facetId\":{\"type\":\"string\",\"minLength\":1,"
                 + "\"pattern\":\"^[a-z0-9][a-z0-9_-]{0,63}$\"},"
                 + "\"label\":{\"type\":\"string\",\"minLength\":1}},"
@@ -87,18 +93,40 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "\"query\":{\"type\":\"string\",\"minLength\":1},"
                 + "\"rationale\":{\"type\":\"string\"}},"
                 + "\"required\":[\"label\",\"query\"]}},"
+                // Safety slice after the slice-2 gate: remove/rewrite left the grammar — a
+                // small model must not be able to EMIT a destructive concept edit (the parser
+                // stays tolerant for legacy transcripts; the loop refuses execution).
+                // add_cards slice: the single add left the ACTIVE contract (the live gate lost
+                // a user-named card to the four-round budget of one-by-one adds) — the model
+                // captures ALL named areas as ONE typed list; the parser stays tolerant of
+                // legacy "add" transcripts, the loop refuses their execution.
                 + "\"conceptAction\":{\"type\":\"object\",\"properties\":{"
-                + "\"type\":{\"type\":\"string\",\"enum\":[\"none\",\"read\",\"add\","
-                + "\"remove\",\"exclude\",\"resolve\"]},"
+                // The dedicated move generator owns the model side of moves EXCLUSIVELY
+                // (gate ruling): the universal enum advertises no move, so no starving
+                // invalid rounds compete with the pre-executed dedicated path.
+                + "\"type\":{\"type\":\"string\",\"enum\":[\"none\",\"read\",\"add_cards\","
+                + "\"exclude\",\"resolve\",\"offer\",\"rename\",\"probe\"]},"
                 + "\"path\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
                 + "{\"type\":\"string\"}},"
                 + "\"parent\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
                 + "{\"type\":\"string\"}},"
                 + "\"name\":{\"type\":\"string\"},"
+                + "\"names\":{\"type\":\"array\",\"maxItems\":16,\"items\":"
+                + "{\"type\":\"string\",\"minLength\":1}},"
+                // scope_probe (AP3): ONE list of terms — no ids, no thresholds, no cosines;
+                // the host owns the complexity, the grammar bounds the list.
+                + "\"terms\":{\"type\":\"array\",\"maxItems\":12,\"items\":"
+                + "{\"type\":\"string\",\"minLength\":1}},"
+
                 + "\"topic\":{\"type\":\"string\"},"
                 + "\"conflictId\":{\"type\":\"string\"},"
                 + "\"decision\":{\"type\":\"string\",\"enum\":[\"REMOVE\","
-                + "\"KEEP_SUPPRESSED\"]}},"
+                + "\"KEEP_SUPPRESSED\"]},"
+                + "\"suggestions\":{\"type\":\"array\",\"maxItems\":5,\"items\":"
+                + "{\"type\":\"object\",\"properties\":{"
+                + "\"query\":{\"type\":\"string\",\"minLength\":1},"
+                + "\"purpose\":{\"type\":\"string\"}},"
+                + "\"required\":[\"query\"]}}},"
                 + "\"required\":[\"type\"]}"
                 + "},\"required\":[\"assistantMessage\",\"conceptAction\"]}";
     }

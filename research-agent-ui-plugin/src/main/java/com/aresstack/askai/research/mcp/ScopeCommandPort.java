@@ -16,4 +16,43 @@ public interface ScopeCommandPort {
 
     /** @return the structured JSON reply (REMOVED / KEPT_SUPPRESSED) or a plain-text error */
     String resolveConceptConflict(String conflictId, String decision);
+
+    /**
+     * Offer 3-5 AI-authored orientation searches as the user's yellow exploration tags (gate 8b:
+     * the optional in-band field starved under the generation grammar — as a command the model
+     * actually offers). {@code suggestionsJson} = {@code [{"query":..,"purpose":..},..]}.
+     * @return the structured JSON reply (OFFERED + count) or a plain-text error
+     */
+    String offerSearches(String suggestionsJson);
+
+    /** The current blacklist terms (excluded labels/ids + exclusions), for the concept tools. */
+    java.util.List<String> blacklistedTerms();
+
+    /** One technical-log line from a concept tool handler. Default no-op (fakes). */
+    default void conceptToolLog(String line) {
+    }
+
+    /**
+     * scope_probe (AP3): the READ-ONLY semantic sensor — where do the given terms sit relative
+     * to the negotiated fence? Decides nothing, mutates nothing. Returns the receipt text, or
+     * {@code null} when this session has no scope system.
+     */
+    default String scopeProbe(java.util.List<String> terms) {
+        return null;
+    }
+
+    /** SC1: pin one immutable search-scope snapshot (ACTIVE/INACTIVE/UNAVAILABLE reply). */
+    default String searchScopeBegin() {
+        return null;
+    }
+
+    /** SC1: judge one candidate batch against a pinned snapshot. */
+    default String searchScopeEvaluate(String handle, String lane, String itemsJson) {
+        return null;
+    }
+
+    /** SC1: release a pinned snapshot (best effort). */
+    default String searchScopeEnd(String handle) {
+        return null;
+    }
 }

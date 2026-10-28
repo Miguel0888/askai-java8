@@ -130,6 +130,19 @@ public final class FileSourceProcessingQueue implements SourceProcessingQueue {
         return false;
     }
 
+    @Override
+    public synchronized java.util.Set<String> sourceIdsWithKnownProcessing() {
+        java.util.Set<String> sourceIds = new java.util.HashSet<String>();
+        for (SourceProcessingJob job : loadAll()) {
+            String sourceId = job.getRequest().getSourceId();
+            if (sourceId != null && !sourceId.trim().isEmpty()
+                    && job.getState() != SourceProcessingJob.State.SUPERSEDED) {
+                sourceIds.add(sourceId);
+            }
+        }
+        return sourceIds;
+    }
+
     // ------------------------------------------------------------------ persistence
 
     private File file(String jobId) {

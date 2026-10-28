@@ -9,11 +9,8 @@ import java.util.Map;
 import java.util.Set;
 
 import static com.aresstack.askai.research.state.oo.ResearchStateIds.DRAFT;
-import static com.aresstack.askai.research.state.oo.ResearchStateIds.EVIDENCE;
-import static com.aresstack.askai.research.state.oo.ResearchStateIds.FINALIZATION;
 import static com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE;
 import static com.aresstack.askai.research.state.oo.ResearchStateIds.RESEARCH;
-import static com.aresstack.askai.research.state.oo.ResearchStateIds.REVIEW;
 import static com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING;
 
 /**
@@ -38,46 +35,39 @@ final class ResearchStateGraph {
     private static final Set<String> KNOWN_COMBOS = new LinkedHashSet<String>();
 
     static {
-        // SCOPING
+        // #43: the ratified 4-phase product model — Concept (id "scoping") → Sources (id
+        // "research") → Outline → Document (id "draft"). Technical ids stay the persisted
+        // compat vocabulary; evidence review, drafting review and finalization are ACTIVITIES
+        // inside Sources/Outline/Document, never phases of their own.
+        // CONCEPT
         edge(SCOPING, ResearchStateIds.NEW, ResearchCommandType.START, SCOPING, ResearchStateIds.RUNNING);
-        // C5: NO pre-research outline approval — a confirmed scope goes STRAIGHT to research; the live
-        // outline is a mobile projection of the growing corpus. The OUTLINE phase below is deliberately KEPT:
-        // persisted old sessions sitting in OUTLINE stay operable, and the phase returns later as the
-        // post-evidence freeze/approval step before drafting.
         edge(SCOPING, ResearchStateIds.RUNNING, ResearchCommandType.SUBMIT_SCOPE,
                 RESEARCH, ResearchStateIds.WAITING);
-        // OUTLINE
-        edge(OUTLINE, ResearchStateIds.RUNNING, ResearchCommandType.PROPOSE_OUTLINE,
-                OUTLINE, ResearchStateIds.WAITING_APPROVAL);
-        edge(OUTLINE, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.APPROVE_OUTLINE,
-                RESEARCH, ResearchStateIds.WAITING);
-        edge(OUTLINE, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.REQUEST_OUTLINE_CHANGES,
-                OUTLINE, ResearchStateIds.RUNNING);
-        // RESEARCH
+        // SOURCES — the evidence review is ITS closing approval gate now.
         edge(RESEARCH, ResearchStateIds.WAITING, ResearchCommandType.START_RESEARCH,
                 RESEARCH, ResearchStateIds.RUNNING);
         edge(RESEARCH, ResearchStateIds.RUNNING, ResearchCommandType.REQUEST_EVIDENCE_REVIEW,
-                EVIDENCE, ResearchStateIds.WAITING_APPROVAL);
-        // EVIDENCE
-        edge(EVIDENCE, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.APPROVE_EVIDENCE,
-                DRAFT, ResearchStateIds.WAITING);
-        edge(EVIDENCE, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.REQUEST_REVISION,
+                RESEARCH, ResearchStateIds.WAITING_APPROVAL);
+        edge(RESEARCH, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.APPROVE_EVIDENCE,
+                OUTLINE, ResearchStateIds.RUNNING);
+        edge(RESEARCH, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.REQUEST_REVISION,
                 RESEARCH, ResearchStateIds.RUNNING);
-        // DRAFT
+        // OUTLINE — AFTER Sources: the structure is developed from concept + research corpus.
+        edge(OUTLINE, ResearchStateIds.RUNNING, ResearchCommandType.PROPOSE_OUTLINE,
+                OUTLINE, ResearchStateIds.WAITING_APPROVAL);
+        edge(OUTLINE, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.APPROVE_OUTLINE,
+                DRAFT, ResearchStateIds.WAITING);
+        edge(OUTLINE, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.REQUEST_OUTLINE_CHANGES,
+                OUTLINE, ResearchStateIds.RUNNING);
+        // DOCUMENT — drafting, review and finalization live INSIDE this one phase.
         edge(DRAFT, ResearchStateIds.WAITING, ResearchCommandType.START_DRAFTING,
                 DRAFT, ResearchStateIds.RUNNING);
         edge(DRAFT, ResearchStateIds.RUNNING, ResearchCommandType.REQUEST_DRAFT_REVIEW,
-                REVIEW, ResearchStateIds.WAITING_APPROVAL);
-        // REVIEW
-        edge(REVIEW, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.APPROVE_DRAFT,
-                FINALIZATION, ResearchStateIds.RUNNING);
-        edge(REVIEW, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.REQUEST_REVISION,
+                DRAFT, ResearchStateIds.WAITING_APPROVAL);
+        edge(DRAFT, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.REQUEST_REVISION,
                 DRAFT, ResearchStateIds.RUNNING);
-        // FINALIZATION
-        edge(FINALIZATION, ResearchStateIds.RUNNING, ResearchCommandType.REQUEST_FINAL_REVIEW,
-                FINALIZATION, ResearchStateIds.WAITING_APPROVAL);
-        edge(FINALIZATION, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.APPROVE_FINAL,
-                FINALIZATION, ResearchStateIds.COMPLETED);
+        edge(DRAFT, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.APPROVE_FINAL,
+                DRAFT, ResearchStateIds.COMPLETED);
     }
 
     private ResearchStateGraph() {

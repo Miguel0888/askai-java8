@@ -129,8 +129,9 @@ public final class ResearchBotSessionTools {
 
     static final String SCOPE_SNAPSHOT_DESCRIPTION =
             "The negotiated research scope as ONE atomic snapshot: a revision=N line followed by "
-            + "the scope fence (mission, CONFIRMED/PROVISIONAL facets, EXCLUDED aspects, "
-            + "exclusions). Read-only observability — verify what the scope actually holds "
+            + "the scope fence (mission, the BLACKLIST — excluded aspects and exclusions — and "
+            + "any remaining bookkeeping facets; the positive working space lives in the concept, "
+            + "see concept_json). Read-only observability — verify what the scope actually holds "
             + "instead of trusting the agent's claims about it.";
 
     /** The scope counterpart of concept_json: what the Weidezaun actually holds. */

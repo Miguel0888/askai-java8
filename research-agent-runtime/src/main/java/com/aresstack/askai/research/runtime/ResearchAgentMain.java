@@ -668,14 +668,12 @@ public final class ResearchAgentMain {
                 // A greeting bootstrap carries no user text; if this first turn DID carry a real message,
                 // answer it in the same turn so nothing the user typed is dropped.
                 if (!text.trim().isEmpty()) {
-                    emitTeamAgentResult(ctx,
-                            runConceptToolRounds(ctx, teamAgent.respond(text, view), view),
+                    emitTeamAgentResult(ctx, conceptAwareRespond(ctx, view, text),
                             view.getPhaseId());
                 }
             }
         } else {
-            emitTeamAgentResult(ctx,
-                    runConceptToolRounds(ctx, teamAgent.respond(text, view), view),
+            emitTeamAgentResult(ctx, conceptAwareRespond(ctx, view, text),
                     view.getPhaseId());
         }
         return cancelled.get()
@@ -1008,6 +1006,11 @@ public final class ResearchAgentMain {
             acquisition.setCompletionPolicy(
                     new com.aresstack.askai.research.runtime.acquire.FixedAcceptedSourceCountPolicy(
                             searchBudget.getMaxAcceptedSources()));
+            // SC1: the manual search runs behind the SAME scope-control gate as the autonomous
+            // loop — the internal service endpoint, never an agent tool.
+            acquisition.setScopeControl(
+                    new com.aresstack.askai.research.runtime.acquire.ServiceSearchScopeControlPort(
+                            service));
             // "LLM entscheidet": let the main model classify an ambiguous page (thin text, no DOM signal) so
             // a "verify you are human" wall the SERP selectors missed is treated as a CAPTCHA, not skipped.
             acquisition.setReadinessJudge(
@@ -1199,10 +1202,90 @@ public final class ResearchAgentMain {
      * FINAL result reaches {@code emitTeamAgentResult}; every loop step leaves a technical log
      * line. Without concept tools (older host) the initial result passes through untouched.
      */
+    /**
+     * One user turn with concept tools: the machine classifies the intent FIRST — an explicit
+     * move order runs the DEDICATED move generation (move-gate ruling: source/parent starved
+     * inside the universal grammar) and executes it through the ordinary tool funnel BEFORE
+     * the conversational inference, which then already sees the moved tree; the loop receives
+     * the authoritative receipt state as its truth-guard seed.
+     */
+    private com.aresstack.askai.research.runtime.team.TeamAgentResult conceptAwareRespond(
+            final SyncPromptContext ctx,
+            final com.aresstack.askai.research.runtime.team.TeamAgentStateView view,
+            String text) {
+        if (conceptToolsAvailable
+                && com.aresstack.askai.research.runtime.team.ConceptTurnPolicy.modeFor(text)
+                        == com.aresstack.askai.research.runtime.team.ConceptTurnPolicy.Mode
+                                .MOVE_TRUTH) {
+            // TERMINAL (gate ruling): the dedicated path is the turn's ONE authoritative
+            // concept decision — no general loop afterwards (two competing paths once
+            // produced invalid rounds and a false 'could not execute' close over an APPLIED
+            // receipt), and the visible answer derives deterministically from the receipt.
+            boolean german = "de".equalsIgnoreCase(sessionLanguage.code());
+            conceptLog(ctx, "dedicated move generation (two-field schema)");
+            String conceptContext;
+            try {
+                conceptContext = conceptToolCall(wholeConceptRead());
+            } catch (Exception unavailable) {
+                conceptContext = "";
+            }
+            com.aresstack.askai.research.runtime.team.ConceptAction move =
+                    com.aresstack.askai.research.runtime.team.MoveActionGenerator.generate(
+                            mainModelChat, text, conceptContext);
+            String answer;
+            if (move == null) {
+                conceptLog(ctx, "dedicated move generation -> unclear (no guess, no mutation)");
+                answer = com.aresstack.askai.research.runtime.team.TeamAgentPlaybook
+                        .moveTruthAnswer(german, "unclear");
+            } else {
+                conceptLog(ctx, "dedicated move: " + move.describe());
+                try {
+                    String receipt = conceptToolCall(move);
+                    if (receipt.startsWith("NO_CHANGE")) {
+                        conceptLog(ctx, "dedicated move -> NO_CHANGE (already at target)");
+                        answer = com.aresstack.askai.research.runtime.team.TeamAgentPlaybook
+                                .moveTruthAnswer(german, "already-at-target");
+                    } else {
+                        conceptLog(ctx, "dedicated move -> APPLIED (terminal)");
+                        answer = com.aresstack.askai.research.runtime.team.TeamAgentPlaybook
+                                .moveAppliedAnswer(german, receipt);
+                    }
+                } catch (com.aresstack.askai.research.runtime.loop.ToolInvoker
+                        .ToolFailure rejected) {
+                    String reason = rejected.getMessage() == null ? "rejected"
+                            : rejected.getMessage().replace("\r", "").replace('\n', ' ');
+                    conceptLog(ctx, "dedicated move -> REJECTED " + reason);
+                    // The product sentence — internal markers never leak into the chat.
+                    answer = com.aresstack.askai.research.runtime.team.TeamAgentPlaybook
+                            .moveRejectedAnswer(german, reason);
+                } catch (com.aresstack.askai.research.runtime.loop.ToolInvoker
+                        .EndpointUnavailable dead) {
+                    conceptLog(ctx, "dedicated move lost — endpoint unavailable");
+                    answer = com.aresstack.askai.research.runtime.team.TeamAgentPlaybook
+                            .moveTruthAnswer(german, null);
+                }
+            }
+            com.aresstack.askai.research.runtime.team.TeamAgentResult terminal =
+                    com.aresstack.askai.research.runtime.team.ConceptToolRounds
+                            .hostAnswer(answer, null);
+            if (terminal != null) {
+                return terminal;
+            }
+        }
+        return runConceptToolRounds(ctx, teamAgent.respond(text, view), view, text,
+                false, null);
+    }
+
+    private static void conceptLog(SyncPromptContext ctx, String message) {
+        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                .log("concept " + message));
+    }
+
     private com.aresstack.askai.research.runtime.team.TeamAgentResult runConceptToolRounds(
             final SyncPromptContext ctx,
             com.aresstack.askai.research.runtime.team.TeamAgentResult initial,
-            final com.aresstack.askai.research.runtime.team.TeamAgentStateView view) {
+            final com.aresstack.askai.research.runtime.team.TeamAgentStateView view,
+            String userText, boolean seededMovedReceipt, String seededMoveOutcome) {
         if (!conceptToolsAvailable) {
             return initial;
         }
@@ -1235,8 +1318,17 @@ public final class ResearchAgentMain {
                         ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                                 .log("concept " + message));
                     }
-                });
+                },
+                !searchTagsOffered, // nudge until the session offered its first tags (gate 9b)
+                // Machine-side intent separation (safety-slice gate 2): a compound
+                // restructuring or delete wish closes the concept mutation channel for the
+                // WHOLE turn — capability withdrawal per action was not enough.
+                com.aresstack.askai.research.runtime.team.ConceptTurnPolicy.modeFor(userText),
+                seededMovedReceipt, seededMoveOutcome);
     }
+
+    /** Whether THIS session ever offered exploration tags — ends the one-shot offer nudge. */
+    private volatile boolean searchTagsOffered;
 
     /**
      * One synchronous concept tool call over the research MCP client, with the same error mapping
@@ -1259,11 +1351,26 @@ public final class ResearchAgentMain {
                 }
                 break;
             case ADD:
+                // Legacy transcripts only — the loop refuses model ADDs before this funnel.
                 toolName = "concept_add";
                 if (!action.getParent().isEmpty()) {
                     args.put("parent_path_json", segmentsJson(action.getParent()));
                 }
                 args.put("name", action.getName());
+                break;
+            case ADD_CARDS:
+                // The atomic list capture: ALL user-named areas in one call, one revision.
+                toolName = "concept_add_cards";
+                if (!action.getParent().isEmpty()) {
+                    args.put("parent_path_json", segmentsJson(action.getParent()));
+                }
+                args.put("names_json", action.getNamesJson());
+                break;
+            case MOVE:
+                // One leaf, one existing target, one atomic revision — UUID unchanged.
+                toolName = "concept_move_leaf";
+                args.put("source_json", segmentsJson(action.getPath()));
+                args.put("parent_path_json", segmentsJson(action.getParent()));
                 break;
             case EXCLUDE:
                 // The ONE-command exclusion facade: the model quotes the user's term, the HOST
@@ -1276,9 +1383,30 @@ public final class ResearchAgentMain {
                 args.put("conflict_id", action.getConflictId());
                 args.put("decision", action.getDecision());
                 break;
-            default:
-                toolName = "concept_remove";
+            case OFFER:
+                // Gate 8b: the OPTIONAL in-band suggestions field starved under the grammar —
+                // as a COMMAND the model actually offers; the host renders the yellow tags.
+                toolName = "offer_searches";
+                args.put("suggestions_json", action.getSuggestionsJson());
+                break;
+            case PROBE:
+                // scope_probe (AP3): the read-only closure sensor — one list of terms, the
+                // host owns embedding, fence geometry and the stale gate.
+                toolName = "scope_probe";
+                args.put("terms_json", action.getTermsJson());
+                break;
+            case RENAME:
+                toolName = "concept_rename";
                 args.put("path_json", segmentsJson(action.getPath()));
+                args.put("name", action.getName());
+                break;
+            default:
+                // Safety slice: destructive edits (REMOVE/REWRITE) left the model contract.
+                // ConceptToolRounds refuses them before this funnel — this is defense in depth
+                // for any future action type that was not wired deliberately.
+                throw new com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure(
+                        com.aresstack.askai.research.runtime.team.TeamAgentPlaybook
+                                .destructiveEditRefusal());
         }
         try {
             org.noear.solon.ai.chat.tool.ToolResult result = researchMcp.callTool(toolName, args);
@@ -1291,6 +1419,10 @@ public final class ResearchAgentMain {
             }
             if (text.startsWith("Tool failed:") || text.startsWith("Not allowed")) {
                 throw new com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure(text);
+            }
+            if (action.getType()
+                    == com.aresstack.askai.research.runtime.team.ConceptAction.Type.OFFER) {
+                searchTagsOffered = true; // the session has its tags — the nudge retires
             }
             return text;
         } catch (com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure ex) {
@@ -1559,6 +1691,15 @@ public final class ResearchAgentMain {
                 loop.setSearchStrategy(searchStrategy, searchProviderLabel);
             } else if (inferencePort != null) {
                 loop.setStructuredInferencePort(inferencePort);
+            }
+            // SC1: the autonomous loop gets the same scope-control lane (internal service
+            // endpoint) — a canonical OUT is filtered identically on both acquisition paths.
+            if (environment.hasService()) {
+                loop.setScopeControl(
+                        new com.aresstack.askai.research.runtime.acquire.ServiceSearchScopeControlPort(
+                                new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
+                                        environment.serviceUrl, environment.serviceTransport,
+                                        browserToolTimeoutSeconds())));
             }
             // Continuation semantics: a later run of the same session never re-navigates target pages.
             loop.excludeVisited(visitedAcrossRuns);

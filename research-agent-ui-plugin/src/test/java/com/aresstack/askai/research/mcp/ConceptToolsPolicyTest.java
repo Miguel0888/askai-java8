@@ -35,6 +35,8 @@ public class ConceptToolsPolicyTest {
     private String phaseId = ResearchStateIds.SCOPING;
     private String stateId = ResearchStateIds.RUNNING;
     private int changeNotifications;
+    private java.util.List<String> blacklist = java.util.Collections.emptyList();
+    private final java.util.List<String> toolLog = new java.util.ArrayList<String>();
 
     private final ResearchControlContext ctx = new ResearchControlContext() {
         public String currentPhaseId() {
@@ -70,6 +72,17 @@ public class ConceptToolsPolicyTest {
         public void onConceptChanged(long newWorkingRevision) {
             changeNotifications++;
         }
+
+        @Override
+        public java.util.List<String> blacklistedTerms() {
+            return blacklist;
+        }
+
+        @Override
+        public void conceptToolLog(String line) {
+            toolLog.add(line);
+        }
+
     };
 
     @Before
@@ -101,12 +114,133 @@ public class ConceptToolsPolicyTest {
     @Test
     public void writingIsOfferedOnlyInScopingRunningButReadingEverywhere() {
         assertTrue(tool("concept_read") != null);
-        assertTrue(tool("concept_add") != null);
-        assertTrue(tool("concept_remove") != null);
+        assertTrue(tool("concept_add_cards") != null);
+        assertTrue("concept_add stays for OLD runtimes only", tool("concept_add") != null);
+        assertTrue(tool("concept_rename") != null);
         phaseId = ResearchStateIds.RESEARCH; // later phase: the concept is frozen but readable
         assertTrue(tool("concept_read") != null);
+        assertNull(tool("concept_add_cards"));
         assertNull(tool("concept_add"));
+        assertNull(tool("concept_rename"));
+    }
+
+    // ------------------------------------------------------------------ add_cards (atomic list)
+
+    @Test
+    public void addCardsAppliesAtomicallyAndTheReceiptNamesEveryInputsFate() {
+        invoke(tool("concept_add_cards"), "names_json", "[\"Architektur\"]");
+        blacklist = java.util.Collections.singletonList("platformio");
+        McpToolResult result = invoke(tool("concept_add_cards"),
+                "names_json", "[\"Grundlagen\",\"Entwicklungsumgebung\",\"Architektur\","
+                        + "\"PlatformIO\"]");
+        assertFalse(result.isError());
+        String receipt = result.getText();
+        assertTrue(receipt, receipt.startsWith("APPLIED revision=2"));
+        assertTrue(receipt.contains("\nADDED: Grundlagen"));
+        assertTrue(receipt.contains("\nADDED: Entwicklungsumgebung"));
+        assertTrue(receipt.contains("\nALREADY_PRESENT: Architektur"));
+        assertTrue("the blacklist stays authoritative — no visible card",
+                receipt.contains("\nSUPPRESSED_BY_SCOPE: PlatformIO"));
+        assertFalse(invoke(tool("concept_read")).getText().contains("PlatformIO"));
+        assertEquals("one revision for the whole list", 2, changeNotifications);
+    }
+
+    /** Gate corrections: CREATED_PARENT + NO_CHANGE receipts, all lines in the technical log. */
+    @Test
+    public void addCardsReceiptsAreHonestAndFullyLogged() {
+        McpToolResult created = invoke(tool("concept_add_cards"),
+                "parent_path", "FreeRTOS", "names_json", "[\"Grundlagen\",\"Tasks\"]");
+        assertFalse(created.isError());
+        assertTrue(created.getText().startsWith("APPLIED revision=1"));
+        assertTrue("the plausible parent is created WITH its cards, atomically",
+                created.getText().contains("\nCREATED_PARENT: FreeRTOS"));
+        assertTrue(toolLog.contains("concept_add_cards -> APPLIED revision=1"));
+        assertTrue(toolLog.contains("concept_add_cards -> CREATED_PARENT: FreeRTOS"));
+        assertTrue(toolLog.contains("concept_add_cards -> ADDED: Grundlagen"));
+        assertTrue(toolLog.contains("concept_add_cards -> ADDED: Tasks"));
+
+        toolLog.clear();
+        McpToolResult repeat = invoke(tool("concept_add_cards"),
+                "parent_path", "FreeRTOS", "names_json", "[\"Grundlagen\"]");
+        assertFalse(repeat.isError());
+        assertTrue("a batch without any new card is honest NO_CHANGE, never APPLIED",
+                repeat.getText().startsWith("NO_CHANGE revision=1"));
+        assertTrue(repeat.getText().contains("ALREADY_PRESENT: Grundlagen"));
+        assertTrue(toolLog.contains("concept_add_cards -> NO_CHANGE revision=1"));
+        assertTrue(toolLog.contains("concept_add_cards -> ALREADY_PRESENT: Grundlagen"));
+        assertEquals("no change notification for a no-op", 1, changeNotifications);
+    }
+
+    /** move_leaf: receipts and refusals are fully mirrored into the technical log. */
+    @Test
+    public void moveLeafReceiptsAndRefusalsAreLoggedAndAtomic() {
+        invoke(tool("concept_add_cards"), "parent_path", "Betriebssysteme",
+                "names_json", "[\"Linux\",\"FreeRTOS\"]");
+        invoke(tool("concept_add_cards"), "parent_path", "Linux",
+                "names_json", "[\"Scheduling\"]");
+        toolLog.clear();
+
+        McpToolResult moved = invoke(tool("concept_move_leaf"),
+                "source_json", "[\"Scheduling\"]", "parent_path_json", "[\"FreeRTOS\"]");
+        assertFalse(moved.isError());
+        assertTrue(moved.getText().startsWith("APPLIED revision=3"));
+        assertTrue(moved.getText().contains("\nMOVED: Scheduling"));
+        assertTrue(moved.getText().contains(
+                "\nFROM: [Betriebssysteme, Linux, Scheduling]"));
+        assertTrue(moved.getText().contains(
+                "\nTO: [Betriebssysteme, FreeRTOS, Scheduling]"));
+        assertTrue(moved.getText().contains("\nID: "));
+        assertTrue(toolLog.contains("concept_move_leaf -> APPLIED revision=3"));
+        assertTrue(toolLog.contains("concept_move_leaf -> MOVED: Scheduling"));
+        assertEquals(3, changeNotifications);
+
+        toolLog.clear();
+        McpToolResult repeat = invoke(tool("concept_move_leaf"),
+                "source_json", "[\"Scheduling\"]", "parent_path_json", "[\"FreeRTOS\"]");
+        assertFalse(repeat.isError());
+        assertTrue(repeat.getText().startsWith("NO_CHANGE revision=3"));
+        assertTrue(repeat.getText().contains("\nALREADY_AT_TARGET: Scheduling"));
+        assertTrue(toolLog.contains("concept_move_leaf -> NO_CHANGE revision=3"));
+        assertEquals("a no-op move notifies nothing", 3, changeNotifications);
+
+        // "Linux" became a leaf when Scheduling moved out — the BRANCH here is the root card.
+        McpToolResult branch = invoke(tool("concept_move_leaf"),
+                "source_json", "[\"Betriebssysteme\"]", "parent_path_json", "[]");
+        assertTrue(branch.isError());
+        assertTrue(branch.getText().contains("SOURCE_NOT_LEAF"));
+        assertTrue(toolLog.toString().contains("concept_move_leaf -> REFUSED"));
+        assertEquals("a refusal creates no revision", 3, changeNotifications);
+    }
+
+    @Test
+    public void addCardsToleratesTechnicalListsButNeverSplitsBareSpaces() {
+        // Newlines, bullets, semicolons and quotes are tolerated for technical lists …
+        McpToolResult result = invoke(tool("concept_add_cards"),
+                "names_json", "- Grundlagen\n* \"Computer Science\"\nTasks; Debugging");
+        assertFalse(result.isError());
+        assertTrue(result.getText().contains("ADDED: Computer Science"));
+        assertTrue(result.getText().contains("ADDED: Tasks"));
+        assertTrue(result.getText().contains("ADDED: Debugging"));
+        // … and a multi-word name is ONE card, never split on spaces.
+        String read = invoke(tool("concept_read")).getText();
+        assertTrue(read, read.contains("\"Computer Science\""));
+        assertFalse("never split on bare spaces", read.contains("\"Computer\""));
+        McpToolResult missing = invoke(tool("concept_add_cards"));
+        assertTrue(missing.isError());
+        assertTrue(missing.getText().contains("multi-word names stay ONE name"));
+    }
+
+    /**
+     * The safety slice's core pin: NO destructive model tool exists in ANY phase — removal is
+     * the host-owned conflict flow only, rewrites wait for the plan workflow.
+     */
+    @Test
+    public void destructiveToolsAreNeverOfferedAnywhere() {
         assertNull(tool("concept_remove"));
+        assertNull(tool("concept_rewrite"));
+        phaseId = ResearchStateIds.RESEARCH;
+        assertNull(tool("concept_remove"));
+        assertNull(tool("concept_rewrite"));
     }
 
     @Test
@@ -114,20 +248,20 @@ public class ConceptToolsPolicyTest {
         service = null;
         assertNull(tool("concept_read"));
         assertNull(tool("concept_add"));
-        assertNull(tool("concept_remove"));
+        assertNull(tool("concept_rename"));
     }
 
     @Test
     public void theDescriptionsCarryConcreteExamplesTheMainframeMateWay() {
         assertTrue(tool("concept_add").getDescription().contains("Task Notifications"));
-        assertTrue(tool("concept_remove").getDescription().contains("ESP-IDF"));
+        assertTrue(tool("concept_rename").getDescription().contains("ESP32-Entwicklung"));
         assertTrue(tool("concept_read").getDescription().contains("FreeRTOS"));
     }
 
     // ------------------------------------------------------------------ the atomic flow
 
     @Test
-    public void addReadRemoveWorkByNamePathsWithoutAnyCeremony() {
+    public void addReadRenameWorkByNamePathsWithoutAnyCeremony() {
         McpToolResult first = invoke(tool("concept_add"), "name", "FreeRTOS");
         assertFalse(first.isError());
         assertEquals("added \"FreeRTOS\" revision=1", first.getText());
@@ -146,11 +280,10 @@ public class ConceptToolsPolicyTest {
         assertTrue(read.getText().contains("{\"Kommunikation\":[{\"Task Notifications\":[]}]}"));
         assertTrue("no handle line anywhere", !read.getText().contains("handle"));
 
-        McpToolResult removed = invoke(tool("concept_remove"),
-                "path", "FreeRTOS/Kommunikation/Task Notifications");
-        assertFalse(removed.isError());
-        assertEquals("removed \"FreeRTOS/Kommunikation/Task Notifications\" revision=4",
-                removed.getText());
+        McpToolResult renamed = invoke(tool("concept_rename"),
+                "path", "FreeRTOS/Kommunikation", "name", "IPC");
+        assertFalse(renamed.isError());
+        assertTrue(renamed.getText().startsWith("renamed to \"IPC\" revision=4"));
         assertEquals(4, changeNotifications);
     }
 
@@ -165,11 +298,12 @@ public class ConceptToolsPolicyTest {
         McpToolResult read = invoke(tool("concept_read"), "path_json", "[\"Netzwerk\"]");
         assertTrue(read.getText().contains("{\"Netzwerk\":[{\"TCP/IP\":[]}]}"));
         // …and the segments form wins over the slash convenience when both are present.
-        McpToolResult removed = invoke(tool("concept_remove"),
-                "path", "falsch/weg", "path_json", "[\"Netzwerk\",\"TCP/IP\"]");
-        assertFalse(removed.isError());
+        McpToolResult renamed = invoke(tool("concept_rename"),
+                "path", "falsch/weg", "path_json", "[\"Netzwerk\",\"TCP/IP\"]",
+                "name", "Netzwerkstack");
+        assertFalse(renamed.isError());
         assertTrue(invoke(tool("concept_read"), "path_json", "[\"Netzwerk\"]")
-                .getText().contains("{\"Netzwerk\":[]}"));
+                .getText().contains("{\"Netzwerk\":[{\"Netzwerkstack\":[]}]}"));
     }
 
     @Test
@@ -178,10 +312,27 @@ public class ConceptToolsPolicyTest {
         assertTrue(noName.isError());
         assertTrue(noName.getText().contains("Missing argument: name"));
         assertTrue("the error teaches by example", noName.getText().contains("Synchronisation"));
-        McpToolResult noPath = invoke(tool("concept_remove"));
-        assertTrue(noPath.isError());
-        assertTrue(noPath.getText().contains("Missing argument: path"));
+        McpToolResult renameNoName = invoke(tool("concept_rename"), "path", "FreeRTOS");
+        assertTrue(renameNoName.isError());
+        assertTrue(renameNoName.getText().contains("Missing argument: name"));
         assertEquals(0, changeNotifications);
+    }
+
+    /** Slice-2 gate observability finding: the SUPPRESSED truth must reach the technical log. */
+    @Test
+    public void aReadOfABranchWithBlacklistedCardsLogsTheSuppressedLine() {
+        invoke(tool("concept_add"), "name", "Setup");
+        invoke(tool("concept_add"), "parent_path", "Setup", "name", "ESP-IDF");
+        invoke(tool("concept_add"), "parent_path", "Setup", "name", "Toolchain");
+        blacklist = java.util.Collections.singletonList("esp-idf");
+        McpToolResult read = invoke(tool("concept_read"), "path", "Setup");
+        assertTrue(read.getText().contains("SUPPRESSED IN THIS BRANCH"));
+        assertTrue(read.getText().contains("ESP-IDF"));
+        assertEquals("concept_read -> SUPPRESSED IN THIS BRANCH: ESP-IDF", toolLog.get(0));
+        toolLog.clear();
+        blacklist = java.util.Collections.emptyList();
+        invoke(tool("concept_read"), "path", "Setup");
+        assertTrue("no suppression, no log noise", toolLog.isEmpty());
     }
 
     @Test

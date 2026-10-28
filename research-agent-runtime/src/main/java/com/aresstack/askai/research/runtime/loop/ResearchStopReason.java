@@ -26,6 +26,11 @@ public enum ResearchStopReason {
     RERANKER_TIMEOUT,
     /** The reranker configuration/snapshot was missing or invalid at run time. */
     RERANKER_CONFIGURATION_ERROR,
+    /**
+     * SC1 fail-closed: a canonical OUT boundary exists but the scope-control filter is broken
+     * (begin/evaluate failed) — the run STOPS typed instead of silently searching unfiltered.
+     */
+    SCOPE_CONTROL_UNAVAILABLE,
     USER_CANCELLED,
     APPROVAL_REQUIRED,
     STATE_CHANGED,

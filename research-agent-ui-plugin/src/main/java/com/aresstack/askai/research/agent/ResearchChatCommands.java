@@ -50,6 +50,8 @@ public final class ResearchChatCommands {
                 "Review the newly captured sources (Neue Quellen auswerten)"));
         commands.add(new ProcessorCommand("check-scope",
                 "Check the negotiated topic space for gaps (Themenraum pr\u00fcfen)"));
+        commands.add(new ProcessorCommand("discover-topics",
+                "Show topic areas discovered in the sources as concept suggestions"));
         return commands;
     }
 
@@ -57,7 +59,7 @@ public final class ResearchChatCommands {
     static List<String> processorCommandNames() {
         return java.util.Arrays.asList(
                 "submit-scope", "approve", "request-changes", "continue", "review-sources",
-                "check-scope");
+                "check-scope", "discover-topics");
     }
 
     private static ResearchAgentSession research(AgentSessionContext context) {

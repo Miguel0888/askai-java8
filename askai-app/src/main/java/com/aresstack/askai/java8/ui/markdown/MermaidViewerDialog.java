@@ -63,6 +63,8 @@ public final class MermaidViewerDialog extends JDialog {
     private MermaidViewerDialog(Window owner, String diagramCode, MermaidImageRenderer imageRenderer,
                                 int baseWidth, BufferedImage initial) {
         super(owner instanceof Frame ? (Frame) owner : null, "Mermaid diagram", true);
+        // An ownerless viewer (no Frame ancestor) would fall back to the Java cup.
+        com.aresstack.askai.java8.ui.AppIcon.apply(this);
         this.diagramCode = diagramCode;
         setLayout(new BorderLayout(0, 0));
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);

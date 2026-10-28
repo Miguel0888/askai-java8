@@ -135,4 +135,56 @@ public interface ResearchControlContext {
     default String resolveConceptConflict(String conflictId, String decision) {
         return null;
     }
+
+    /**
+     * The search-offer command: the model hands over 3-5 AI-authored orientation searches, the
+     * host renders them as the user's yellow exploration tags. Returns {@code null} when this
+     * session has no scoping surface. DELEGATING WRAPPERS MUST FORWARD THIS.
+     */
+    default String offerSearches(String suggestionsJson) {
+        return null;
+    }
+
+    /**
+     * The current blacklist terms (excluded facet labels/ids + plain exclusions) — the concept
+     * tools use them for the Zielbild auto-cleanup: a branch READ names suppressed cards, a
+     * REWRITE that still contains one is rejected. Empty without a scope system.
+     * DELEGATING WRAPPERS MUST FORWARD THIS.
+     */
+    default java.util.List<String> blacklistedTerms() {
+        return java.util.Collections.emptyList();
+    }
+
+    /**
+     * One technical-log line from a concept tool handler (e.g. the read's SUPPRESSED hint) — the
+     * gate demands the suppression truth in the OBSERVABLE log, not only in the model-facing
+     * tool result. The default is a no-op (fakes). DELEGATING WRAPPERS MUST FORWARD THIS.
+     */
+    default void conceptToolLog(String line) {
+    }
+
+    /**
+     * scope_probe (AP3): read-only semantic measurement of terms against the negotiated fence.
+     * Returns {@code null} when this session has no scope system.
+     * DELEGATING WRAPPERS MUST FORWARD THIS.
+     */
+    default String scopeProbe(java.util.List<String> terms) {
+        return null;
+    }
+
+    /**
+     * SC1 search-scope control (internal service lane, never an agent tool).
+     * DELEGATING WRAPPERS MUST FORWARD THESE.
+     */
+    default String searchScopeBegin() {
+        return null;
+    }
+
+    default String searchScopeEvaluate(String handle, String lane, String itemsJson) {
+        return null;
+    }
+
+    default String searchScopeEnd(String handle) {
+        return null;
+    }
 }

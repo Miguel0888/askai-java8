@@ -103,6 +103,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
             placeholderField(com.aresstack.askai.research.connector.ConnectorConfig.DEFAULT_CLIENT_ID, 12);
     private final javax.swing.JPasswordField connectorClientSecret = placeholderPasswordField(
             com.aresstack.askai.research.connector.ConnectorConfig.DEFAULT_CLIENT_SECRET, 18);
+    /** Non-empty = central mode: the AresStack webserver issues the tokens; AskAI only validates. */
+    private final JTextField connectorCentralIssuer =
+            placeholderField("https://askai.example.com (empty = local OAuth)", 38);
     /**
      * Initial-search source (applies to new sessions): the legacy browser SERP (default) or one of the
      * REST search providers. Provider credentials are NOT configured here — they live in
@@ -281,6 +284,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         connectorDetails.add(javax.swing.Box.createHorizontalStrut(4));
         connectorDetails.add(connectorClientSecret);
         form.add(row("Connector port:", connectorDetails));
+        form.add(row("Central OAuth issuer:", connectorCentralIssuer));
         // The initial-search PROVIDER selection + its provider-specific settings live on their own
         // "Search" gear tab (SearchProviderCardsPanel), not as shared fields here.
         form.add(pathRow("Research agent jar:", agentJar));
@@ -356,6 +360,10 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         connectorClientSecret.setText(com.aresstack.askai.research.connector.ConnectorConfig
                 .DEFAULT_CLIENT_SECRET.equals(connector.getClientSecret()) ? ""
                 : connector.getClientSecret());
+        connectorCentralIssuer.setText(connector.getCentralIssuer());
+        connectorCentralIssuer.setToolTipText(
+                "Empty: AskAI runs its own OAuth server (legacy). Set to the central AresStack "
+                        + "issuer URL to validate its JWTs instead; /oauth/* is then served centrally.");
         chatGptConnector.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 persistConnectorSettings();
@@ -697,7 +705,8 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         ResearchRuntimeSettings.ChatGptConnectorSettings settings =
                 new ResearchRuntimeSettings.ChatGptConnectorSettings(
                         chatGptConnector.isSelected(), port, connectorOrigin.getText().trim(),
-                        connectorClientId.getText().trim(), secret);
+                        connectorClientId.getText().trim(), secret,
+                        connectorCentralIssuer.getText().trim());
         ResearchRuntimeSettings.saveChatGptConnectorSettings(store, settings);
         // The listener follows the setting IMMEDIATELY — no new session required. It serves whatever is
         // in the session directory; OFF stops only the listener, the running sessions stay registered.
@@ -708,7 +717,8 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                     settings.getPort(), settings.getPublicOrigin(), settings.getClientId(),
                     settings.getClientSecret(),
                     com.aresstack.askai.research.connector.ChatGptConnectorRuntime
-                            .defaultRefreshStore()));
+                            .defaultRefreshStore(),
+                    settings.getCentralIssuer()));
             String failure = runtime.lastStartFailure();
             results.setText(runtime.isRunning()
                     ? "ChatGPT connector: listening on port " + runtime.runningPort()

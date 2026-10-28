@@ -59,6 +59,7 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
                 new com.aresstack.askai.research.agent.ResearchBriefViewContribution(),
                 new com.aresstack.askai.research.agent.ResearchOutlineViewContribution(),
                 new ResearchSourcesViewContribution(),
+                new com.aresstack.askai.research.document.ResearchDocumentViewContribution(),
                 new ResearchStateViewContribution());
     }
 

@@ -29,6 +29,10 @@ public final class ResearchServiceEndpoint {
     /** The internal tool names — deliberately distinct from the agent's phase-gated {@code source_accept}. */
     public static final String MANUAL_SOURCE_ACCEPT = "manual_source_accept";
     public static final String MANUAL_SOURCE_PARK = "manual_source_park";
+    /** SC1 search-scope control — internal sensor lane, structurally never an agent tool. */
+    public static final String SEARCH_SCOPE_BEGIN = "search_scope_begin";
+    public static final String SEARCH_SCOPE_EVALUATE = "search_scope_evaluate";
+    public static final String SEARCH_SCOPE_END = "search_scope_end";
 
      private final McpServerRegistry registry;
     private final ResearchControlContext context;
@@ -60,7 +64,9 @@ public final class ResearchServiceEndpoint {
         handle = registry.registerEndpoint(
                 new McpEndpointDefinition(endpointId, "Research Service (internal)"));
         registry.updateTools(handle, Arrays.asList(
-                manualSourceAcceptTool(context), manualSourceParkTool(context)));
+                manualSourceAcceptTool(context), manualSourceParkTool(context),
+                searchScopeBeginTool(context), searchScopeEvaluateTool(context),
+                searchScopeEndTool(context)));
     }
 
     /** Unregister the endpoint (invalidates the token). Idempotent. */
@@ -141,6 +147,58 @@ public final class ResearchServiceEndpoint {
                         "The user web-search query that found this candidate"),
                 McpToolParameter.string("search_request_id", false,
                         "the manual-search request id that produced this candidate"));
+    }
+
+    private static McpToolContribution searchScopeBeginTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of(SEARCH_SCOPE_BEGIN,
+                "Internal: pin one immutable search-scope snapshot for a search run "
+                        + "(SC1 acquisition filter; never an agent tool).",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        String reply = ctx.searchScopeBegin();
+                        return reply == null
+                                ? McpToolResult.ok("INACTIVE outAnchors=0")
+                                : McpToolResult.ok(reply);
+                    }
+                });
+    }
+
+    private static McpToolContribution searchScopeEvaluateTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of(SEARCH_SCOPE_EVALUATE,
+                "Internal: judge one candidate batch against a pinned search-scope snapshot "
+                        + "(never an agent tool).",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        String handle = call.getString("handle");
+                        if (handle == null || handle.trim().isEmpty()) {
+                            return McpToolResult.error("Missing argument: handle");
+                        }
+                        String reply = ctx.searchScopeEvaluate(handle.trim(),
+                                nullToEmpty(call.getString("lane")),
+                                nullToEmpty(call.getString("items_json")));
+                        return reply == null ? McpToolResult.ok("UNKNOWN_HANDLE")
+                                : McpToolResult.ok(reply);
+                    }
+                },
+                McpToolParameter.string("handle", true, "The snapshot handle from begin"),
+                McpToolParameter.string("lane", false, "serp | links | page (log label)"),
+                McpToolParameter.string("items_json", true,
+                        "JSON array of {id,text} candidates"));
+    }
+
+    private static McpToolContribution searchScopeEndTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of(SEARCH_SCOPE_END,
+                "Internal: release a pinned search-scope snapshot (never an agent tool).",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        String handle = call.getString("handle");
+                        if (handle != null && !handle.trim().isEmpty()) {
+                            ctx.searchScopeEnd(handle.trim());
+                        }
+                        return McpToolResult.ok("ENDED");
+                    }
+                },
+                McpToolParameter.string("handle", true, "The snapshot handle from begin"));
     }
 
     private static String nullToEmpty(String v) {

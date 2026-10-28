@@ -414,6 +414,7 @@ public final class ProductiveResearchBackendFactory {
         CaptureStore captures = new CaptureStore(200);
         final FileResearchSourceRepository repository = projectContext.getFileSourceRepository();
         ResearchSearchIndex.InMemory index = new ResearchSearchIndex.InMemory();
+        final com.aresstack.askai.research.capture.SourceImportService[] sourceImport = {null};
         SourceAcceptanceService acceptance = new SourceAcceptanceService(captures, repository,
                 new SourceAcceptanceService.SourceCreator() {
                     public void create(ResearchSourceRecord record) {
@@ -425,6 +426,13 @@ public final class ProductiveResearchBackendFactory {
                         }
                     }
                 }, index, highestSourceNumber(repository));
+        // #39: user imports (HTML/text; files later) go through the SAME acceptance boundary.
+        // The raw snapshot + structured provenance persist under <project>/imports BEFORE the
+        // acceptance commit — losing them fails the import (evidence chain, never a courtesy).
+        sourceImport[0] = new com.aresstack.askai.research.capture.SourceImportService(
+                captures, acceptance, repository,
+                new com.aresstack.askai.research.capture.ImportedSourceStore(
+                        new File(projectContext.getProjectDirectory(), "imports")));
         // Knowledge pipeline (§3): a persistent, project-scoped processing queue and the acceptance hook. The
         // enqueue is a reaction to source acceptance that is INDEPENDENT of the source-level Lucene index (a
         // stale index above never prevents it). Stranded PROCESSING jobs are recovered on open (§25). The
@@ -447,6 +455,12 @@ public final class ProductiveResearchBackendFactory {
                 {null};
         final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner[]
                 projectionRunner = {null};
+        final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner[]
+                topicsRunner = {null};
+        final com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery[]
+                topicDiscovery = {null};
+        final com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader[]
+                corpusReaderRef = {null};
         final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator[]
                 projectionInvalidator = {null};
         final KnowledgeProcessingSessionFactory.OutlineStalenessCheck[] outlineStaleness = {null};
@@ -518,6 +532,9 @@ public final class ProductiveResearchBackendFactory {
                     });
             knowledgeRunner[0] = knowledgeSession.worker;
             projectionRunner[0] = knowledgeSession.projection;
+            topicsRunner[0] = knowledgeSession.topicsRunner;
+            topicDiscovery[0] = knowledgeSession.topics;
+            corpusReaderRef[0] = knowledgeSession.corpusReader;
             projectionInvalidator[0] = knowledgeSession.invalidator;
             outlineStaleness[0] = knowledgeSession.staleness;
             final com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingScheduler base =
@@ -540,6 +557,73 @@ public final class ProductiveResearchBackendFactory {
                             knowledgeRunner[0].wake();
                         }
                     });
+            // #39 processing reconciliation: a source accepted while NO embedding world was
+            // configured never got a job (the scheduler was NONE, and ALREADY_ACCEPTED
+            // returns before scheduling on a re-import). NOW a valid world exists — enqueue
+            // exactly the missing derivations through the SAME stamped scheduler (an empty/
+            // fake fingerprint is structurally impossible there); the deterministic capture
+            // id keeps restarts idempotent, the worker's durable reader rebuilds the capture
+            // from the persisted record. Additive repair: a failure never blocks the start.
+            try {
+                java.util.Set<String> processedSourceIds = new java.util.HashSet<String>();
+                com.aresstack.askai.research.domain.ResearchProject knowledgeProject =
+                        new com.aresstack.askai.research.knowledge.processing
+                                .FileResearchProjectRepository(projectContext.getProjectDirectory())
+                                .load(sessionKey);
+                for (com.aresstack.askai.research.domain.SourceCapture processedCapture
+                        : knowledgeProject.captures().values()) {
+                    processedSourceIds.add(processedCapture.getSourceId());
+                }
+                java.util.List<com.aresstack.askai.research.knowledge.processing
+                        .ProcessingReconciliation.CandidateSource> candidates =
+                        new java.util.ArrayList<com.aresstack.askai.research.knowledge.processing
+                                .ProcessingReconciliation.CandidateSource>();
+                for (final ResearchSourceRecord record
+                        : repository.find(com.aresstack.askai.research.sources.SourceQuery.all())) {
+                    candidates.add(new com.aresstack.askai.research.knowledge.processing
+                            .ProcessingReconciliation.CandidateSource() {
+                        public String sourceId() {
+                            return record.getSourceId();
+                        }
+
+                        public boolean hasSegmentableText() {
+                            return record.getFullText() != null
+                                    && !record.getFullText().trim().isEmpty();
+                        }
+
+                        public boolean corpusEligible() {
+                            com.aresstack.askai.research.sources.SourceStatus status =
+                                    record.getStatus();
+                            return status != com.aresstack.askai.research.sources
+                                            .SourceStatus.EXCLUDED
+                                    && status != com.aresstack.askai.research.sources
+                                            .SourceStatus.DUPLICATE
+                                    && status != com.aresstack.askai.research.sources
+                                            .SourceStatus.SUPERSEDED;
+                        }
+                    });
+                }
+                int missing = com.aresstack.askai.research.knowledge.processing
+                        .ProcessingReconciliation.reconcile(candidates, processedSourceIds,
+                        // Scheduled-but-unworked jobs (the crash window between acceptance
+                        // and processing) are respected — never a second derivation under
+                        // the reconciled capture id.
+                        processingQueue.sourceIdsWithKnownProcessing(),
+                        new com.aresstack.askai.research.knowledge.processing
+                                .ProcessingReconciliation.MissingJobScheduler() {
+                            public void enqueue(String captureId, String sourceId) {
+                                base.enqueue(captureId, sourceId, researchLanguageCode);
+                            }
+                        });
+                if (missing > 0) {
+                    System.err.println("[research-knowledge] reconciliation enqueued " + missing
+                            + " missing processing job(s) for sources accepted without an"
+                            + " embedding world");
+                }
+            } catch (RuntimeException reconciliationFailed) {
+                System.err.println("[research-knowledge] processing reconciliation failed: "
+                        + reconciliationFailed.getMessage());
+            }
         }
         OoResearchStateMachine stateMachine = new OoResearchStateMachine(sessionKey);
 
@@ -613,6 +697,52 @@ public final class ProductiveResearchBackendFactory {
                             return holder[0] == null ? null
                                     : holder[0].controlContext()
                                             .resolveConceptConflict(conflictId, decision);
+                        }
+
+                        @Override
+                        public String offerSearches(String suggestionsJson) {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext().offerSearches(suggestionsJson);
+                        }
+
+                        @Override
+                        public String scopeProbe(java.util.List<String> terms) {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext().scopeProbe(terms);
+                        }
+
+                        @Override
+                        public String searchScopeBegin() {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext().searchScopeBegin();
+                        }
+
+                        @Override
+                        public String searchScopeEvaluate(String handle, String lane,
+                                                          String itemsJson) {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext()
+                                            .searchScopeEvaluate(handle, lane, itemsJson);
+                        }
+
+                        @Override
+                        public String searchScopeEnd(String handle) {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext().searchScopeEnd(handle);
+                        }
+
+                        @Override
+                        public java.util.List<String> blacklistedTerms() {
+                            return holder[0] == null
+                                    ? java.util.Collections.<String>emptyList()
+                                    : holder[0].controlContext().blacklistedTerms();
+                        }
+
+                        @Override
+                        public void conceptToolLog(String line) {
+                            if (holder[0] != null) {
+                                holder[0].controlContext().conceptToolLog(line);
+                            }
                         }
 
                         // The review bounds are the USER's settings (this factory carries them); the
@@ -854,11 +984,26 @@ public final class ProductiveResearchBackendFactory {
             holder[0] = resources;
             resourcesRef[0] = resources;
             control.refreshTools(); // now that the live context resolves, publish the initial tool set
+            // #39 review 2: importing a source ≠ semantically processing it. The import port
+            // only needs capture + acceptance + the raw-snapshot store — all wired above — so
+            // it is available even without an embedding/knowledge runner; such an import
+            // simply stays "not yet processed" until a knowledge world exists.
+            resources.setSourceImportService(sourceImport[0]);
             // Start the continuous knowledge worker LAST, once everything else is wired: it drains the
             // recovered persistent FIFO and processes newly accepted sources until the session closes.
             if (knowledgeRunner[0] != null) {
                 knowledgeRunner[0].start();
                 resources.setKnowledgeRunner(knowledgeRunner[0]);
+                if (topicsRunner[0] != null) {
+                    topicsRunner[0].start();
+                    resources.setTopicsRunner(topicsRunner[0]);
+                }
+                if (topicDiscovery[0] != null) {
+                    resources.setTopicDiscovery(topicDiscovery[0]);
+                }
+                if (corpusReaderRef[0] != null) {
+                    resources.setCorpusReader(corpusReaderRef[0]);
+                }
                 if (projectionRunner[0] != null) {
                     // The projection runner thread only WAITS for an explicit trigger — session open never
                     // invalidates or rebuilds the outline anymore (issue #29). The persisted projection is

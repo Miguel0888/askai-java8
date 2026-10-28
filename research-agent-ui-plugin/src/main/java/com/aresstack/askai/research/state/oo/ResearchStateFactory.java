@@ -78,14 +78,22 @@ public final class ResearchStateFactory {
         throw new IllegalArgumentException("unknown stateId: " + stateId);
     }
 
-    /** Rebuild a phase state from persisted ids. Invalid combinations are rejected, never guessed. */
+    /**
+     * Rebuild a phase state from persisted ids. Invalid combinations are rejected, never
+     * guessed. #43 migration: a persisted 7-phase memento (evidence/review/finalization) is
+     * remapped to its canonical 4-phase home HERE — the one restore choke point — so old
+     * sessions load without a separate repair pass; the next snapshot() then persists the
+     * canonical ids. State/continuation ids carry over unchanged (every legacy combination
+     * has a valid canonical home in the new graph).
+     */
     public ResearchPhaseState restore(ResearchStateMemento memento) {
         if (memento == null) {
             throw new IllegalArgumentException("memento must not be null");
         }
-        PhaseState state = state(memento.getPhaseId(), memento.getStateId(),
+        String phaseId = ResearchStateIds.canonicalPhaseId(memento.getPhaseId());
+        PhaseState state = state(phaseId, memento.getStateId(),
                 memento.getContinuationStateId(), memento.getPendingApprovalId());
-        return phase(memento.getPhaseId(), state);
+        return phase(phaseId, state);
     }
 
     /**
@@ -120,7 +128,11 @@ public final class ResearchStateFactory {
     }
 
     private static void requireKnownPhase(String phaseId) {
-        ResearchStateIds.phase(phaseId); // throws for unknown phase id
+        // #43: the factory is STRICT on the canonical four — legacy phase ids reach it only
+        // through the restore remap, never as fresh states.
+        if (!ResearchStateIds.isCanonicalPhase(phaseId)) {
+            throw new IllegalArgumentException("unknown phaseId: " + phaseId);
+        }
     }
 
     private static void requireCombo(String phaseId, String stateId) {

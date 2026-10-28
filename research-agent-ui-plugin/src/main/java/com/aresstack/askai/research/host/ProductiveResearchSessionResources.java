@@ -150,6 +150,62 @@ public final class ProductiveResearchSessionResources {
     }
 
     /** The live-projection runner owned by this session (stopped in {@link #close()}); may be null. */
+    /** #28/#39.7: read-only per-source passage inspection, or null without the capability. */
+    private volatile com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader
+            corpusReader;
+
+    void setCorpusReader(
+            com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader reader) {
+        this.corpusReader = reader;
+    }
+
+    /** The ACTIVE passages derived from one source (empty without the knowledge capability). */
+    public java.util.List<com.aresstack.askai.research.domain.Passage> passagesForSource(String sourceId) {
+        com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader reader =
+                corpusReader;
+        if (reader == null) {
+            return java.util.Collections.emptyList();
+        }
+        try {
+            return reader.passagesForSource(sourceId);
+        } catch (RuntimeException unreadable) {
+            return java.util.Collections.emptyList();
+        }
+    }
+
+    /** #39: the neutral user-import port in front of the ONE acceptance boundary. */
+    private volatile com.aresstack.askai.research.capture.SourceImportService sourceImportService;
+
+    void setSourceImportService(com.aresstack.askai.research.capture.SourceImportService service) {
+        this.sourceImportService = service;
+    }
+
+    public com.aresstack.askai.research.capture.SourceImportService sourceImportService() {
+        return sourceImportService;
+    }
+
+    /** #42: the shared phase-neutral topic discovery, or null without the capability. */
+    private volatile com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery
+            topicDiscovery;
+
+    void setTopicDiscovery(
+            com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery discovery) {
+        this.topicDiscovery = discovery;
+    }
+
+    public com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery topicDiscovery() {
+        return topicDiscovery;
+    }
+
+    /** #42: the optional background topic-discovery runner (null when disabled). */
+    private volatile com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner
+            topicsRunner;
+
+    void setTopicsRunner(
+            com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner runner) {
+        this.topicsRunner = runner;
+    }
+
     void setProjectionRunner(
             com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner runner) {
         this.projectionRunner = runner;
@@ -498,6 +554,51 @@ public final class ProductiveResearchSessionResources {
                 com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
                 return port == null ? null : port.resolveConceptConflict(conflictId, decision);
             }
+
+            @Override
+            public String offerSearches(String suggestionsJson) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? null : port.offerSearches(suggestionsJson);
+            }
+
+            @Override
+            public String scopeProbe(java.util.List<String> terms) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? null : port.scopeProbe(terms);
+            }
+
+            @Override
+            public String searchScopeBegin() {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? null : port.searchScopeBegin();
+            }
+
+            @Override
+            public String searchScopeEvaluate(String handle, String lane, String itemsJson) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? null : port.searchScopeEvaluate(handle, lane, itemsJson);
+            }
+
+            @Override
+            public String searchScopeEnd(String handle) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? null : port.searchScopeEnd(handle);
+            }
+
+            @Override
+            public java.util.List<String> blacklistedTerms() {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? java.util.Collections.<String>emptyList()
+                        : port.blacklistedTerms();
+            }
+
+            @Override
+            public void conceptToolLog(String line) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                if (port != null) {
+                    port.conceptToolLog(line);
+                }
+            }
         };
     }
 
@@ -514,6 +615,9 @@ public final class ProductiveResearchSessionResources {
         toolRefreshExecutor.shutdownNow();
         // Stop the knowledge worker FIRST (graceful: lets the current job finish). The persistent FIFO and the
         // canonical corpus outlive the session, so a mid-flight job is simply recovered on the next open.
+        if (topicsRunner != null) {
+            topicsRunner.stop();
+        }
         if (projectionRunner != null) {
             projectionRunner.stop();
         }

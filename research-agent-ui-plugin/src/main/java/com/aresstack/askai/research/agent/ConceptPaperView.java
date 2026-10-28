@@ -1,55 +1,255 @@
 package com.aresstack.askai.research.agent;
 
-import com.aresstack.askai.plugin.api.service.MarkdownView;
-import com.aresstack.askai.plugin.api.service.MarkdownViewFactory;
-import com.aresstack.askai.plugin.api.service.MarkdownViewOptions;
 import com.aresstack.askai.research.concept.ConceptProjection;
+import com.aresstack.askai.research.concept.ConceptTopicScanner;
 import com.aresstack.comiccontrols.control.ComicButton;
+import com.aresstack.comiccontrols.control.ComicSearchBar;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
 
 import javax.swing.BorderFactory;
-import javax.swing.ButtonGroup;
-import javax.swing.ButtonModel;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JToggleButton;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
-import java.awt.CardLayout;
-import java.awt.Color;
 import java.awt.FlowLayout;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
+import java.awt.Font;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.awt.geom.RoundRectangle2D;
+import java.util.List;
+import java.util.Locale;
 
 /**
- * The Konzept tab's content: PURE additional views of the ONE store state — no second UI model,
- * no copy of the concept in Swing state. [JSON] renders the atomic snapshot (the revision label
- * proves which one); [Brief] keeps the legacy research-brief markdown visible until K4 retires
- * it (with the toggle row; a concept search bar takes the freed spot then). The MINDMAP is
- * deliberately NOT a card here: it lives behind the "Visualize concept" toolbar button, in the
- * SAME host diagram overlay as the sources mindmap — the tab shows the raw truth. The JSON view
- * is READ-ONLY by design: editing arrives only when it can go through the same
- * parse→candidate→validate→commit path as everyone else.
+ * The Konzept tab — since K4 the ONE scoping work surface, and now DIRECTLY EDITABLE (the
+ * Zielbild raw-JSON mode): the user types into the document, [Save] runs the strict
+ * parse→validate→pretty-print→commit pipeline (invalid JSON never reaches the store), [Discard]
+ * returns to the last saved state. Unsaved text STAYS in the editor — a background refresh from
+ * an agent edit never clobbers the user's typing; only Save or Discard resolve it. The ◀ ▶
+ * controls browse the working-revision history: an older state loads into the editor and
+ * becomes the new head via the very same Save.
  *
- * <p>Comic dress: the content gets the full height; every control sits in ONE footer strip in
- * the chats-footer idiom — view toggles left, revision + manual reload right. All methods EDT.</p>
+ * <p>The footer keeps the concept search (Enter filters cards by name — blocked while unsaved
+ * edits exist, so a search can never eat them; empty Enter restores the document), the revision
+ * witness and the manual reload. All methods EDT.</p>
  */
 public final class ConceptPaperView extends JPanel {
+
+    /** How the owner persists a manual edit; mirrors ConceptBranchService.replaceDocument. */
+    public interface SaveHandler {
+        /** @return {@code null} on success, else the honest rejection text (diagnostic). */
+        String save(String documentJson, long expectedRevision);
+    }
+
+    /** Read one working-history revision; {@code null} when no history exists for it. */
+    public interface HistoryReader {
+        String content(long revision);
+    }
+
+    /**
+     * Restore an UNCHANGED browsed revision as the new head (ID-sidecar V3 §5): document and
+     * identity come back as a validated pair — the historical epoch and UUIDs live again. Only
+     * a dirty text goes through {@link SaveHandler} (raw save = a fresh identity epoch).
+     */
+    public interface RestoreHandler {
+        /** @return {@code null} on success, else the honest rejection text. */
+        String restore(long revision);
+    }
 
     private static final String EMPTY =
             "_No concept yet. Describe in the chat what you want to research._";
 
-    private final MarkdownView jsonView;
-    private final ResearchBriefView briefView;
-    private final JLabel revisionLabel = new JLabel(" ");
+    private final JTextArea editor = new JTextArea();
+    private final JLabel statusLabel = new JLabel(" ");
+    private final ComicButton saveButton = new ComicButton("Save");
+    private final ComicButton discardButton = new ComicButton("Discard");
+    private final ComicButton olderButton = new ComicButton("◀");
+    private final ComicButton newerButton = new ComicButton("▶");
     private final ComicButton refreshButton = new ComicButton("⟳");
-    private final CardLayout cards = new CardLayout();
-    private final JPanel cardPanel = new JPanel();
+    private final ComicButton treeButton = new ComicButton("Tree");
+    private final ComicButton jsonButton = new ComicButton("JSON");
+    private final ConceptTreeView treeView = new ConceptTreeView();
+    private final JScrollPane treeScroll = new JScrollPane(treeView);
+    /** Tree first — the pretty surface; JSON stays the power/recovery mode. */
+    private boolean treeMode = true;
+    private ConceptTreeView.BlacklistSource blacklistSource;
+    private ConceptTreeView.IdentityContext identityContext;
+    private final ComicSearchBar searchBar =
+            new ComicSearchBar("Search concept…", "Filter the concept cards by name (Enter; "
+                    + "empty Enter shows the document again)");
+
+    private ConceptProjection lastProjection;
+    private long loadedRevision;
+    private boolean dirty;
+    /** The working revision currently shown from history, or {@code -1} = the live head. */
+    private long browsingRevision = -1;
+    private boolean searchView;
+    private boolean settingText;
+
+    private SaveHandler saveHandler;
+    private HistoryReader historyReader;
+    private RestoreHandler restoreHandler;
+
+    /** How long the comic error overlay stays before fading out on its own. */
+    private static final int ERROR_OVERLAY_MILLIS = 4000;
+
+    private final javax.swing.JLayeredPane layers = new javax.swing.JLayeredPane();
+    private final JScrollPane editorScroll = new JScrollPane(editor);
+    private final com.aresstack.comiccontrols.control.ComicSectionPanel errorOverlay =
+            new com.aresstack.comiccontrols.control.ComicSectionPanel();
+    private final JTextArea errorText = new JTextArea();
+    private final javax.swing.Timer errorHideTimer =
+            new javax.swing.Timer(ERROR_OVERLAY_MILLIS, new ActionListener() {
+                public void actionPerformed(ActionEvent event) {
+                    hideError();
+                }
+            });
+
+    public ConceptPaperView() {
+        super(new BorderLayout());
+        setOpaque(false);
+        editor.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        editor.setLineWrap(false);
+        editor.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent event) {
+                userTyped();
+            }
+
+            public void removeUpdate(DocumentEvent event) {
+                userTyped();
+            }
+
+            public void changedUpdate(DocumentEvent event) {
+                userTyped();
+            }
+        });
+        // The search sits ON TOP like the chats drawer's "Chats durchsuchen…" — never below.
+        JPanel searchRow = new JPanel(new BorderLayout());
+        searchRow.setOpaque(false);
+        searchRow.setBorder(BorderFactory.createEmptyBorder(
+                ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H,
+                ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H));
+        searchRow.add(searchBar, BorderLayout.CENTER);
+        JPanel modeToggle = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        modeToggle.setOpaque(false);
+        for (ComicButton button : new ComicButton[] {treeButton, jsonButton}) {
+            button.setFocusable(false);
+            button.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
+            modeToggle.add(button);
+        }
+        treeButton.setToolTipText("Show the concept as an editable card tree");
+        jsonButton.setToolTipText("Show and edit the raw JSON document");
+        searchRow.add(modeToggle, BorderLayout.EAST);
+        add(searchRow, BorderLayout.NORTH);
+
+        // Editor + the comic error overlay share the center: a rejected save POPS over the text
+        // in a comic plate (bigger type, red stripe) and fades out by itself.
+        buildErrorOverlay();
+        layers.setLayout(null);
+        layers.add(editorScroll, javax.swing.JLayeredPane.DEFAULT_LAYER);
+        layers.add(treeScroll, javax.swing.JLayeredPane.DEFAULT_LAYER);
+        layers.add(errorOverlay, javax.swing.JLayeredPane.PALETTE_LAYER);
+        layers.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent event) {
+                layoutLayers();
+            }
+        });
+        add(layers, BorderLayout.CENTER);
+        add(buildFooter(), BorderLayout.SOUTH);
+        wireActions();
+        updateControls();
+    }
+
+    private void buildErrorOverlay() {
+        errorOverlay.setPlateFill(java.awt.Color.WHITE);
+        errorOverlay.setAccentStripe(ComicPalette.defaultPalette().getAccentRed());
+        errorOverlay.setLayout(new BorderLayout());
+        errorText.setEditable(false);
+        errorText.setOpaque(false);
+        errorText.setLineWrap(true);
+        errorText.setWrapStyleWord(true);
+        errorText.setFont(ResearchUiTypography.semiBold(14.5f));
+        errorText.setForeground(ComicPalette.defaultPalette().getInk());
+        errorOverlay.add(errorText, BorderLayout.CENTER);
+        errorOverlay.setVisible(false);
+        errorHideTimer.setRepeats(false);
+        // A click dismisses it immediately — nobody waits out a timer they have already read.
+        java.awt.event.MouseAdapter dismiss = new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent event) {
+                hideError();
+            }
+        };
+        errorOverlay.addMouseListener(dismiss);
+        errorText.addMouseListener(dismiss);
+    }
+
+    private void layoutLayers() {
+        int width = layers.getWidth();
+        int height = layers.getHeight();
+        editorScroll.setBounds(0, 0, width, height);
+        treeScroll.setBounds(0, 0, width, height);
+        int overlayWidth = Math.max(120, width - 32);
+        int overlayHeight = Math.min(Math.max(60, errorText.getPreferredSize().height + 28),
+                Math.max(60, height - 24));
+        errorOverlay.setBounds((width - overlayWidth) / 2, 12, overlayWidth, overlayHeight);
+    }
+
+    /** The owner wires persistence + history (absent in the clickdummy — editor stays view-only). */
+    public void setEditActions(SaveHandler save, HistoryReader history) {
+        setEditActions(save, history, null);
+    }
+
+    /** As above, plus the identity-preserving restore path for clean history browsing. */
+    public void setEditActions(SaveHandler save, HistoryReader history, RestoreHandler restore) {
+        this.saveHandler = save;
+        this.historyReader = history;
+        this.restoreHandler = restore;
+        updateControls();
+    }
+
+    /**
+     * Wire the tree editor's gestures (tree-editor slice 1+2): every hover action is ONE
+     * ConceptBranchService call through the SAME seams the agent tools use — never past the
+     * store. Errors pop in the shared comic overlay.
+     */
+    public void setTreeActions(ConceptTreeView.Actions actions,
+                               ConceptTreeView.BlacklistSource blacklist,
+                               ConceptTreeView.IdentityContext identity) {
+        this.blacklistSource = blacklist;
+        this.identityContext = identity;
+        treeView.setActions(actions, new ConceptTreeView.ErrorSink() {
+            public void error(String message) {
+                showError(message);
+            }
+        });
+    }
+
+    /** Switch between the card tree and the raw JSON editor; unsaved states are protected. */
+    private void setTreeMode(boolean tree) {
+        if (browsingRevision >= 0) {
+            showError("Save or discard the previewed revision first.");
+            return;
+        }
+        if (tree && (dirty || searchView)) {
+            showError("Save or discard your JSON edits (or leave the search) first.");
+            return;
+        }
+        treeMode = tree;
+        applyModeVisibility();
+        updateControls();
+    }
+
+    private void applyModeVisibility() {
+        treeScroll.setVisible(treeMode);
+        editorScroll.setVisible(!treeMode);
+        treeButton.setEnabled(!treeMode);
+        jsonButton.setEnabled(treeMode);
+    }
 
     /** Wire the manual ⟳ button to the owner's re-read (the same runnable the listeners use). */
     public void setRefreshAction(final Runnable refresh) {
@@ -63,28 +263,6 @@ public final class ConceptPaperView extends JPanel {
         });
     }
 
-    public ConceptPaperView(MarkdownViewFactory markdownViewFactory) {
-        super(new BorderLayout());
-        setOpaque(false);
-        this.jsonView = markdownViewFactory.create(
-                MarkdownViewOptions.builder().renderMermaid(false).selectable(true).build());
-        this.briefView = new ResearchBriefView(markdownViewFactory);
-
-        cardPanel.setLayout(cards);
-        cardPanel.setOpaque(false);
-        cardPanel.add(jsonView.getComponent(), "json");
-        cardPanel.add(briefView, "brief");
-
-        add(cardPanel, BorderLayout.CENTER);
-        add(buildFooter(), BorderLayout.SOUTH);
-    }
-
-    /**
-     * The ONE control strip, pinned to the bottom like the chats footer: [JSON][Brief] toggles
-     * left, the quiet revision witness and the manual reload right. Manual ⟳ for ALL cases — the
-     * auto-listeners cover the normal paths, but a human must never depend on them to see the
-     * current workpiece.
-     */
     private JPanel buildFooter() {
         JPanel footer = new JPanel(new BorderLayout(8, 0));
         footer.setOpaque(false);
@@ -92,18 +270,32 @@ public final class ConceptPaperView extends JPanel {
                 ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H,
                 ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H));
 
-        JPanel toggles = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        toggles.setOpaque(false);
-        ButtonGroup group = new ButtonGroup();
-        toggles.add(viewToggle(group, "JSON", "json", true));
-        toggles.add(viewToggle(group, "Brief", "brief", false));
-        footer.add(toggles, BorderLayout.WEST);
+        // Layout ruling: the history arrows sit LEFT in both modes, Save/Discard CENTERED.
+        JPanel arrows = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        arrows.setOpaque(false);
+        JPanel saveActions = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 0));
+        saveActions.setOpaque(false);
+        for (ComicButton button : new ComicButton[] {olderButton, newerButton,
+                saveButton, discardButton}) {
+            button.setFocusable(false);
+            button.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
+        }
+        arrows.add(olderButton);
+        arrows.add(newerButton);
+        saveActions.add(saveButton);
+        saveActions.add(discardButton);
+        saveButton.setToolTipText("Save: apply the edit (JSON) or restore the previewed "
+                + "revision as the new head");
+        discardButton.setToolTipText("Discard the edits / leave the revision preview");
+        olderButton.setToolTipText("Preview the previous working revision");
+        newerButton.setToolTipText("Preview the next working revision");
+        footer.add(arrows, BorderLayout.WEST);
+        footer.add(saveActions, BorderLayout.CENTER);
 
         JPanel status = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         status.setOpaque(false);
-        revisionLabel.setFont(ResearchUiTypography.regular(11.5f));
-        revisionLabel.setEnabled(false); // quiet gray, diagnostic value only
-        status.add(revisionLabel);
+        statusLabel.setFont(ResearchUiTypography.regular(11.5f));
+        status.add(statusLabel);
         refreshButton.setFocusable(false);
         refreshButton.setToolTipText("Reload view");
         refreshButton.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
@@ -112,93 +304,308 @@ public final class ConceptPaperView extends JPanel {
         return footer;
     }
 
-    private JToggleButton viewToggle(ButtonGroup group, String label, final String card,
-                                     boolean selected) {
-        JToggleButton button = new ComicToggle(label, selected);
-        group.add(button);
-        button.addActionListener(new ActionListener() {
+    private void wireActions() {
+        saveButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
-                cards.show(cardPanel, card);
+                saveEdits();
             }
         });
-        return button;
+        discardButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                dirty = false;
+                leavePreview();
+            }
+        });
+        olderButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                browseHistory(-1);
+            }
+        });
+        newerButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                browseHistory(+1);
+            }
+        });
+        searchBar.addSearchAction(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                applySearch(searchBar.getText().trim());
+            }
+        });
+        treeButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                setTreeMode(true);
+            }
+        });
+        jsonButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                setTreeMode(false);
+            }
+        });
+        applyModeVisibility();
     }
 
+    // ------------------------------------------------------------------ editing
+
+    private void userTyped() {
+        if (settingText || searchView) {
+            return;
+        }
+        if (!dirty) {
+            dirty = true;
+            quietStatus();
+            updateControls();
+        }
+    }
+
+    private void saveEdits() {
+        if (saveHandler == null) {
+            showError("This session cannot save the concept (no concept service).");
+            return;
+        }
+        if (browsingRevision >= 0 && !dirty && restoreHandler != null) {
+            // Clean browse + Save = the identity-preserving RESTORE path: document and sidecar
+            // return as the validated historical pair (same epoch, same UUIDs). Only a dirty
+            // text is a raw save and deliberately opens a fresh identity epoch.
+            String restoreError = restoreHandler.restore(browsingRevision);
+            if (restoreError != null) {
+                showError(restoreError);
+                return;
+            }
+            browsingRevision = -1;
+            treeView.setPreview(false);
+            quietStatus();
+            // The restore commit notifies the listeners; their refresh re-renders the head.
+            return;
+        }
+        String error = saveHandler.save(editor.getText(), loadedRevision);
+        if (error != null) {
+            // The text STAYS — the user fixes it or discards explicitly; the store is untouched.
+            showError(error);
+            return;
+        }
+        dirty = false;
+        browsingRevision = -1;
+        quietStatus();
+        // The commit notifies the change listeners, whose refresh re-renders with the
+        // pretty-printed, persisted state; nothing to set by hand here.
+    }
+
+    private void browseHistory(int step) {
+        if (historyReader == null) {
+            showError("This session has no revision history.");
+            return;
+        }
+        if (dirty) {
+            showError("Save or discard your edits before browsing revisions.");
+            return;
+        }
+        long shown = browsingRevision >= 0 ? browsingRevision : loadedRevision;
+        long target = shown + step;
+        if (target < 1 || target > loadedRevision) {
+            showError(step < 0 ? "No earlier revision." : "Already at the newest revision.");
+            return;
+        }
+        if (target == loadedRevision) {
+            leavePreview();
+            return;
+        }
+        String content = historyReader.content(target);
+        if (content == null) {
+            showError("No stored history for revision " + target
+                    + " (older than the history feature).");
+            return;
+        }
+        browsingRevision = target;
+        searchView = false;
+        if (treeMode) {
+            // The preview stays IN the tree: read-only (its identities belong to another
+            // snapshot), Save = the identity-preserving restore, Discard = back to head.
+            treeView.render(content, java.util.Collections.<String>emptyList(), null);
+            treeView.setPreview(true);
+        } else {
+            // Old revisions were committed COMPACT (only the raw save pretty-prints on
+            // write) — browsing pretty-prints for DISPLAY only; the stored bytes and the
+            // restore path (which reads the store) stay untouched.
+            setEditorText(prettyForDisplay(content), true);
+        }
+        quietStatus();
+        updateControls();
+    }
+
+    /** Back to the live head in the CURRENT mode (browse-forward past the end, Discard). */
+    private void leavePreview() {
+        browsingRevision = -1;
+        treeView.setPreview(false);
+        quietStatus();
+        renderCurrent();
+        renderTreeHead();
+        updateControls();
+    }
+
+    private void renderTreeHead() {
+        ConceptProjection projection = lastProjection;
+        treeView.render(projection != null && projection.isReadable()
+                        ? projection.getPrettyJson() : "",
+                blacklistSource == null ? java.util.Collections.<String>emptyList()
+                        : blacklistSource.terms(),
+                identityContext);
+    }
+
+    /** Pretty-print a JSON document for display; unparseable content comes back raw. */
+    static String prettyForDisplay(String documentJson) {
+        try {
+            return new com.google.gson.GsonBuilder().setPrettyPrinting().disableHtmlEscaping()
+                    .create().toJson(com.google.gson.JsonParser.parseString(documentJson));
+        } catch (RuntimeException notJson) {
+            return documentJson;
+        }
+    }
+
+    private void applySearch(String query) {
+        if (query.isEmpty()) {
+            if (searchView) {
+                searchView = false;
+                renderCurrent();
+            }
+            return;
+        }
+        if (dirty || browsingRevision >= 0) {
+            showError("Save or discard your edits before searching.");
+            return;
+        }
+        ConceptProjection projection = lastProjection;
+        if (projection == null || !projection.isReadable()) {
+            showError("Nothing searchable yet.");
+            return;
+        }
+        if (treeMode) {
+            treeMode = false; // the filter list renders in the editor surface
+            applyModeVisibility();
+        }
+        searchView = true;
+        setEditorText(filterText(projection.getPrettyJson(), query), false);
+        updateControls();
+    }
+
+    // ------------------------------------------------------------------ rendering
+
     /**
-     * Render one atomic snapshot into ALL cards at once. {@code projection} may be {@code null}
-     * (clickdummy without a concept service).
+     * Render one atomic snapshot. Unsaved edits, an open history view and the search view are
+     * NEVER clobbered by a background refresh — only the revision witness updates.
      */
-    public void render(ConceptProjection projection, String briefMarkdown) {
-        briefView.render(briefMarkdown);
+    public void render(ConceptProjection projection) {
+        lastProjection = projection;
+        // The tree has NO dirty state (every gesture commits) and shows the live head —
+        // except while the user previews a browsed revision, which a background refresh
+        // must not clobber (the revision witness still updates via renderCurrent).
+        if (browsingRevision < 0) {
+            renderTreeHead();
+        }
+        renderCurrent();
+    }
+
+    private void renderCurrent() {
+        ConceptProjection projection = lastProjection;
+        if (projection != null) {
+            loadedRevision = projection.getWorkingRevision();
+        }
+        updateControls();
+        if (dirty || browsingRevision >= 0 || searchView) {
+            return; // the user's state wins until they save, discard or leave the view
+        }
         if (projection == null) {
-            jsonView.setMarkdown(EMPTY);
-            revisionLabel.setText(" ");
+            setEditorText(EMPTY, false);
             return;
         }
-        revisionLabel.setText("rev " + projection.getWorkingRevision());
         if (!projection.isReadable()) {
-            // Never creative repair: the honest diagnosis leads, the raw text stays visible.
-            jsonView.setMarkdown("**Concept not readable**\n\n```\n"
-                    + projection.getDiagnosticText() + "\n```\n\n```\n"
-                    + projection.getPrettyJson() + "\n```");
+            // Never creative repair — but the raw text IS editable, so the user can fix it.
+            showError("Concept not readable: " + projection.getDiagnosticText());
+            setEditorText(projection.getPrettyJson(), true);
             return;
         }
-        jsonView.setMarkdown("```json\n" + projection.getPrettyJson() + "\n```");
+        setEditorText(projection.getPrettyJson(), true);
+    }
+
+    private void setEditorText(String text, boolean editable) {
+        settingText = true;
+        try {
+            editor.setText(text);
+            editor.setEditable(editable);
+            editor.setCaretPosition(0);
+        } finally {
+            settingText = false;
+        }
+    }
+
+    private void updateControls() {
+        boolean editWired = saveHandler != null;
+        boolean previewing = browsingRevision >= 0;
+        // In the tree, Save/Discard exist ONLY while a revision preview is open (Save =
+        // explicit restore of the shown state); the JSON mode keeps them permanently.
+        saveButton.setVisible(!treeMode || previewing);
+        discardButton.setVisible(!treeMode || previewing);
+        saveButton.setEnabled(editWired && (previewing || (!treeMode && dirty)));
+        discardButton.setEnabled(dirty || previewing || searchView);
+        olderButton.setEnabled(historyReader != null && !dirty);
+        newerButton.setEnabled(historyReader != null && !dirty && previewing);
+        quietStatus();
+    }
+
+    private void quietStatus() {
+        statusLabel.setForeground(null);
+        statusLabel.setEnabled(false); // quiet gray, diagnostic value only
+        String text = "rev " + loadedRevision;
+        if (browsingRevision >= 0) {
+            text = "viewing rev " + browsingRevision + " of " + loadedRevision;
+        } else if (dirty) {
+            text = "rev " + loadedRevision + " — edited";
+        } else if (searchView) {
+            text = "search view";
+        }
+        statusLabel.setText(text);
+    }
+
+    /** The comic error overlay: pops over the text, fades out on its own, click dismisses. */
+    private void showError(String message) {
+        errorText.setText(message);
+        errorOverlay.setVisible(true);
+        layoutLayers();
+        errorOverlay.repaint();
+        errorHideTimer.restart();
+    }
+
+    private void hideError() {
+        errorHideTimer.stop();
+        errorOverlay.setVisible(false);
+    }
+
+    /** The filter result: every card path whose NAME contains the query, case-insensitive. */
+    static String filterText(String documentJson, String query) {
+        String needle = query.toLowerCase(Locale.ROOT);
+        StringBuilder sb = new StringBuilder();
+        int matches = 0;
+        for (List<String> path : ConceptTopicScanner.collectCardPaths(documentJson)) {
+            if (!path.get(path.size() - 1).toLowerCase(Locale.ROOT).contains(needle)) {
+                continue;
+            }
+            matches++;
+            sb.append("  ");
+            for (int index = 0; index < path.size(); index++) {
+                if (index > 0) {
+                    sb.append(" › ");
+                }
+                sb.append(path.get(index));
+            }
+            sb.append('\n');
+        }
+        String header = matches == 0
+                ? "No card matches \"" + query + "\""
+                : matches + " card" + (matches == 1 ? "" : "s") + " matching \"" + query + "\"";
+        return header + "\n\n" + sb
+                + "\nPress Enter with an empty search field to show the document again.";
     }
 
     public void dispose() {
-        jsonView.dispose();
-        briefView.dispose();
-    }
-
-    /**
-     * The comic sibling of {@link ComicButton} for an exclusive VIEW choice: same plate/ink
-     * language, but the yellow accent marks the SELECTED card (a state, not a hover moment).
-     * Deliberately private — the toggle pair retires with K4 together with the [Brief] card.
-     */
-    private static final class ComicToggle extends JToggleButton {
-
-        private static final int ARC = 10;
-        private final ComicPalette palette = ComicPalette.defaultPalette();
-
-        ComicToggle(String label, boolean selected) {
-            super(label, selected);
-            setOpaque(false);
-            setContentAreaFilled(false);
-            setBorderPainted(false);
-            setFocusPainted(false);
-            setFocusable(false);
-            setRolloverEnabled(true);
-            setForeground(palette.getInk());
-            setFont(ResearchUiTypography.semiBold(12f));
-            setBorder(BorderFactory.createEmptyBorder(4, 12, 4, 12));
-        }
-
-        @Override
-        protected void paintComponent(Graphics g) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-                        RenderingHints.VALUE_ANTIALIAS_ON);
-                RoundRectangle2D plate = new RoundRectangle2D.Float(
-                        1f, 1f, getWidth() - 2f, getHeight() - 2f, ARC, ARC);
-                g2.setColor(plateFill());
-                g2.fill(plate);
-                g2.setColor(palette.getInk());
-                g2.setStroke(new java.awt.BasicStroke(1.6f));
-                g2.draw(plate);
-            } finally {
-                g2.dispose();
-            }
-            super.paintComponent(g);
-        }
-
-        private Color plateFill() {
-            ButtonModel model = getModel();
-            if (model.isSelected()) {
-                return palette.getAccentYellow();
-            }
-            return model.isRollover() ? palette.getSurface() : Color.WHITE;
-        }
+        errorHideTimer.stop(); // the plain-text editor itself holds no external resources
     }
 }

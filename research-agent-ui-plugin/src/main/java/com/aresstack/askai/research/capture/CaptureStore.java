@@ -116,9 +116,14 @@ public final class CaptureStore {
     }
 
     public static String sha256(String text) {
+        return sha256(text.getBytes(Charset.forName("UTF-8")));
+    }
+
+    /** The base digest — raw payloads are BYTES; text hashing is its UTF-8 special case. */
+    public static String sha256(byte[] payload) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] bytes = digest.digest(text.getBytes(Charset.forName("UTF-8")));
+            byte[] bytes = digest.digest(payload);
             StringBuilder hex = new StringBuilder();
             for (byte b : bytes) {
                 hex.append(Character.forDigit((b >> 4) & 0xF, 16));

@@ -388,17 +388,27 @@ task runWithDevPlugins(type: JavaExec) {
 
 task verifyFatJarExclusions {
     group = 'verification'
-    description = 'Fail if the AskAI fat jar contains research classes, a research extensions.idx or a nested plugin JAR.'
+    description = 'Fail if the AskAI fat jar contains research PLUGIN classes, a research extensions.idx or a nested plugin JAR.'
     dependsOn fatJar
     doLast {
         def jar = fatJar.archiveFile.get().asFile
         def violations = []
+        // The guard protects PLUGIN isolation. Shared ANALYSIS libraries are host-legal by
+        // design: the TTS batch synthesis deliberately shares the ONE sentence segmentation
+        // (research-text-opennlp, commit 140f2385), which brings the pipeline/domain cores
+        // along via their api dependencies. Everything else under research/ stays forbidden.
+        def allowedSharedLibraries = [
+                'com/aresstack/askai/research/text/',
+                'com/aresstack/askai/research/knowledge/',
+                'com/aresstack/askai/research/domain/']
         def zip = new java.util.zip.ZipFile(jar)
         try {
             zip.entries().each { entry ->
                 def name = entry.name
-                if (name.startsWith('com/aresstack/askai/research/')) {
-                    violations << "research class: ${name}"
+                if (name.endsWith('.class')
+                        && name.startsWith('com/aresstack/askai/research/')
+                        && !allowedSharedLibraries.any { name.startsWith(it) }) {
+                    violations << "research plugin class: ${name}"
                 }
                 if (name.endsWith('.jar') && name.contains('research-agent-ui-plugin')) {
                     violations << "nested plugin jar: ${name}"

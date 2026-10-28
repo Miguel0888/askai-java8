@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.store;
 
+import com.aresstack.askai.research.state.oo.LegacyResearchStateMigration;
 import com.aresstack.askai.research.state.oo.ResearchStateMemento;
 
 import java.io.File;
@@ -10,8 +11,15 @@ import java.io.IOException;
  * atomically. Only stable ids are stored — never state objects. A missing or corrupt file yields {@code null}
  * from {@link #load()} (isolated), so a restart with a damaged file degrades to "no restored state" instead of
  * crashing. The tiny JSON is written and parsed by hand (no JSON library on the plugin classloader).
+ *
+ * <p>#43: every save stamps the {@code model} marker. A file WITHOUT it predates the 4-phase
+ * product model, where "outline" was the pre-research legacy phase — such a memento goes
+ * through {@link LegacyResearchStateMigration#migratePreV4} before anyone interprets it.</p>
  */
 public final class SessionStateFileStore {
+
+    /** The phase-model vocabulary this store writes; absent in files = pre-4-phase legacy. */
+    static final String MODEL_PHASES_V4 = "phases-v4";
 
     private final File file;
 
@@ -22,6 +30,7 @@ public final class SessionStateFileStore {
     public void save(ResearchStateMemento memento) throws IOException {
         StringBuilder sb = new StringBuilder();
         sb.append("{\n");
+        sb.append("  \"model\": ").append(quote(MODEL_PHASES_V4)).append(",\n");
         sb.append("  \"phaseId\": ").append(quote(memento.getPhaseId())).append(",\n");
         sb.append("  \"stateId\": ").append(quote(memento.getStateId())).append(",\n");
         sb.append("  \"continuationStateId\": ").append(quote(memento.getContinuationStateId())).append(",\n");
@@ -43,8 +52,13 @@ public final class SessionStateFileStore {
             if (phaseId == null || stateId == null) {
                 return null; // corrupt: required ids missing
             }
-            return new ResearchStateMemento(phaseId, stateId, field(json, "continuationStateId"),
+            ResearchStateMemento memento = new ResearchStateMemento(phaseId, stateId,
+                    field(json, "continuationStateId"),
                     longField(json, "revision"), field(json, "pendingApprovalId"));
+            if (!MODEL_PHASES_V4.equals(field(json, "model"))) {
+                memento = LegacyResearchStateMigration.migratePreV4(memento);
+            }
+            return memento;
         } catch (Exception corrupt) {
             return null;
         }

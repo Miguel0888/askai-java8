@@ -66,6 +66,14 @@ public final class ResearchLoop {
     private com.aresstack.askai.research.runtime.acquire.SourceAcceptancePort sourceAcceptancePort;
 
     /** Inject the source-acceptance route (T2c wires the manual port; default stays the agent's tool). */
+    private com.aresstack.askai.research.runtime.acquire.SearchScopeControlPort scopeControl;
+
+    /** SC1: the autonomous loop uses the SAME scope-control gate as the manual search. */
+    public void setScopeControl(
+            com.aresstack.askai.research.runtime.acquire.SearchScopeControlPort port) {
+        this.scopeControl = port;
+    }
+
     public void setSourceAcceptancePort(
             com.aresstack.askai.research.runtime.acquire.SourceAcceptancePort port) {
         if (port != null) {
@@ -209,6 +217,11 @@ public final class ResearchLoop {
                         challengeWaitForUser,
                         searchSettings.readiness.maximumPageReadinessRetries,
                         searchSettings.readiness.minimumReadableCharacters);
+        if (scopeControl != null) {
+            // SC1: the SAME WebSearchApplicationService gate + host scope service the manual
+            // search uses — one filter truth for both acquisition paths.
+            acquisition.setScopeControl(scopeControl);
+        }
         ResearchStopReason reason = acquisition.execute(task);
         listener.status("run stopped: " + reason
                 + " (pages=" + progress.getPagesVisited()

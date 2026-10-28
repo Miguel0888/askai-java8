@@ -208,6 +208,41 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 public String resolveConceptConflict(String conflictId, String decision) {
                     return resolveConceptConflictCommand(conflictId, decision);
                 }
+
+                public String offerSearches(String suggestionsJson) {
+                    return offerSearchesCommand(suggestionsJson);
+                }
+
+                public java.util.List<String> blacklistedTerms() {
+                    return currentBlacklistTerms();
+                }
+
+                @Override
+                public void conceptToolLog(String line) {
+                    technicalLog(line);
+                }
+
+                @Override
+                public String scopeProbe(java.util.List<String> terms) {
+                    return scopeProbeCommand(terms);
+                }
+
+                @Override
+                public String searchScopeBegin() {
+                    return ResearchAgentSession.this.searchScopeBegin();
+                }
+
+                @Override
+                public String searchScopeEvaluate(String handle, String lane,
+                                                  String itemsJson) {
+                    return ResearchAgentSession.this.searchScopeEvaluate(handle, lane,
+                            itemsJson);
+                }
+
+                @Override
+                public String searchScopeEnd(String handle) {
+                    return ResearchAgentSession.this.searchScopeEnd(handle);
+                }
             });
             resources.setProjectionUpdateListener(new Runnable() {
                 public void run() {
@@ -509,7 +544,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         // An OPEN concept conflict leads: the pending question gets two visible decision
         // buttons (like a pending approval — a request-bound decision, never a workflow state).
-        if (!conceptConflicts.isEmpty()) {
+        // Candidates from reconciliation never arm anything (the candidate/open model).
+        if (hasOpenConflict()) {
             tags.add(new ResearchActionTag("resolve-conflict-remove",
                     playbook.isGerman() ? "Aus Konzept entfernen" : "Remove from concept",
                     playbook.isGerman()
@@ -570,7 +606,63 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                                         + "(takes about 1-2 minutes)", true));
             }
         }
+        // #42: the topics-from-sources action — only when the background analysis is enabled
+        // AND a prepared topic snapshot actually exists (the click consumes, never computes).
+        if (topicDiscoveryOffered()) {
+            tags.add(new ResearchActionTag("discover-topics",
+                    playbook.isGerman() ? "Themen aus Quellen" : "Topics from sources",
+                    playbook.isGerman()
+                            ? "Zeigt die aus den bisherigen Quellen entdeckten Themenfelder "
+                                    + "als Vorschläge — du entscheidest, was ins Konzept kommt"
+                            : "Shows the topic areas discovered in the sources so far as "
+                                    + "suggestions — you decide what enters the concept",
+                    true));
+        }
         return tags;
+    }
+
+    /** #42: enabled setting + an existing prepared snapshot with topics — never a computation. */
+    private boolean topicDiscoveryOffered() {
+        if (productiveResources == null || productiveResources.isClosed()
+                || !com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING
+                        .equals(state.getPhaseId())
+                || !com.aresstack.askai.research.host.ResearchRuntimeSettings
+                        .backgroundTopicDiscovery()) {
+            return false;
+        }
+        com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery discovery =
+                productiveResources.topicDiscovery();
+        if (discovery == null) {
+            return false;
+        }
+        com.aresstack.askai.research.knowledge.processing.live.FileTopicSnapshotStore
+                .TopicSnapshot snapshot = discovery.current();
+        return snapshot != null && !snapshot.topics.isEmpty();
+    }
+
+    /**
+     * #42: consume the PREPARED topic snapshot as a host-narrated chat answer — suggestions
+     * only. Structurally no mutation (the method only speaks); excluded topics are filtered
+     * before presentation; the user's normal reply runs the existing concept operations.
+     */
+    private String discoverTopicsFromSources() {
+        if (!topicDiscoveryOffered()) {
+            return "rejected: no prepared topic analysis is available (background semantic "
+                    + "analysis off, or no sources processed yet)";
+        }
+        com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery discovery =
+                productiveResources.topicDiscovery();
+        com.aresstack.askai.research.knowledge.processing.live.FileTopicSnapshotStore
+                .TopicSnapshot snapshot = discovery.current();
+        java.util.List<String> titles = ResearchTopicsAnswer.presentableTitles(
+                snapshot.topics, currentBlacklistTerms());
+        technicalLog("discover-topics -> snapshot revision=" + snapshot.revision
+                + " topics=" + snapshot.topics.size() + " presented=" + titles.size()
+                + (discovery.isStale() ? " (stale, refresh pending)" : ""));
+        sayAsAgent(ResearchTopicsAnswer.render(titles, discovery.isStale(),
+                playbook.isGerman()));
+        return "handled: presented " + titles.size() + " topic suggestions (no concept "
+                + "change)";
     }
 
     /** SCOPING + a usable productive scope draft — the check's visibility condition. */
@@ -843,20 +935,54 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // Gate 6 contract: while a concept conflict is PENDING, the host OWNS the next
             // unambiguous yes/no — "Ja." never reaches the model (which once answered it with
             // prose and a false "vorgenommen" claim while the card stayed put).
-            if (!conceptConflicts.isEmpty()) {
+            if (hasOpenConflict()) {
                 Boolean agrees = ConflictAnswerInterpreter.interpret(text);
                 if (agrees != null) {
                     echoUserMessage(text);
                     resolvePendingConflictFromHost(agrees.booleanValue());
                     return;
                 }
+            } else if (staleDecisionTombstone != null) {
+                // The transcript's last decision question is STALE (its conflict died with a
+                // raw save/restore). A bare yes/no gets the deterministic host answer; any
+                // substantive turn supersedes the tombstone silently.
+                String stale = staleDecisionTombstone;
+                staleDecisionTombstone = null;
+                Boolean agrees = ConflictAnswerInterpreter.interpret(text);
+                if (agrees != null) {
+                    echoUserMessage(text);
+                    technicalLog("stale conflict confirmation -> deterministic host answer "
+                            + "(no concept mutation)");
+                    boolean plural = stale.contains(", ");
+                    sayAsAgent(playbook.isGerman()
+                            ? "Die vorherige Rückfrage ist durch die manuelle Änderung "
+                                    + "veraltet. Am Konzept wurde nichts verändert. „" + stale
+                                    + "“ " + (plural ? "bleiben" : "bleibt")
+                                    + " ausgeschlossen und wird in der Konzeptprojektion "
+                                    + "unterdrückt."
+                            : "The earlier question is outdated after the manual change. "
+                                    + "Nothing in the concept was changed. \"" + stale + "\" "
+                                    + (plural ? "remain" : "remains") + " excluded and "
+                                    + "suppressed in the concept projection.");
+                    fireStateChanged();
+                    return;
+                }
+                technicalLog("stale decision tombstone superseded by a substantive turn");
             }
             echoUserMessage(text);
             // KISS (live-gate 4): the mission is bookkeeping, not intelligence — the user's
             // FIRST message IS the mission until they restate it. No model turn ever begs
             // for setMission again.
             recordMissionIfAbsent(text);
+            refreshConversationPolicy(); // once per user turn, before the fence carries it
             publishScopeFence(); // authoritative scope FIRST, then the turn that may change it
+            if (boundaryQuestionPending) {
+                // Fix 1: the fence just carried the question one last time — THIS user turn is
+                // its answer. From the next turn on it is no longer open boundary work.
+                boundaryQuestionPending = false;
+                lastScopeCheckQuestion = "";
+                technicalLog("[scope-check] boundary question consumed by this user turn");
+            }
             beginAgentTurn(); // busy + preempt visualizer; cleared by the turn's terminal event
             backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
             return;
@@ -1871,7 +1997,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // Display-only support content for the scoping workspace: keep only the LATEST projection
                 // (a later turn replaces it — the chat keeps every turn, this panel shows the current state).
                 // It moves nothing and writes no artifact; fireStateChanged() lets the workspace re-read it.
-                latestScopingProjection = event.getScopingProjection();
+                latestScopingProjection = mergeOfferedTags(event.getScopingProjection());
                 persistScopingProjection(latestScopingProjection); // survive a restart (display-only working state)
                 finishPostSearchThinking(""); // refreshed suggestions are the last step of the summary
                 break;
@@ -1967,14 +2093,168 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return researchBriefStore;
     }
 
+    /** The blacklist truth for DISPLAY (tree editor dims suppressed cards subtree-deep). */
+    public java.util.List<String> blacklistTermsForDisplay() {
+        return currentBlacklistTerms();
+    }
+
+    /**
+     * One technical-log line for a TREE-EDITOR gesture (ratified D4): the USER_UI origin
+     * stays distinguishable — a mouse gesture must never read like an agent tool call.
+     */
+    public void logConceptUiAction(String line) {
+        technicalLog("concept USER_UI -> " + line);
+    }
+
     /**
      * The session's ONE Konzeptpapier branch-edit service (shared with the agent MCP tools — the
      * handle registry lives in it), or {@code null} in the in-memory clickdummy. The Konzept tab
      * and the mindmap overlay render from its atomic snapshots.
      */
     public com.aresstack.askai.research.concept.ConceptBranchService conceptBranchService() {
-        return productiveResources == null || productiveResources.isClosed()
-                ? null : productiveResources.conceptBranchService();
+        com.aresstack.askai.research.concept.ConceptBranchService service =
+                productiveResources == null || productiveResources.isClosed()
+                        ? null : productiveResources.conceptBranchService();
+        wireConceptIdentity(service);
+        return service;
+    }
+
+    /** The service instance the identity observers are already wired to (idempotent wiring). */
+    private volatile com.aresstack.askai.research.concept.ConceptBranchService wiredConceptService;
+
+    /**
+     * Wire the identity observers once per service instance: recovery/migration diagnostics go
+     * to the technical log, and every transient boundary (raw save, restore, degraded restore)
+     * discards conflicts/plans and runs the eager blacklist reconciliation (V3 §8a steps 3-5).
+     */
+    private void wireConceptIdentity(
+            final com.aresstack.askai.research.concept.ConceptBranchService service) {
+        if (service == null || service == wiredConceptService) {
+            return;
+        }
+        wiredConceptService = service;
+        service.setDiagnosticSink(
+                new com.aresstack.askai.research.concept.ConceptBranchService.DiagnosticSink() {
+                    public void line(String line) {
+                        technicalLog(line);
+                    }
+                });
+        service.setLifecycleListener(
+                new com.aresstack.askai.research.concept.ConceptBranchService
+                        .LifecycleListener() {
+                    public void onTransientBoundary(String reason, String newEpoch) {
+                        discardTransientsAndReconcile(reason, newEpoch);
+                    }
+                });
+    }
+
+    /**
+     * V3 §8a steps 3-5, fired INSIDE the service's commit lock: every conflict (open AND
+     * candidate) dies with the boundary — never revived from history; then fence/UI republish;
+     * then the deterministic reconciliation derives fresh CANDIDATES from the new head (silent
+     * bookkeeping — a candidate becomes answerable only through a future visible question).
+     */
+    private void discardTransientsAndReconcile(String reason, String newEpoch) {
+        int discarded;
+        java.util.List<String> discardedOpenLabels = new java.util.ArrayList<String>();
+        synchronized (conceptConflicts) {
+            discarded = conceptConflicts.size();
+            for (ConceptConflictRef ref : conceptConflicts.values()) {
+                if (ref.open) {
+                    discardedOpenLabels.add(ref.label);
+                }
+            }
+            conceptConflicts.clear();
+        }
+        if (discarded > 0) {
+            technicalLog("concept identity -> " + discarded
+                    + " transient conflict(s) discarded (" + reason + ")");
+        }
+        if (!discardedOpenLabels.isEmpty()) {
+            // The transcript still shows the old removal question — a bare "Ja." afterwards
+            // must never reach the model (which once claimed a deletion over an unchanged
+            // concept). The tombstone arms exactly ONE deterministic host answer.
+            staleDecisionTombstone = joined(discardedOpenLabels);
+            technicalLog("concept identity -> stale decision tombstone armed for \""
+                    + staleDecisionTombstone + "\"");
+        }
+        publishScopeFence();
+        fireStateChanged();
+        reconcileBlacklistAgainstConcept(reason);
+    }
+
+    /**
+     * Eager reconciliation after a boundary: every EXCLUSION IDENTITY lands in exactly one
+     * category (the live gate saw label AND facet id counted separately — "2 gone, 2 leaf
+     * candidates" for one gone term and one present leaf, with a DUPLICATE candidate
+     * registered). Deterministic host bookkeeping, never a question, never an armed intercept.
+     */
+    private void reconcileBlacklistAgainstConcept(String reason) {
+        final com.aresstack.askai.research.concept.ConceptBranchService service =
+                wiredConceptService;
+        if (service == null || service.isFailClosed()) {
+            return;
+        }
+        String summary = com.aresstack.askai.research.concept.ConceptBlacklistReconciler
+                .reconcile(service, exclusionIdentities(),
+                        new com.aresstack.askai.research.concept.ConceptBlacklistReconciler
+                                .CandidateRegistrar() {
+                            public void candidate(String exclusionId, String label,
+                                                  String nodeId) {
+                                conceptConflicts.put(
+                                        "conflict-" + conflictIds.incrementAndGet(),
+                                        new ConceptConflictRef(service.currentEpoch(), nodeId,
+                                                service.snapshot().getWorkingRevision(),
+                                                label, false));
+                            }
+                        });
+        technicalLog("concept identity -> reconciliation after " + reason + ": " + summary);
+    }
+
+    /**
+     * One entry per exclusion IDENTITY: every excluded facet contributes id→label (both match
+     * the same entry during reconciliation), plain exclusion strings only when no facet
+     * already covers them case-insensitively.
+     */
+    private java.util.LinkedHashMap<String, String> exclusionIdentities() {
+        java.util.LinkedHashMap<String, String> exclusions =
+                new java.util.LinkedHashMap<String, String>();
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        if (coordinator == null || !coordinator.isUsable()) {
+            return exclusions;
+        }
+        com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft = coordinator.current();
+        for (com.aresstack.askai.research.domain.scope.ScopeFacet facet
+                : draft.excludedFacets()) {
+            exclusions.put(facet.getFacetId(), facet.getLabel());
+        }
+        for (String term : draft.getExclusions()) {
+            String candidate = term == null ? "" : term.trim();
+            if (candidate.isEmpty()) {
+                continue;
+            }
+            boolean covered = false;
+            for (java.util.Map.Entry<String, String> known : exclusions.entrySet()) {
+                if (candidate.equalsIgnoreCase(known.getKey())
+                        || candidate.equalsIgnoreCase(known.getValue())) {
+                    covered = true;
+                    break;
+                }
+            }
+            if (!covered) {
+                exclusions.put(candidate, candidate);
+            }
+        }
+        return exclusions;
+    }
+
+    private static String joined(java.util.List<String> labels) {
+        StringBuilder sb = new StringBuilder();
+        for (String label : labels) {
+            sb.append(sb.length() > 0 ? ", " : "").append(label);
+        }
+        return sb.toString();
     }
 
     /**
@@ -2266,6 +2546,19 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // ONE immutable draft snapshot + ONE frozen embedding snapshot, pinned here only.
             com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft =
                     coordinator.current();
+            // Zielbild slice 1 — the fence is a PROJECTION of the two artifacts: the draft's own
+            // anchors carry the negotiated OUT side, the EFFECTIVE mindmap (stored concept minus
+            // exact blacklist matches) contributes the IN posts. Snapshotted HERE, together with
+            // the draft, so vectors/request/plan describe one fence.
+            com.aresstack.askai.research.concept.ConceptBranchService conceptService =
+                    conceptBranchService();
+            java.util.List<com.aresstack.askai.research.domain.scope.ScopeAnchor> conceptAnchors =
+                    com.aresstack.askai.research.scope.ConceptAnchorProjection.anchorsOf(
+                            conceptService == null ? null
+                                    : conceptService.snapshot().getDocumentJson(), draft);
+            java.util.List<com.aresstack.askai.research.domain.scope.ScopeAnchor> fenceAnchors =
+                    com.aresstack.askai.research.scope.ScopeSweepPlanAssembler.combinedAnchors(
+                            draft, conceptAnchors);
             com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder =
                     new com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder(
                             descriptor);
@@ -2275,7 +2568,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 anchorVectors = new com.aresstack.askai.research.store.ScopeAnchorVectorIndex(
                         new java.io.File(productiveResources.getProjectContext()
                                 .getProjectDirectory(), "scope-anchor-vectors.json"))
-                        .vectorsFor(draft, embedder.modelFingerprint(), embedder);
+                        .vectorsFor(fenceAnchors, embedder.modelFingerprint(), embedder);
             } catch (java.io.IOException indexFailed) {
                 return com.aresstack.askai.research.domain.scope.ScopeSweepOutcome
                         .embeddingFailed("anchor vector index failed: "
@@ -2305,7 +2598,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                                 }
                             });
             return service.run(com.aresstack.askai.research.scope.ScopeSweepPlanAssembler.planOf(
-                    draft, embedder.modelFingerprint(), anchorVectors, configuration));
+                    draft, conceptAnchors, embedder.modelFingerprint(), anchorVectors,
+                    configuration));
         } finally {
             activeProbeGenerator = null;
             scopeSweepInFlight.set(false);
@@ -2397,14 +2691,25 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             }
         });
         fireStateChanged(); // the tag flips to "Prüfung abbrechen"
+        // Fence fingerprint (connector-gate fix 2): the check judges the EFFECTIVE fence
+        // including the concept — stamp what the sweep is about to see, not what exists when
+        // the report happens to arrive.
+        final String conceptStampAtStart = conceptStamp();
         scopeCheckExecutor.execute(new Runnable() {
             public void run() {
                 com.aresstack.askai.research.scope.ScopeCheckReport report = null;
                 String unexpected = null;
                 try {
-                    report = runScopeCheck(com.aresstack.askai.research.host
-                            .ResearchRuntimeSettings.loadScopeSweepConfiguration(
-                                    getHostStateStore()));
+                    com.aresstack.askai.research.scope.ScopeSweepConfiguration configuration =
+                            com.aresstack.askai.research.host.ResearchRuntimeSettings
+                                    .loadScopeSweepConfiguration(getHostStateStore());
+                    // Gate 8 observability: a running check is visible in the log WITH its knobs —
+                    // "no result line yet" and "which breadth was that" stop being guesswork.
+                    technicalLog("[scope-check] started (breadth="
+                            + configuration.targetBroadProbes + ", controls/anchor="
+                            + configuration.controlsPerAnchor + ", generation timeout="
+                            + configuration.generationTimeoutSeconds + "s)");
+                    report = runScopeCheck(configuration);
                 } catch (RuntimeException broke) {
                     unexpected = String.valueOf(broke);
                 } finally {
@@ -2414,7 +2719,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 final String finishedUnexpected = unexpected;
                 uiExecutor.execute(new Runnable() {
                     public void run() {
-                        presentScopeCheck(checkId, finishedReport, finishedUnexpected);
+                        presentScopeCheck(checkId, finishedReport, finishedUnexpected,
+                                conceptStampAtStart);
                         fireStateChanged();
                     }
                 });
@@ -2455,7 +2761,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     /** Presentation of one finished check — every gate keeps its own honest face (UI thread). */
     private void presentScopeCheck(String checkId,
                                    com.aresstack.askai.research.scope.ScopeCheckReport report,
-                                   String unexpected) {
+                                   String unexpected, String conceptStampAtStart) {
         try {
             sink.finishThinking(checkId, "");
         } catch (RuntimeException ignored) {
@@ -2477,6 +2783,18 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return;
         }
         appendScopeCheckTechnicalLog(report);
+        latestScopeCheckReport = report; // the policy consumes it while its revision is current
+        // Fix 2 (connector gate): a concept mutation AFTER the check makes the report stale —
+        // the fence is Mindmap + Blacklist, so currency is the PAIR (scope revision, concept
+        // stamp), never the scope-draft revision alone.
+        latestScopeCheckConceptStamp = conceptStampAtStart;
+        // Fix 1 (connector gate): ASKED is pending-until-ANSWERED — the next user turn
+        // consumes it; it must never linger as open boundary work until a report replaces it.
+        boundaryQuestionPending = report.getKind()
+                == com.aresstack.askai.research.scope.ScopeCheckReport.Kind.ASKED;
+        if (!boundaryQuestionPending) {
+            lastScopeCheckQuestion = "";
+        }
         switch (report.getKind()) {
             case ASKED:
                 // The deliverable: the agent asks its ONE question. The user's answer flows
@@ -2690,7 +3008,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         if (!add) {
             // The chip may project an EXCLUDED facet (not a string exclusion). Removing it means
-            // the user LIFTS the exclusion — the facet returns to the scope as confirmed-in.
+            // the user LIFTS the exclusion. Two-artifact alignment: the facet returns as
+            // PROVISIONAL bookkeeping (kept on record, no longer an OUT post) — NEVER as a
+            // CONFIRMED positive post; the mindmap alone owns the positive space, and a lifted
+            // exclusion must not spawn a negotiated IN anchor beside it.
             for (com.aresstack.askai.research.domain.scope.ScopeFacet facet
                     : coordinator.current().excludedFacets()) {
                 if (facet.getLabel().trim().equalsIgnoreCase(value)) {
@@ -2698,8 +3019,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                             new com.aresstack.askai.research.domain.scope.ScopePatch(
                                     java.util.Collections.singletonList(
                                             com.aresstack.askai.research.domain.scope
-                                                    .ScopePatchOperations.confirmFacet(
-                                                            facet.getFacetId(),
+                                                    .ScopePatchOperations.addFacet(
+                                                            facet.getFacetId(), facet.getLabel(),
                                                             "user lifted the exclusion"))),
                             java.util.Collections.<com.aresstack.askai.research.domain.scope
                                     .UnresolvedScopeIssue>emptyList());
@@ -2743,12 +3064,196 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     // ------------------------------------------------------ one-command exclusion facade (gate 4)
 
-    /** Opaque conflictId → concept card path, INSERTION-ordered (the host resolves oldest first). */
-    private final java.util.Map<String, java.util.List<String>> conceptConflicts =
+    /**
+     * One registered concept conflict (ID-sidecar slice): references are
+     * {@code epoch + nodeId + expectedRevision} — never a stored name path (a rename must not
+     * break them). {@code open} implements the ratified candidate/open model: only a conflict
+     * whose question was VISIBLY asked (the terminal exclude receipt) is answerable — buttons,
+     * fence block and the yes/no intercept all key on it; reconciliation after an epoch
+     * boundary produces silent candidates only.
+     */
+    static final class ConceptConflictRef {
+        final String epoch;
+        final String nodeId;
+        final long expectedRevision;
+        final String label;
+        final boolean open;
+
+        ConceptConflictRef(String epoch, String nodeId, long expectedRevision, String label,
+                           boolean open) {
+            this.epoch = epoch;
+            this.nodeId = nodeId;
+            this.expectedRevision = expectedRevision;
+            this.label = label;
+            this.open = open;
+        }
+    }
+
+    /**
+     * The DiscardedDecisionTombstone (ID-sidecar gate finding): when a raw save/restore
+     * discards an OPEN conflict, the transcript still shows the old removal question — a bare
+     * "Ja." afterwards must get a deterministic HOST answer ("the question is stale, nothing
+     * changed, the topic stays suppressed"), never a model inference. Consumed on the first
+     * answer, superseded silently by any substantive turn, replaced by any new OPEN conflict.
+     * Value = the comma-joined labels of the discarded open question(s).
+     */
+    private volatile String staleDecisionTombstone;
+
+    /** Opaque conflictId → reference, INSERTION-ordered (the host resolves oldest first). */
+    private final java.util.Map<String, ConceptConflictRef> conceptConflicts =
             java.util.Collections.synchronizedMap(
-                    new java.util.LinkedHashMap<String, java.util.List<String>>());
+                    new java.util.LinkedHashMap<String, ConceptConflictRef>());
     private final java.util.concurrent.atomic.AtomicLong conflictIds =
             new java.util.concurrent.atomic.AtomicLong();
+
+    // ------------------------------------------------ conversation policy (ratified slice)
+    /** The latest finished scope check; the policy IGNORES it once its revision is stale. */
+    private volatile com.aresstack.askai.research.scope.ScopeCheckReport latestScopeCheckReport;
+    /** The concept stamp (epoch#revision) the latest check judged — half the fence fingerprint. */
+    private volatile String latestScopeCheckConceptStamp = "";
+    /** An ASKED question is pending until the user's next turn answers it (fix 1). */
+    private volatile boolean boundaryQuestionPending;
+    /** The node-ID novelty window: renames/moves mint no ids and are correctly no novelty. */
+    private java.util.Set<String> noveltyPreviousIds = new java.util.HashSet<String>();
+    private String noveltyEpoch;
+    private int turnsWithoutNewCards;
+    /** The ephemeral fence block, recomputed once per user turn — NEVER persisted state. */
+    private volatile String conversationPolicyBlock = "";
+
+    /** The concept side of the fence fingerprint: epoch + working revision (or a marker). */
+    private String conceptStamp() {
+        com.aresstack.askai.research.concept.ConceptBranchService service =
+                conceptBranchService();
+        if (service == null) {
+            return "none";
+        }
+        try {
+            return service.currentEpoch() + "#" + service.snapshot().getWorkingRevision();
+        } catch (RuntimeException unreadable) {
+            return "unreadable";
+        }
+    }
+
+    /**
+     * Recompute the ratified conversation policy for the upcoming turn: pure projection over
+     * the CURRENT snapshot (node-ID novelty, OPEN boundary material, the scope check only
+     * while its revision is current) — no second state machine, only this observation window.
+     */
+    private void refreshConversationPolicy() {
+        com.aresstack.askai.research.concept.ConceptBranchService service =
+                conceptBranchService();
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        if (service == null || coordinator == null || !coordinator.isUsable()) {
+            conversationPolicyBlock = "";
+            return;
+        }
+        java.util.Set<String> ids =
+                new java.util.HashSet<String>(service.allNodeIds());
+        String epoch = service.currentEpoch();
+        if (noveltyEpoch != null && noveltyEpoch.equals(epoch)) {
+            boolean newCards = false;
+            for (String id : ids) {
+                if (!noveltyPreviousIds.contains(id)) {
+                    newCards = true;
+                    break;
+                }
+            }
+            turnsWithoutNewCards = newCards ? 0 : turnsWithoutNewCards + 1;
+        } else {
+            turnsWithoutNewCards = 0; // a fresh epoch restarts the observation window
+        }
+        noveltyPreviousIds = ids;
+        noveltyEpoch = epoch;
+
+        com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft = coordinator.current();
+        boolean missionPresent = draft.getMission() != null
+                && !draft.getMission().trim().isEmpty();
+        boolean openConflict = false;
+        int candidates = 0;
+        synchronized (conceptConflicts) {
+            for (ConceptConflictRef ref : conceptConflicts.values()) {
+                if (ref.open) {
+                    openConflict = true;
+                } else {
+                    candidates++;
+                }
+            }
+        }
+        com.aresstack.askai.research.scope.ScopeCheckReport report = latestScopeCheckReport;
+        boolean reportCurrent = report != null
+                && report.getOutcome().getScopeRevision() == draft.getRevision()
+                && conceptStamp().equals(latestScopeCheckConceptStamp);
+        com.aresstack.askai.research.scope.ScopeCheckReport.Kind kind =
+                reportCurrent ? report.getKind() : null;
+        boolean calibrationWeak = reportCurrent && report.getOutcome().getStatus()
+                == com.aresstack.askai.research.domain.scope.ScopeSweepOutcome.Status
+                        .CALIBRATION_WEAK;
+        int driftGuards = reportCurrent && report.getOutcome().getAdviceSet() != null
+                ? report.getOutcome().getAdviceSet().getDriftGuards().size() : 0;
+        boolean openBoundaryWork = openConflict || candidates > 0 || driftGuards > 0
+                || (boundaryQuestionPending
+                        && kind == com.aresstack.askai.research.scope.ScopeCheckReport.Kind
+                                .ASKED);
+        ConversationPolicyProjection.Inputs inputs = new ConversationPolicyProjection.Inputs(
+                missionPresent, ids.size(), turnsWithoutNewCards, openBoundaryWork,
+                openConflict, reportCurrent, kind, calibrationWeak, driftGuards,
+                com.aresstack.askai.research.host.ResearchRuntimeSettings.policySparseCards(),
+                com.aresstack.askai.research.host.ResearchRuntimeSettings.policyNoveltyTurns());
+        ConversationPolicyProjection.Stage stage =
+                ConversationPolicyProjection.stageOf(inputs);
+        conversationPolicyBlock =
+                ConversationPolicyProjection.hintBlock(stage, calibrationWeak);
+        technicalLog(ConversationPolicyProjection.logLine(stage, inputs));
+    }
+
+    /** Whether any ANSWERABLE (open) conflict exists — candidates never arm anything. */
+    private boolean hasOpenConflict() {
+        synchronized (conceptConflicts) {
+            for (ConceptConflictRef ref : conceptConflicts.values()) {
+                if (ref.open) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private String firstOpenConflictId() {
+        synchronized (conceptConflicts) {
+            for (java.util.Map.Entry<String, ConceptConflictRef> entry
+                    : conceptConflicts.entrySet()) {
+                if (entry.getValue().open) {
+                    return entry.getKey();
+                }
+            }
+        }
+        return null;
+    }
+
+    /** The OPEN conflicts' CURRENT name paths (resolved via the ID sidecar at render time). */
+    private java.util.Map<String, java.util.List<String>> openConflictPaths() {
+        java.util.Map<String, java.util.List<String>> paths =
+                new java.util.LinkedHashMap<String, java.util.List<String>>();
+        com.aresstack.askai.research.concept.ConceptBranchService service = conceptBranchService();
+        if (service == null) {
+            return paths;
+        }
+        synchronized (conceptConflicts) {
+            for (java.util.Map.Entry<String, ConceptConflictRef> entry
+                    : conceptConflicts.entrySet()) {
+                if (!entry.getValue().open
+                        || !entry.getValue().epoch.equals(service.currentEpoch())) {
+                    continue;
+                }
+                java.util.List<String> path = service.pathOfNodeId(entry.getValue().nodeId);
+                if (path != null) {
+                    paths.put(entry.getKey(), path);
+                }
+            }
+        }
+        return paths;
+    }
 
     /**
      * The whole exclusion in ONE host-owned step: derive the id from the USER'S term, persist the
@@ -2807,8 +3312,49 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             reply.addProperty("userMessage", userMessage.toString());
             return reply.toString();
         }
+        com.aresstack.askai.research.concept.ConceptBranchService conceptService =
+                conceptBranchService();
+        if (conceptService == null || !conceptService.isLeafAt(conflictPath)) {
+            // Safety-slice double guard, part 1: a BRANCH conflict is never offered for
+            // removal — the gate saw the host vaporise a non-terminal root after a "Ja.".
+            // Until the three-way tree-editor UI the only honest offers are "keep suppressed"
+            // and the manual editor; the suppression itself is already in effect.
+            publishScopeFence();
+            fireStateChanged();
+            reply.addProperty("requiredResponse", "NONE");
+            reply.addProperty("conceptBranchNote",
+                    "the term matches a concept BRANCH with sub-cards — removal is manual "
+                            + "editor work, no conflict question is asked");
+            userMessage.append(german
+                    ? " Der Begriff steht außerdem als Zweig mit Unterkarten im Konzept —"
+                            + " dort entfernen ist bis zum Tree-Editor Handarbeit im"
+                            + " Konzept-Editor; die Recherche dazu bleibt unabhängig davon"
+                            + " unterdrückt."
+                    : " The term also matches a concept BRANCH with sub-cards — removing it"
+                            + " there is manual concept-editor work until the tree editor"
+                            + " ships; research on it stays suppressed either way.");
+            reply.addProperty("userMessage", userMessage.toString());
+            technicalLog("exclude_topic -> concept BRANCH at " + conflictPath
+                    + " — no removable conflict registered (manual editor work)");
+            return reply.toString();
+        }
+        String nodeId = conceptService.nodeIdAtPath(conflictPath);
+        if (nodeId == null) {
+            // No stable identity for the card (recovery edge) — no removable conflict either.
+            publishScopeFence();
+            fireStateChanged();
+            reply.addProperty("requiredResponse", "NONE");
+            reply.addProperty("userMessage", userMessage.toString());
+            technicalLog("exclude_topic -> concept match at " + conflictPath
+                    + " has no identity — no removable conflict registered");
+            return reply.toString();
+        }
         String conflictId = "conflict-" + conflictIds.incrementAndGet();
-        conceptConflicts.put(conflictId, conflictPath);
+        // OPEN directly: the question is part of THIS turn's visible terminal receipt — and a
+        // NEW visible question always replaces a stale tombstone.
+        staleDecisionTombstone = null;
+        conceptConflicts.put(conflictId, new ConceptConflictRef(conceptService.currentEpoch(),
+                nodeId, conceptService.snapshot().getWorkingRevision(), label, true));
         // Register the conflict BEFORE republishing the fence (gate-6 rerun finding): the old
         // order published a conflict-free fence in the exclude turn itself, so the OPEN CONCEPT
         // CONFLICT block only appeared one publish later.
@@ -2838,10 +3384,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return reply.toString();
     }
 
-    /** The user's answer arrives as its OWN command — the path stays host-side by conflictId. */
+    /** The user's answer arrives as its OWN command — the reference stays host-side by id. */
     String resolveConceptConflictCommand(String conflictId, String decision) {
-        java.util.List<String> path = conceptConflicts.get(conflictId);
-        if (path == null) {
+        ConceptConflictRef ref = conceptConflicts.get(conflictId);
+        if (ref == null || !ref.open) {
             return "Unknown conflict_id \"" + conflictId + "\" — use the id exclude_topic "
                     + "reported (it is single-use).";
         }
@@ -2863,6 +3409,69 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         com.aresstack.askai.research.concept.ConceptBranchService service = conceptBranchService();
         if (service == null) {
             return "This session has no concept service.";
+        }
+        // Full reason re-check IMMEDIATELY before the destructive commit (V3 invariant 6):
+        // the reference's epoch must still be current, the node must still exist, and the
+        // underlying exclusion must still stand — a stale reference is closed, never executed.
+        if (!ref.epoch.equals(service.currentEpoch())) {
+            conceptConflicts.remove(conflictId);
+            technicalLog("resolve_concept_conflict " + conflictId
+                    + " -> REFUSED: identity epoch changed (reference discarded)");
+            return "This conflict belongs to an earlier document state and cannot be executed "
+                    + "anymore — nothing was removed.";
+        }
+        java.util.List<String> path = service.pathOfNodeId(ref.nodeId);
+        if (path == null) {
+            conceptConflicts.remove(conflictId);
+            technicalLog("resolve_concept_conflict " + conflictId
+                    + " -> node gone — nothing to remove");
+            reply.addProperty("result", "KEPT_SUPPRESSED");
+            reply.addProperty("reason", "the entry no longer exists in the concept");
+            reply.addProperty("userMessage", german
+                    ? "Der Eintrag steht nicht mehr im Konzept — es gibt nichts zu entfernen."
+                    : "The entry is no longer in the concept — there is nothing to remove.");
+            return reply.toString();
+        }
+        boolean exclusionStillStands = false;
+        for (String term : currentBlacklistTerms()) {
+            if (term != null && term.trim().equalsIgnoreCase(ref.label.trim())) {
+                exclusionStillStands = true;
+                break;
+            }
+        }
+        if (!exclusionStillStands) {
+            conceptConflicts.remove(conflictId);
+            technicalLog("resolve_concept_conflict " + conflictId
+                    + " -> REFUSED: the exclusion was lifted (conflict reason gone)");
+            reply.addProperty("result", "KEPT_SUPPRESSED");
+            reply.addProperty("reason", "the underlying exclusion no longer exists");
+            reply.addProperty("userMessage", german
+                    ? "Der Ausschluss besteht nicht mehr — der Eintrag bleibt unverändert im "
+                            + "Konzept."
+                    : "The exclusion no longer stands — the entry stays in the concept "
+                            + "unchanged.");
+            return reply.toString();
+        }
+        if (!service.isLeafAt(path)) {
+            // Safety-slice double guard, part 2: re-check IMMEDIATELY before the commit — the
+            // card may have grown children between the question and the user's answer. The
+            // entry stays, the suppression stands, the conflict is closed honestly.
+            conceptConflicts.remove(conflictId);
+            technicalLog("resolve_concept_conflict " + conflictId
+                    + " -> REFUSED: no longer a leaf at " + path
+                    + " (kept suppressed, removal is manual editor work)");
+            reply.addProperty("result", "KEPT_SUPPRESSED");
+            reply.addProperty("reason", "the entry grew into a branch — a non-leaf is never "
+                    + "removed by the host; use the concept editor");
+            reply.addProperty("userMessage", german
+                    ? "Der Eintrag „" + path.get(path.size() - 1) + "“ hat inzwischen "
+                            + "Unterkarten und wird deshalb nicht automatisch entfernt — das "
+                            + "geht bis zum Tree-Editor nur im Konzept-Editor. Die Recherche "
+                            + "dazu bleibt unterdrückt."
+                    : "The entry \"" + path.get(path.size() - 1) + "\" now has sub-cards and "
+                            + "is therefore not removed automatically — until the tree editor "
+                            + "that is concept-editor work. Research on it stays suppressed.");
+            return reply.toString();
         }
         com.aresstack.askai.research.concept.ConceptBranchService.EditResult removed =
                 service.removeNodeAt(path);
@@ -2893,10 +3502,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      * practice there is exactly one, question and answer alternate.
      */
     private String resolvePendingConflictFromHost(boolean remove) {
-        if (conceptConflicts.isEmpty()) {
+        String conflictId = firstOpenConflictId();
+        if (conflictId == null) {
             return "rejected: no open concept conflict";
         }
-        String conflictId = conceptConflicts.keySet().iterator().next();
         String reply = resolveConceptConflictCommand(conflictId,
                 remove ? "REMOVE" : "KEEP_SUPPRESSED");
         String userMessage = userMessageOf(reply);
@@ -2946,6 +3555,427 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // fall through — the caller shows the raw reply honestly
         }
         return null;
+    }
+
+    /** How many exploration tags one offer may carry — the accessory row stays readable. */
+    private static final int MAX_OFFERED_SEARCHES = 5;
+
+    /** True while the CURRENT projection's tags came from offer_searches, not the in-band field. */
+    private volatile boolean offerAuthoredProjection;
+
+    /**
+     * Gate 9 lifetime rule: with the action channel active the in-band suggestions field is
+     * DELIBERATELY empty — so the turn's closing (suggestion-free) projection must not wipe the
+     * tags offer_searches just set. An EMPTY incoming list keeps the offered tags (the rest of
+     * the projection updates normally); a NON-empty one is a real replacement and wins.
+     */
+    private com.aresstack.askai.research.backend.ScopingAssistantUpdate mergeOfferedTags(
+            com.aresstack.askai.research.backend.ScopingAssistantUpdate incoming) {
+        com.aresstack.askai.research.backend.ScopingAssistantUpdate merged = mergedProjection(
+                incoming, latestScopingProjection, offerAuthoredProjection);
+        if (incoming != null && !incoming.getSearchSuggestions().isEmpty()) {
+            offerAuthoredProjection = false; // a real in-band replacement ends the offer's reign
+        }
+        return merged;
+    }
+
+    /** The pure merge rule (see above) — static so the lifetime semantics stay test-pinned. */
+    static com.aresstack.askai.research.backend.ScopingAssistantUpdate mergedProjection(
+            com.aresstack.askai.research.backend.ScopingAssistantUpdate incoming,
+            com.aresstack.askai.research.backend.ScopingAssistantUpdate current,
+            boolean offerAuthored) {
+        if (incoming == null) {
+            return current;
+        }
+        if (!incoming.getSearchSuggestions().isEmpty()) {
+            return incoming;
+        }
+        if (offerAuthored && current != null && !current.getSearchSuggestions().isEmpty()) {
+            return new com.aresstack.askai.research.backend.ScopingAssistantUpdate(
+                    incoming.getPhaseId(), current.getSearchSuggestions(),
+                    incoming.getAdviceRecommendation(), incoming.getAdviceReason());
+        }
+        return incoming;
+    }
+
+    /**
+     * The search-offer command (gate 8b): the model authored the suggestions, the HOST renders
+     * them — the same yellow tags the in-band field used to feed, now set as the current scoping
+     * projection (display state; a later projection replaces it, exactly like a model turn's).
+     */
+    String offerSearchesCommand(String suggestionsJson) {
+        java.util.List<com.aresstack.askai.research.backend.ScopingAssistantUpdate.Suggestion>
+                suggestions = parseOfferedSearches(suggestionsJson);
+        if (suggestions.isEmpty()) {
+            return "No usable suggestion — every entry needs a non-empty \"query\". Example: "
+                    + "[{\"query\":\"FreeRTOS ESP32 Grundlagen Tutorial\","
+                    + "\"purpose\":\"Einstieg sichten\"}]";
+        }
+        latestScopingProjection = new com.aresstack.askai.research.backend.ScopingAssistantUpdate(
+                state.getPhaseId(), suggestions, "", "");
+        offerAuthoredProjection = true; // the closing empty projection must not wipe these tags
+        persistScopingProjection(latestScopingProjection);
+        technicalLog("offer_searches -> OFFERED " + suggestions.size() + " tags");
+        fireStateChanged();
+        com.google.gson.JsonObject reply = new com.google.gson.JsonObject();
+        reply.addProperty("result", "OFFERED");
+        reply.addProperty("count", suggestions.size());
+        return reply.toString();
+    }
+
+    /**
+     * scope_probe (AP3): the READ-ONLY closure sensor. Pins the effective-fence fingerprint
+     * (scope revision + concept epoch#revision — the SAME pair the conversation policy trusts),
+     * snapshots the anchors, embeds every term with the current embedding snapshot and lets
+     * {@link com.aresstack.askai.research.scope.ScopeProbeService} judge them. It mutates
+     * NOTHING: no concept card, no blacklist, no mission, no ScopeCheckReport, no workflow
+     * state. Shares the sweep's single-flight flag so probe and sweep never race the anchor
+     * vector cache.
+     */
+    String scopeProbeCommand(java.util.List<String> terms) {
+        final com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        if (coordinator == null || !coordinator.isUsable() || handle == null
+                || productiveResources == null || productiveResources.isClosed()) {
+            return null; // no scope system — the tool answers honestly
+        }
+        com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor descriptor =
+                productiveResources.getEmbeddingDescriptor();
+        if (descriptor == null) {
+            technicalLog("scope_probe -> PROBE_UNAVAILABLE (no embedding model)");
+            return "PROBE_UNAVAILABLE: no embedding model is configured — tell the user the "
+                    + "measurement is unavailable; do not guess.";
+        }
+        if (!scopeSweepInFlight.compareAndSet(false, true)) {
+            technicalLog("scope_probe -> PROBE_UNAVAILABLE (a scope check is running)");
+            return "PROBE_UNAVAILABLE: a scope check is running — probe again after it "
+                    + "finished.";
+        }
+        try {
+            // Pin the fingerprint FIRST, then snapshot — a mutation after the pin fails the
+            // final recheck, so a mixed snapshot can never read as current.
+            final String pinned = fenceFingerprintNow();
+            com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft =
+                    coordinator.current();
+            com.aresstack.askai.research.concept.ConceptBranchService conceptService =
+                    conceptBranchService();
+            java.util.List<com.aresstack.askai.research.domain.scope.ScopeAnchor> conceptAnchors =
+                    com.aresstack.askai.research.scope.ConceptAnchorProjection.anchorsOf(
+                            conceptService == null ? null
+                                    : conceptService.snapshot().getDocumentJson(), draft);
+            java.util.List<com.aresstack.askai.research.domain.scope.ScopeAnchor> fenceAnchors =
+                    com.aresstack.askai.research.scope.ScopeSweepPlanAssembler.combinedAnchors(
+                            draft, conceptAnchors);
+            java.util.Map<String, String> labels = new java.util.LinkedHashMap<String, String>();
+            for (com.aresstack.askai.research.domain.scope.ScopeAnchor anchor : fenceAnchors) {
+                labels.put(anchor.getAnchorId(), anchor.getSemanticText());
+            }
+            com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder =
+                    new com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder(
+                            descriptor);
+            java.util.List<com.aresstack.askai.research.domain.scope
+                    .ScopeFenceEvaluator.AnchorVector> anchorVectors;
+            try {
+                anchorVectors = new com.aresstack.askai.research.store.ScopeAnchorVectorIndex(
+                        new java.io.File(productiveResources.getProjectContext()
+                                .getProjectDirectory(), "scope-anchor-vectors.json"))
+                        .vectorsFor(fenceAnchors, embedder.modelFingerprint(), embedder);
+            } catch (java.io.IOException indexFailed) {
+                technicalLog("scope_probe -> PROBE_FAILED anchor index: "
+                        + indexFailed.getMessage());
+                return "PROBE_FAILED: anchor vector index failed — the measurement is "
+                        + "unavailable right now.";
+            } catch (RuntimeException embeddingBroke) {
+                technicalLog("scope_probe -> PROBE_FAILED anchor index: " + embeddingBroke);
+                return "PROBE_FAILED: anchor embedding failed — the measurement is "
+                        + "unavailable right now.";
+            }
+            com.aresstack.askai.research.scope.ScopeProbeService.Result result =
+                    com.aresstack.askai.research.scope.ScopeProbeService.run(terms,
+                            com.aresstack.askai.research.host.ResearchRuntimeSettings
+                                    .scopeProbeMaxTerms(),
+                            anchorVectors, labels, embedder,
+                            com.aresstack.askai.research.host.ResearchRuntimeSettings
+                                    .loadScopeSweepConfiguration(getHostStateStore())
+                                    .fenceThresholds,
+                            pinned,
+                            new com.aresstack.askai.research.scope.ScopeProbeService
+                                    .FenceFingerprint() {
+                                public String current() {
+                                    return fenceFingerprintNow();
+                                }
+                            });
+            for (String line : result.logLines()) {
+                technicalLog(line);
+            }
+            return result.receipt();
+        } finally {
+            scopeSweepInFlight.set(false);
+        }
+    }
+
+    // ------------------------------------------------ SC1 search-scope control (sensor lane)
+    /** One pinned, immutable search-run snapshot — SC1's "a running search never goes stale". */
+    private static final class SearchScopeSnapshot {
+        final java.util.List<com.aresstack.askai.research.domain.scope
+                .ScopeFenceEvaluator.AnchorVector> anchorVectors;
+        final java.util.Map<String, String> labelsById;
+        final com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder;
+        final com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.Thresholds
+                thresholds;
+
+        SearchScopeSnapshot(java.util.List<com.aresstack.askai.research.domain.scope
+                .ScopeFenceEvaluator.AnchorVector> anchorVectors,
+                java.util.Map<String, String> labelsById,
+                com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder,
+                com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.Thresholds
+                        thresholds) {
+            this.anchorVectors = anchorVectors;
+            this.labelsById = labelsById;
+            this.embedder = embedder;
+            this.thresholds = thresholds;
+        }
+    }
+
+    /** Live run snapshots by opaque handle — transient, cleared with the session. */
+    private final java.util.Map<String, SearchScopeSnapshot> searchScopeSnapshots =
+            java.util.Collections.synchronizedMap(
+                    new java.util.LinkedHashMap<String, SearchScopeSnapshot>());
+
+    /**
+     * SC1 begin: pin ONE immutable snapshot of the effective fence (Concept → CANONICAL_IN,
+     * Blacklist → CANONICAL_OUT via ConceptAnchorProjection — never legacy PROVISIONAL truth).
+     * Zero OUT anchors = INACTIVE fast path (no embeddings, baseline search behaviour); a
+     * broken infrastructure WITH an OUT anchor answers UNAVAILABLE — the fence never silently
+     * disappears.
+     */
+    String searchScopeBegin() {
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        if (coordinator == null || !coordinator.isUsable() || productiveResources == null
+                || productiveResources.isClosed()) {
+            return "INACTIVE outAnchors=0"; // no scope system = nothing negotiated OUT
+        }
+        com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft =
+                coordinator.current();
+        com.aresstack.askai.research.concept.ConceptBranchService conceptService =
+                conceptBranchService();
+        java.util.List<com.aresstack.askai.research.domain.scope.ScopeAnchor> conceptAnchors =
+                com.aresstack.askai.research.scope.ConceptAnchorProjection.anchorsOf(
+                        conceptService == null ? null
+                                : conceptService.snapshot().getDocumentJson(), draft);
+        java.util.List<com.aresstack.askai.research.domain.scope.ScopeAnchor> fenceAnchors =
+                com.aresstack.askai.research.scope.ScopeSweepPlanAssembler.combinedAnchors(
+                        draft, conceptAnchors);
+        int outAnchors = 0;
+        int inAnchors = 0;
+        java.util.Map<String, String> labels = new java.util.LinkedHashMap<String, String>();
+        for (com.aresstack.askai.research.domain.scope.ScopeAnchor anchor : fenceAnchors) {
+            labels.put(anchor.getAnchorId(), anchor.getSemanticText());
+            if (anchor.getMembership()
+                    == com.aresstack.askai.research.domain.scope.ScopeAnchor.Membership.OUT) {
+                outAnchors++;
+            } else if (anchor.getMembership()
+                    == com.aresstack.askai.research.domain.scope.ScopeAnchor.Membership.IN) {
+                inAnchors++;
+            }
+        }
+        // SC2a capability split: the OUT filter and the IN affinity are SEPARATE truths —
+        // positive concept steering must work with an EMPTY blacklist, and SC1's fail-closed
+        // guarantee must never soften because SC2 is a comfort heuristic.
+        boolean outFilter = outAnchors > 0;
+        boolean inAffinity = inAnchors > 0;
+        if (!outFilter && !inAffinity) {
+            technicalLog("search-scope INACTIVE (no anchors)");
+            return "INACTIVE outAnchors=0";
+        }
+        com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor descriptor =
+                productiveResources.getEmbeddingDescriptor();
+        if (descriptor == null) {
+            if (outFilter) {
+                technicalLog("search-scope UNAVAILABLE (no embedding model, outAnchors="
+                        + outAnchors + ")");
+                return "UNAVAILABLE no embedding model";
+            }
+            // Pure IN affinity is a measurement, never a boundary: degrade to baseline.
+            technicalLog("search-scope INACTIVE (inAffinity unavailable: no embedding model)");
+            return "INACTIVE inAffinity unavailable";
+        }
+        com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder =
+                new com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder(
+                        descriptor);
+        java.util.List<com.aresstack.askai.research.domain.scope
+                .ScopeFenceEvaluator.AnchorVector> anchorVectors;
+        try {
+            anchorVectors = new com.aresstack.askai.research.store.ScopeAnchorVectorIndex(
+                    new java.io.File(productiveResources.getProjectContext()
+                            .getProjectDirectory(), "scope-anchor-vectors.json"))
+                    .vectorsFor(fenceAnchors, embedder.modelFingerprint(), embedder);
+        } catch (java.io.IOException indexFailed) {
+            if (outFilter) {
+                technicalLog("search-scope UNAVAILABLE (anchor index: "
+                        + indexFailed.getMessage() + ")");
+                return "UNAVAILABLE anchor index failed";
+            }
+            technicalLog("search-scope INACTIVE (inAffinity unavailable: anchor index "
+                    + indexFailed.getMessage() + ")");
+            return "INACTIVE inAffinity unavailable";
+        } catch (RuntimeException embeddingBroke) {
+            if (outFilter) {
+                technicalLog("search-scope UNAVAILABLE (anchor embedding: "
+                        + embeddingBroke + ")");
+                return "UNAVAILABLE anchor embedding failed";
+            }
+            technicalLog("search-scope INACTIVE (inAffinity unavailable: anchor embedding "
+                    + embeddingBroke + ")");
+            return "INACTIVE inAffinity unavailable";
+        }
+        String handle = "ss-" + java.util.UUID.randomUUID();
+        searchScopeSnapshots.put(handle, new SearchScopeSnapshot(anchorVectors, labels,
+                embedder,
+                com.aresstack.askai.research.host.ResearchRuntimeSettings
+                        .loadScopeSweepConfiguration(getHostStateStore()).fenceThresholds));
+        String description = "scopeRev=" + draft.getRevision() + " concept=" + conceptStamp()
+                + " embedding=" + embedder.modelFingerprint()
+                + " inAnchors=" + inAnchors + " outAnchors=" + outAnchors
+                + " outFilter=" + outFilter + " inAffinity=" + inAffinity;
+        technicalLog("search-scope snapshot " + description);
+        return "ACTIVE handle=" + handle + " " + description;
+    }
+
+    /** SC1 evaluate: ONE batch against the pinned snapshot; per-item verdict lines. */
+    String searchScopeEvaluate(String handle, String lane, String itemsJson) {
+        SearchScopeSnapshot snapshot = searchScopeSnapshots.get(handle);
+        if (snapshot == null) {
+            return "UNKNOWN_HANDLE";
+        }
+        java.util.List<com.aresstack.askai.research.scope.SearchScopeGate.Item> items =
+                new java.util.ArrayList<com.aresstack.askai.research.scope
+                        .SearchScopeGate.Item>();
+        try {
+            com.google.gson.JsonElement parsed =
+                    com.google.gson.JsonParser.parseString(itemsJson == null ? "" : itemsJson);
+            for (com.google.gson.JsonElement element : parsed.getAsJsonArray()) {
+                com.google.gson.JsonObject object = element.getAsJsonObject();
+                items.add(new com.aresstack.askai.research.scope.SearchScopeGate.Item(
+                        object.has("id") ? object.get("id").getAsString() : "",
+                        object.has("text") ? object.get("text").getAsString() : ""));
+            }
+        } catch (RuntimeException malformed) {
+            return "UNAVAILABLE malformed items_json";
+        }
+        java.util.List<com.aresstack.askai.research.scope.SearchScopeGate.Decision> decisions;
+        try {
+            decisions = com.aresstack.askai.research.scope.SearchScopeGate.evaluate(items,
+                    snapshot.anchorVectors, snapshot.labelsById, snapshot.embedder,
+                    snapshot.thresholds);
+        } catch (RuntimeException infrastructure) {
+            // Fail-closed: with OUT anchors present a broken filter ends the run typed —
+            // never a silent return to unfiltered search.
+            technicalLog("search-scope " + lane + " -> UNAVAILABLE (" + infrastructure + ")");
+            return "UNAVAILABLE " + infrastructure.getMessage();
+        }
+        int out = 0;
+        int unclassified = 0;
+        int nearIn = 0;
+        StringBuilder reply = new StringBuilder();
+        for (com.aresstack.askai.research.scope.SearchScopeGate.Decision decision : decisions) {
+            reply.append('\n').append(decision.verdict.name());
+            if (decision.verdict
+                    == com.aresstack.askai.research.scope.SearchScopeGate.Verdict.OUT) {
+                out++;
+                reply.append(" nearest=\"").append(decision.nearestOutLabel).append('"');
+                technicalLog("search-scope skip " + lane + " nearest=\""
+                        + decision.nearestOutLabel + "\" id=" + decision.id);
+            } else if (decision.verdict
+                    == com.aresstack.askai.research.scope.SearchScopeGate.Verdict
+                            .UNCLASSIFIED) {
+                unclassified++;
+            } else if (decision.nearIn) {
+                // SC2a shadow: the IN side of the same reading, observation only.
+                nearIn++;
+                reply.append(" in=NEAR");
+                if (decision.nearestInLabel != null) {
+                    reply.append(" nearest_in=\"").append(decision.nearestInLabel)
+                            .append('"');
+                }
+            }
+            reply.append(" id=").append(decision.id);
+        }
+        technicalLog("search-scope " + lane + " items=" + decisions.size()
+                + " kept=" + (decisions.size() - out - unclassified) + " out=" + out
+                + " nearIn=" + nearIn
+                + (unclassified > 0 ? " unclassified=" + unclassified : ""));
+        return "EVALUATED items=" + decisions.size() + reply;
+    }
+
+    /** SC1 end: release the run snapshot (best effort; session teardown clears leftovers). */
+    String searchScopeEnd(String handle) {
+        searchScopeSnapshots.remove(handle);
+        return "ENDED";
+    }
+
+    /** The effective-fence fingerprint: scope revision + concept epoch#revision. */
+    private String fenceFingerprintNow() {
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        String scopePart = coordinator == null || !coordinator.isUsable()
+                ? "gone" : String.valueOf(coordinator.current().getRevision());
+        return scopePart + "|" + conceptStamp();
+    }
+
+    /** Lenient parse of {@code [{"query":..,"purpose":..},..]}; broken entries are dropped. */
+    static java.util.List<com.aresstack.askai.research.backend.ScopingAssistantUpdate.Suggestion>
+            parseOfferedSearches(String suggestionsJson) {
+        java.util.List<com.aresstack.askai.research.backend.ScopingAssistantUpdate.Suggestion>
+                suggestions = new java.util.ArrayList<com.aresstack.askai.research.backend
+                        .ScopingAssistantUpdate.Suggestion>();
+        if (suggestionsJson == null) {
+            return suggestions;
+        }
+        try {
+            com.google.gson.JsonElement parsed =
+                    com.google.gson.JsonParser.parseString(suggestionsJson);
+            if (!parsed.isJsonArray()) {
+                return suggestions;
+            }
+            for (com.google.gson.JsonElement element : parsed.getAsJsonArray()) {
+                if (!element.isJsonObject() || suggestions.size() >= MAX_OFFERED_SEARCHES) {
+                    continue;
+                }
+                com.google.gson.JsonObject suggestion = element.getAsJsonObject();
+                String query = suggestion.has("query") && suggestion.get("query").isJsonPrimitive()
+                        ? suggestion.get("query").getAsString().trim() : "";
+                if (query.isEmpty()) {
+                    continue;
+                }
+                String purpose = suggestion.has("purpose")
+                        && suggestion.get("purpose").isJsonPrimitive()
+                        ? suggestion.get("purpose").getAsString().trim() : "";
+                suggestions.add(new com.aresstack.askai.research.backend.ScopingAssistantUpdate
+                        .Suggestion(query, purpose, suggestions.size() + 1));
+            }
+        } catch (RuntimeException notJson) {
+            suggestions.clear();
+        }
+        return suggestions;
+    }
+
+    /** The blacklist truth for the concept tools: excluded labels/ids + plain exclusions. */
+    java.util.List<String> currentBlacklistTerms() {
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator = scopeCoordinator();
+        if (coordinator == null || !coordinator.isUsable()) {
+            return java.util.Collections.emptyList();
+        }
+        com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft = coordinator.current();
+        java.util.LinkedHashSet<String> terms = new java.util.LinkedHashSet<String>();
+        for (com.aresstack.askai.research.domain.scope.ScopeFacet facet : draft.excludedFacets()) {
+            terms.add(facet.getLabel());
+            terms.add(facet.getFacetId());
+        }
+        terms.addAll(draft.getExclusions());
+        terms.remove("");
+        return new java.util.ArrayList<String>(terms);
     }
 
     /** Exact-name concept conflict of an excluded topic, or {@code null} (concept-less/fake ok). */
@@ -3048,7 +4078,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         // question. The fence (the model's per-turn scope truth) carries every open conflict.
         // (The host intercepts unambiguous yes/no answers itself; this block guides the model
         // through everything ELSE said while a conflict is open.)
-        fence = fence + openConflictBlock(conceptConflicts);
+        fence = fence + openConflictBlock(openConflictPaths());
+        // The ratified conversation policy travels in the same host envelope, but its header
+        // states explicitly that it is guidance — never part of the Weidezaun itself.
+        fence = fence + conversationPolicyBlock;
         backend.submitServiceCommand(handle,
                 com.aresstack.askai.research.search.ResearchServiceCommandWire.setScope(fence));
     }
@@ -3220,6 +4253,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if ("check-scope".equals(cmd)) {
             return renderOutcome(derivedActions.checkScope());
         }
+        if ("discover-topics".equals(cmd)) {
+            return discoverTopicsFromSources();
+        }
         if ("cancel-scope-check".equals(cmd)) {
             return cancelScopeCheck();
         }
@@ -3248,7 +4284,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (type == ResearchCommandType.SUBMIT_SCOPE && productiveResources != null) {
             ScopingApprovalOutcome outcome = approveScopingBriefAndContinue();
             return outcome == ScopingApprovalOutcome.SUCCESS
-                    ? "handled: brief approved, research started"
+                    ? "handled: scope approved, research started"
                     : "rejected: " + scopingApprovalUnavailableReasonFor(outcome);
         }
         if ("approve".equals(cmd) && hasPendingApproval()) {
@@ -3293,6 +4329,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         StringBuilder sb = new StringBuilder(
                 "search <query>, generate-visualization, generate-outline, review-sources, "
                         + "check-scope");
+        if (topicDiscoveryOffered()) {
+            sb.append(", discover-topics");
+        }
         for (String name : SEMANTIC_COMMANDS) {
             if (resolveSemanticCommand(name) != null) {
                 sb.append(", ").append(name);
@@ -3552,7 +4591,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 technicalLogLines.removeFirst();
             }
         }
-        sink.appendTechnicalLog(line);
+        if (sink != null) { // headless/tests: the readable tail above still records everything
+            sink.appendTechnicalLog(line);
+        }
     }
 
     /** The last {@code tailLines} technical lines, oldest first ({@code <= 0} = a sane default). */
@@ -3820,7 +4861,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             ids.add("sources");
             ids.add("end");
         } else if ("RERANKER_UNAVAILABLE".equals(stop) || "RERANKER_TIMEOUT".equals(stop)
-                || "RERANKER_INVALID_RESPONSE".equals(stop) || "SEARCH_TECHNICAL_PROBLEM".equals(stop)) {
+                || "RERANKER_INVALID_RESPONSE".equals(stop) || "SEARCH_TECHNICAL_PROBLEM".equals(stop)
+                || "SCOPE_CONTROL_UNAVAILABLE".equals(stop)) {
             // Technical search/reranker failures: retry or fix the configuration — NEVER "accept the
             // limitation" (there is no research result to accept, only a failed component).
             ids.add("retry");
@@ -3909,6 +4951,73 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             backend.submitPrompt(handle, new ResearchPrompt(researchQuestion, ""));
         } else {
             narrateAsAgent("refine", narrator.refinePrompt());
+        }
+    }
+
+    /** #28/#39.7: the ACTIVE passages derived from one source — read-only inspection. */
+    public java.util.List<com.aresstack.askai.research.domain.Passage> passagesForSource(
+            String sourceId) {
+        return productiveResources == null || productiveResources.isClosed()
+                ? java.util.Collections.<com.aresstack.askai.research.domain.Passage>emptyList()
+                : productiveResources.passagesForSource(sourceId);
+    }
+
+    /** #39: import ONE user source through the canonical acceptance boundary. */
+    public String importUserSource(
+            com.aresstack.askai.research.capture.SourceImportService.SourceInput input) {
+        if (productiveResources == null || productiveResources.isClosed()
+                || productiveResources.sourceImportService() == null) {
+            return "rejected: this session has no import capability";
+        }
+        com.aresstack.askai.research.capture.SourceImportService.ImportOutcome outcome =
+                productiveResources.sourceImportService().importSource(input,
+                        sessionLanguage.currentLanguage().getCode());
+        technicalLog("source-import -> " + outcome.status
+                + (outcome.sourceId != null ? " id=" + outcome.sourceId : "")
+                + " warnings=" + outcome.warnings.size());
+        // The import runs on a background worker (off-EDT slice); the state notification
+        // marshals to the UI executor like every other background-triggered refresh —
+        // listeners touch Swing and must never run on the import worker.
+        onUi(new Runnable() {
+            public void run() {
+                fireStateChanged(); // the sources table re-reads the repository
+            }
+        });
+        switch (outcome.status) {
+            case IMPORTED:
+                return "handled: imported \"" + outcome.title + "\" (" + outcome.sourceId
+                        + (outcome.warnings.isEmpty() ? ")"
+                                : ", " + outcome.warnings.size() + " warning(s))");
+            case DUPLICATE:
+                return "rejected: this content is already present (" + outcome.sourceId + ")";
+            case EMPTY:
+                return "rejected: no readable text in the input";
+            default:
+                return "rejected: import failed";
+        }
+    }
+
+    /** #43 slice 9: the Sources view registers how a source gets focused (spike contract). */
+    public interface SourcesFocusHandler {
+        void focusSource(String sourceId);
+    }
+
+    private volatile SourcesFocusHandler sourcesFocusHandler;
+
+    public void setSourcesFocusHandler(SourcesFocusHandler handler) {
+        this.sourcesFocusHandler = handler;
+    }
+
+    /** Document [n] badge → reveal the Sources tab and focus that source (best effort). */
+    public void revealSourceInSourcesTab(final String sourceId) {
+        openArtifactView("sources");
+        final SourcesFocusHandler handler = sourcesFocusHandler;
+        if (handler != null) {
+            uiExecutor.execute(new Runnable() {
+                public void run() {
+                    handler.focusSource(sourceId);
+                }
+            });
         }
     }
 

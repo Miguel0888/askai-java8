@@ -40,8 +40,8 @@ public interface ResearchBotSessionGateway {
 
     /**
      * The negotiated research scope as ONE atomic snapshot ({@code revision=N} line + the same
-     * fence rendering the model sees: mission, CONFIRMED/PROVISIONAL facets, EXCLUDED aspects,
-     * exclusions). The scope counterpart of {@link #describeConceptSnapshot()} — without it a
+     * fence rendering the model sees: mission, the blacklist — excluded aspects and exclusions —
+     * and remaining bookkeeping facets). The scope counterpart of {@link #describeConceptSnapshot()} — without it a
      * driving client cannot verify whether "ESP-IDF ausschließen" ever reached the Weidezaun.
      * Read-only; {@code null} when the session has no persisted scope.
      */

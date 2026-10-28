@@ -74,6 +74,20 @@ public final class ScopingAssistantOutputCodec {
                 sb.append(',');
                 writeKey(sb, "name").append(':');
                 writeString(sb, action.getName());
+            } else if (action.getType() == ConceptAction.Type.ADD_CARDS) {
+                sb.append(',');
+                writeKey(sb, "parent").append(':');
+                writeSegments(sb, action.getParent());
+                sb.append(',');
+                // Already canonical JSON (built by the parser) — travels raw, parses back.
+                writeKey(sb, "names").append(':').append(action.getNamesJson());
+            } else if (action.getType() == ConceptAction.Type.MOVE) {
+                sb.append(',');
+                writeKey(sb, "source").append(':');
+                writeSegments(sb, action.getPath());
+                sb.append(',');
+                writeKey(sb, "parent").append(':');
+                writeSegments(sb, action.getParent());
             } else if (action.getType() == ConceptAction.Type.EXCLUDE) {
                 sb.append(',');
                 writeKey(sb, "topic").append(':');
@@ -85,6 +99,28 @@ public final class ScopingAssistantOutputCodec {
                 sb.append(',');
                 writeKey(sb, "decision").append(':');
                 writeString(sb, action.getDecision());
+            } else if (action.getType() == ConceptAction.Type.OFFER) {
+                sb.append(',');
+                // Already canonical JSON (built by the parser) — travels raw, parses back.
+                writeKey(sb, "suggestions").append(':').append(action.getSuggestionsJson());
+            } else if (action.getType() == ConceptAction.Type.PROBE) {
+                sb.append(',');
+                // scope_probe (AP3): the terms travel raw like the offer's suggestions — a
+                // history replay must not lose the ONE field the action has.
+                writeKey(sb, "terms").append(':').append(action.getTermsJson());
+            } else if (action.getType() == ConceptAction.Type.RENAME) {
+                sb.append(',');
+                writeKey(sb, "path").append(':');
+                writeSegments(sb, action.getPath());
+                sb.append(',');
+                writeKey(sb, "name").append(':');
+                writeString(sb, action.getName());
+            } else if (action.getType() == ConceptAction.Type.REWRITE) {
+                sb.append(',');
+                writeKey(sb, "path").append(':');
+                writeSegments(sb, action.getPath());
+                sb.append(',');
+                writeKey(sb, "leaves").append(':').append(action.getLeavesJson());
             } else {
                 sb.append(',');
                 writeKey(sb, "path").append(':');

@@ -112,7 +112,10 @@ public final class TeamAgentPlaybook {
                 + "demand they narrow it before you help, and never refuse to work until they pick a "
                 + "sub-topic. A broad topic simply becomes a deliverable with more chapters.\n"
                 + "- Your standard move on a BROAD topic is DECOMPOSITION, not restriction: propose the "
-                + "3-7 facets the area naturally falls into (PROVISIONAL addFacet operations), say each "
+                + "3-7 facets the area naturally falls into "
+                + (conceptTools ? "(as CONCEPT CARDS — the mindmap is the one positive structure)"
+                        : "(PROVISIONAL addFacet operations)")
+                + ", say each "
                 + "back in one line, and let the user keep, drop, reweight or add facets. The facets are "
                 + "the future CHAPTERS of their write-up — THE USER picks the chapters, you draft them, "
                 + "and every kept facet gets researched.\n"
@@ -149,9 +152,14 @@ public final class TeamAgentPlaybook {
                 + "offering another set of alternatives. Never re-offer an option the user already chose or "
                 + "explicitly ruled out.\n\n"
                 + "Your job each turn:\n"
-                + "- Interpret the user's input and keep the SCOPE up to date through scopePatch operations "
-                + "— that is the result of this phase. A research brief is optional prose ABOUT that scope; "
-                + "when you write one, never demand a filled-in form and never block on missing sections.\n"
+                + (conceptTools
+                        ? "- Interpret the user's input and keep the CONCEPT (cards) and the "
+                        + "scope up to date — the concept plus the negotiated exclusions ARE the "
+                        + "result of this phase; there is no separate brief document.\n"
+                        : "- Interpret the user's input and keep the SCOPE up to date through "
+                        + "scopePatch operations — that is the result of this phase. A research "
+                        + "brief is optional prose ABOUT that scope; when you write one, never "
+                        + "demand a filled-in form and never block on missing sections.\n")
                 + "- Keep the human RESEARCH QUESTION separate from SEARCH QUERIES: the question is natural "
                 + "language for people; the search suggestions are short, focused engine queries derived from "
                 + "it (key terms, no filler, one sub-aspect each — do not just copy the whole question).\n"
@@ -174,8 +182,31 @@ public final class TeamAgentPlaybook {
                         : "- Offer a SEARCH SUGGESTION only when a lookup would genuinely help right now. "
                         + "Zero suggestions is a perfectly normal turn — never invent one to fill the "
                         + "field.\n")
-                + "- Do NOT produce any diagram, chart or visualization — the research brief and search "
-                + "suggestions are your job; visualization is handled separately.\n"
+                // Live-gate finding (8b): the OPTIONAL in-band field starves under the
+                // generation grammar — with the concept tools the suggestions travel as a
+                // COMMAND instead (this model class uses actions where it skips optional
+                // fields); the flagless old-host prompt keeps the in-band example.
+                + (conceptTools
+                        ? "- With the action channel active, suggestions are OFFERED as a "
+                        + "command: leave the searchSuggestions field empty and use the offer "
+                        + "action (see THE SEARCH OFFER COMMAND below).\n"
+                        : "- FULL EXAMPLE — broad first topic \"FreeRTOS auf dem ESP32\": besides "
+                        + "your answer you would offer\n"
+                        + "    \"searchSuggestions\": [\n"
+                        + "      {\"query\": \"FreeRTOS ESP32 Grundlagen Tutorial\", \"purpose\": "
+                        + "\"Einstieg und Grundbegriffe sichten\"},\n"
+                        + "      {\"query\": \"FreeRTOS task scheduling ESP32\", \"purpose\": "
+                        + "\"Kernmechanik verstehen\"},\n"
+                        + "      {\"query\": \"ESP32 Arduino FreeRTOS Praxisprojekte\", "
+                        + "\"purpose\": \"Praxisbeispiele sammeln\"}\n"
+                        + "    ]\n"
+                        + "  Each query opens a DIFFERENT direction of the area; the user clicks "
+                        + "one to look around. The application shows them as clickable tags — "
+                        + "they are HOW the user explores before deciding.\n")
+                + "- Do NOT produce any diagram, chart or visualization — "
+                + (conceptTools ? "concept cards and search suggestions are your job"
+                        : "the research brief and search suggestions are your job")
+                + "; visualization is handled separately.\n"
                 + "- You may add an advisory recommendation to stay or continue, but it is ONLY advice; the "
                 + "user decides with their own buttons.\n\n"
                 + machineryRule()
@@ -183,8 +214,12 @@ public final class TeamAgentPlaybook {
                 + "assistantMessage):\n"
                 + "{\n"
                 + "  \"assistantMessage\": string,        // required: warm, concise, plain language\n"
-                + "  \"researchBriefMarkdown\": string,   // OPTIONAL: the evolving brief, when you have "
-                + "something to write\n"
+                // K4: with the concept tools the CONCEPT is the one scoping artifact — the
+                // legacy brief field is neither requested nor produced anymore; the flagless
+                // old-host prompt keeps it (their hosts still render the brief).
+                + (conceptTools ? ""
+                        : "  \"researchBriefMarkdown\": string,   // OPTIONAL: the evolving "
+                        + "brief, when you have something to write\n")
                 + "  \"searchSuggestions\": [             // OPTIONAL: may be empty; only real, useful "
                 + "queries\n"
                 + "    { \"query\": string, \"purpose\": string, \"priority\": number }\n"
@@ -205,15 +240,19 @@ public final class TeamAgentPlaybook {
                 + (conceptTools
                         ? ",\n  \"conceptAction\": {              // your ONE action THIS "
                         + "inference; use type none when you change nothing\n"
-                        + "    \"type\": \"none\"|\"read\"|\"add\"|\"remove\"|\"exclude\"|\"resolve\",\n"
-                        + "    \"path\": [string],                // read/remove: card names as "
+                        + "    \"type\": \"none\"|\"read\"|\"add_cards\"|\"exclude\""
+                        + "|\"resolve\"|\"offer\"|\"rename\",\n"
+                        + "    \"path\": [string],                // read/rename: card names as "
                         + "SEGMENTS from the concept root\n"
-                        + "    \"parent\": [string], \"name\": string,       // add: where (segments) "
-                        + "and what (ONE label)\n"
+                        + "    \"parent\": [string], \"names\": [string],  // add_cards: where "
+                        + "(segments) and ALL new card names as ONE list\n"
+                        + "    \"name\": string,                  // rename: path + the new name\n"
                         + "    \"topic\": string,                 // exclude: the term in the USER'S "
                         + "words, nothing else\n"
-                        + "    \"conflictId\": string, \"decision\": \"REMOVE\"|\"KEEP_SUPPRESSED\""
+                        + "    \"conflictId\": string, \"decision\": \"REMOVE\"|\"KEEP_SUPPRESSED\","
                         + "  // resolve: answer a reported concept conflict\n"
+                        + "    \"suggestions\": [{\"query\": string, \"purpose\": string}]  "
+                        + "// offer: 3-5 orientation searches as clickable tags\n"
                         + "  }\n"
                         : "\n")
                 + "}\n\n"
@@ -247,26 +286,42 @@ public final class TeamAgentPlaybook {
                 + "everything.\n"
                 + "- The scope is an INVESTIGATION AREA, not one question. Keeping two directions open is a "
                 + "valid result; widening it is as normal as narrowing it.\n"
-                + "- Operations: addFacet{facetId,label,rationale}, "
-                + "confirmFacet{facetId,rationale}, excludeFacet{facetId,rationale}, "
-                + "setFacetEmphasis{facetId,importance:LOW|MEDIUM|HIGH,researchDepth:OVERVIEW|STANDARD|DEEP|"
-                + "EXHAUSTIVE,outputShareHint?}, setCrossCuttingEmphasis{dimension,importance}, "
-                + "setDeliverable{targetLengthMin,targetLengthMax,lengthUnit:PAGES|WORDS,categoryFirst,"
-                + "contrastRequired}, addDomain{value}, addContext{value}, addPerspective{value}, "
-                + "addConstraint{value}, addExclusion{value}, addTerminology{value}, "
-                + "setGeographicScope{value}, setTemporalScope{value}, addUnresolvedIssue{...}, "
-                + "resolveIssue{issueId}.\n"
+                + (conceptTools
+                        ? "- Operations: setFacetEmphasis{facetId} and setDeliverable — nothing "
+                        + "else. Domains, contexts, constraints, terminology, geographic or "
+                        + "temporal scope and issues are NOT part of your contract here: that "
+                        + "content lives in the CONCEPT CARDS and the exclusion command.\n"
+                        + "- The POSITIVE working space is the CONCEPT: what belongs to the book "
+                        + "becomes a card (conceptAction add_cards), NEVER a scope facet — the "
+                        + "application projects the fence from your cards and the exclusions "
+                        + "itself; facet creation is not part of your contract.\n"
+                        : "- Operations: addFacet{facetId,label,rationale}, "
+                        + "confirmFacet{facetId,rationale}, excludeFacet{facetId,rationale}, "
+                        + "setFacetEmphasis{facetId,importance:LOW|MEDIUM|HIGH,researchDepth:"
+                        + "OVERVIEW|STANDARD|DEEP|EXHAUSTIVE,outputShareHint?}, "
+                        + "setCrossCuttingEmphasis{dimension,importance}, "
+                        + "setDeliverable{targetLengthMin,targetLengthMax,lengthUnit:PAGES|WORDS,"
+                        + "categoryFirst,contrastRequired}, addDomain{value}, addContext{value}, "
+                        + "addPerspective{value}, addConstraint{value}, addExclusion{value}, "
+                        + "addTerminology{value}, setGeographicScope{value}, "
+                        + "setTemporalScope{value}, addUnresolvedIssue{...}, "
+                        + "resolveIssue{issueId}.\n")
                 + "- EVERY operation carries a facetId (the format requires it): a STABLE, SHORT "
                 + "technical id — lowercase letters/digits/hyphens, at most 64 characters — derived "
                 + "from the label once (\"ESP-IDF\" -> \"esp-idf\", \"Worker Safety\" -> "
                 + "\"worker-safety\") and then REUSED. NEVER a sentence, a placeholder text or "
                 + "leftover JSON — such an operation is rejected whole. Never create a second facet "
-                + "for the same thing. On operations that do not target a facet (addExclusion, "
-                + "addDomain, ...) the field is ignored — fill it with the slug of the "
-                + "operation's main value.\n"
-                + "- addFacet ALWAYS carries BOTH: the technical facetId AND a human-readable label "
-                + "in the user's language (\"RTOS-Grundlagen\", not \"rtos-grundlagen\") — the label "
-                + "is what the user reads everywhere.\n"
+                + "for the same thing."
+                + (conceptTools
+                        ? " On setDeliverable the field is ignored — fill it with "
+                        + "\"deliverable\".\n"
+                        : " On operations that do not target a facet (addExclusion, "
+                        + "addDomain, ...) the field is ignored — fill it with the slug of the "
+                        + "operation's main value.\n")
+                + (conceptTools ? ""
+                        : "- addFacet ALWAYS carries BOTH: the technical facetId AND a "
+                        + "human-readable label in the user's language (\"RTOS-Grundlagen\", not "
+                        + "\"rtos-grundlagen\") — the label is what the user reads everywhere.\n")
                 + "- The mission is recorded AUTOMATICALLY from the user's first message — you "
                 + "never set it yourself.\n"
                 + "- \"Important\" and \"research it deeply\" are DIFFERENT: importance and researchDepth are "
@@ -479,6 +534,254 @@ public final class TeamAgentPlaybook {
                 + "that will steer the research.\n\n";
     }
 
+    /**
+     * The loop's refusal text for a destructive action from a legacy transcript (safety slice:
+     * remove/rewrite left the model contract — a natural rewrite wish once became a remove that
+     * vaporised the branch, and "PlatformIO möchte ich nicht behandeln" became a remove instead
+     * of the exclusion). The text teaches the two honest alternatives instead.
+     */
+    public static String destructiveEditRefusal() {
+        return "Destructive concept edits (remove/rewrite) are not part of your contract. If the "
+                + "user ruled a topic out, send the exclude command — the application asks about "
+                + "a matching concept entry and removes it ITSELF after the user's yes. For any "
+                + "other deletion or restructuring, tell the user honestly that it is manual work "
+                + "in the concept editor for now. Do NOT improvise a substitute action.";
+    }
+
+    /**
+     * The refusal for concept MUTATIONS in a restructure-classified turn (safety-slice gate 2:
+     * with rewrite withdrawn the model substituted partial adds and then claimed all three
+     * areas existed while only one did — the whole mutation channel must close for the turn).
+     */
+    public static String restructureReadOnlyRefusal() {
+        return "This turn is a compound restructuring request — your concept channel is "
+                + "READ-ONLY for the whole turn. Do NOT attempt partial edits (no adds, no "
+                + "renames as a substitute). Explain honestly that reworking a branch is manual "
+                + "work in the concept editor until the plan workflow ships; you may read the "
+                + "concept and discuss the target structure.";
+    }
+
+    /**
+     * The refusal for a concept DELETE wish: manual editor work, and NEVER a scope exclusion —
+     * the gate saw an explicit delete order silently turn into an exclude + conflict.
+     */
+    public static String deleteReadOnlyRefusal() {
+        return "This turn asks for a concept DELETION — that is manual work in the concept "
+                + "editor, not a model action, and it is NOT a scope exclusion (two different "
+                + "intents: deleting a card does not rule the topic out of the research). Make "
+                + "no concept edit and no exclude. Tell the user honestly to delete the card in "
+                + "the concept editor, and that saying the topic should not be COVERED would "
+                + "additionally suppress it for research.";
+    }
+
+    /**
+     * The DETERMINISTIC visible answer of a delete-classified turn (safety-gate rerun: the data
+     * stayed safe but the model's free-form close claimed "Ich habe den Zweig gelöscht" over an
+     * unchanged concept — on a machine-classified refusal turn the model does not narrate the
+     * outcome at all). Follows the session's language selector like every host receipt.
+     */
+    public static String deleteWishAnswer(boolean german) {
+        return german
+                ? "Am Konzept wurde nichts verändert. Ganze Karten oder Zweige löschst du bis "
+                        + "zum Tree-Editor manuell im Konzept-Editor. Soll ein Thema inhaltlich "
+                        + "nicht behandelt werden, sag es einfach (z. B. „X möchte ich nicht "
+                        + "behandeln“) — dann wird es für die Recherche unterdrückt."
+                : "Nothing in the concept was changed. Until the tree editor ships, you delete "
+                        + "cards or branches manually in the concept editor. If a topic should "
+                        + "not be covered, just say so (e.g. \"I don't want to cover X\") — it "
+                        + "will then be suppressed for research.";
+    }
+
+    /**
+     * The post-probe machinery rule (AP3 gate: three NOVEL terms were written straight into
+     * the concept). The LOOP enforces the lock; this text only explains the refusal and the
+     * expected close to the model.
+     */
+    public static String probeSensorLock() {
+        return "scope_probe is a SENSOR — this turn is now OBSERVATION-ONLY. No further "
+                + "concept or scope actions except read. Summarize what the probe showed — "
+                + "do not ask the follow-up question yourself, the application appends it. "
+                + "The USER decides; never write the answer into the concept yourself.";
+    }
+
+    /**
+     * The HOST-owned probe follow-up (AP3 retest 3: the model skipped the membership
+     * question even with the directive as its immediate input): exactly ONE question,
+     * mechanically derived from the readings — BOUNDARY outranks NOVEL, clear-only asks
+     * nothing ({@code null}). Localized: this sentence is user-visible.
+     */
+    public static String probeFollowUpQuestion(boolean german,
+                                               java.util.List<String> boundaryTerms,
+                                               java.util.List<String> novelTerms) {
+        if (boundaryTerms != null && !boundaryTerms.isEmpty()) {
+            String term = boundaryTerms.get(0);
+            return german
+                    ? "Grenzfrage: Gehört „" + term + "“ zum Themenrahmen, oder soll es "
+                            + "außen bleiben?"
+                    : "Boundary question: Does \"" + term + "\" belong to the topic, or "
+                            + "should it stay out?";
+        }
+        if (novelTerms != null && !novelTerms.isEmpty()) {
+            StringBuilder list = new StringBuilder();
+            for (int index = 0; index < novelTerms.size(); index++) {
+                if (index > 0) {
+                    list.append(index == novelTerms.size() - 1
+                            ? (german ? " oder " : " or ") : ", ");
+                }
+                list.append(german ? "„" : "\"")
+                        .append(novelTerms.get(index)).append(german ? "“" : "\"");
+            }
+            return german
+                    ? "Soll einer der noch nicht verankerten Bereiche — " + list
+                            + " — zum Konzept gehören?"
+                    : "Should one of the not-yet-anchored areas — " + list
+                            + " — belong to the concept?";
+        }
+        return null;
+    }
+
+    /**
+     * The exclude-truth close (connector gate): an EXCLUSION-classified turn without a
+     * terminal EXCLUDED receipt never keeps the model's narration — REJECTED must never be
+     * narrated as success. Mentions other APPLIED work honestly instead of hiding it.
+     */
+    public static String excludeTruthAnswer(boolean german, boolean appliedAny) {
+        String core = german
+                ? "Der gewünschte Ausschluss wurde in diesem Zug NICHT übernommen — der "
+                        + "Themenzuschnitt ist unverändert."
+                : "The requested exclusion was NOT applied this turn — the research scope "
+                        + "is unchanged.";
+        String applied = german
+                ? " Andere Änderungen dieses Zugs wurden übernommen (siehe Konzept)."
+                : " Other changes of this turn were applied (see the concept).";
+        String hint = german
+                ? " Bitte formuliere den Ausschluss noch einmal, z. B. „Ich möchte X nicht "
+                        + "behandeln.“"
+                : " Please state the exclusion once more, e.g. \"I don't want to cover X.\"";
+        return core + (appliedAny ? applied : "") + hint;
+    }
+
+    /**
+     * The move-truth close (move_leaf slice): a MOVE-classified turn without an APPLIED move
+     * receipt ends with this deterministic host sentence — the add_cards gate saw a NONE turn
+     * claim an executed change; "verschoben" is only ever receipt-covered.
+     */
+    public static String moveTruthAnswer(boolean german, String outcome) {
+        String base = german
+                ? "Am Konzept wurde nichts verändert."
+                : "Nothing in the concept was changed.";
+        if ("already-at-target".equals(outcome)) {
+            return base + (german
+                    ? " Die Karte liegt bereits am gewünschten Ziel."
+                    : " The card already sits at the requested target.");
+        }
+        if ("unclear".equals(outcome)) {
+            // The dedicated generator declined to guess — the host asks back, deterministic.
+            return base + (german
+                    ? " Bitte nenne Karte und Ziel eindeutig, z. B. „Verschiebe X unter Y“."
+                    : " Please name card and target clearly, e.g. \"Move X under Y\".");
+        }
+        if (outcome != null && !outcome.trim().isEmpty()) {
+            return base + (german ? " Grund: " : " Reason: ") + outcome.trim();
+        }
+        return base;
+    }
+
+    /**
+     * The DETERMINISTIC visible answer of a successful dedicated move, derived from the
+     * authoritative receipt (gate ruling: free narration once claimed failure over an APPLIED
+     * move). Parses the receipt's MOVED/FROM/TO lines; display-only, so an exotic card name
+     * containing ", " merely shortens the sentence, never the data.
+     */
+    public static String moveAppliedAnswer(boolean german, String receiptText) {
+        String label = receiptLine(receiptText, "MOVED: ");
+        java.util.List<String> from = receiptPath(receiptText, "FROM: ");
+        java.util.List<String> to = receiptPath(receiptText, "TO: ");
+        String fromParent = from.size() >= 2 ? from.get(from.size() - 2) : null;
+        String toParent = to.size() >= 2 ? to.get(to.size() - 2) : null;
+        if (german) {
+            return "„" + label + "“ wurde von "
+                    + (fromParent == null ? "der obersten Ebene" : "„" + fromParent + "“")
+                    + " nach "
+                    + (toParent == null ? "der obersten Ebene" : "„" + toParent + "“")
+                    + " verschoben.";
+        }
+        return "\"" + label + "\" was moved from "
+                + (fromParent == null ? "the top level" : "\"" + fromParent + "\"") + " to "
+                + (toParent == null ? "the top level" : "\"" + toParent + "\"") + ".";
+    }
+
+    /**
+     * The DETERMINISTIC visible answer of a refused dedicated move: the internal diagnostic
+     * (Error/BRANCH_GRAFT_FAILED/SOURCE_NOT_LEAF/…) is mapped to a product sentence in the
+     * session language and NEVER leaks into the chat.
+     */
+    public static String moveRejectedAnswer(boolean german, String diagnostic) {
+        String base = german ? "Am Konzept wurde nichts verändert."
+                : "Nothing in the concept was changed.";
+        String text = diagnostic == null ? "" : diagnostic;
+        String quoted = quotedNameIn(text);
+        if (text.contains("SOURCE_NOT_LEAF")) {
+            return base + (german
+                    ? " " + (quoted == null ? "Die Karte" : "„" + quoted + "“")
+                            + " ist ein Zweig — mit dieser Aktion können nur Blattkarten "
+                            + "verschoben werden."
+                    : " " + (quoted == null ? "The card" : "\"" + quoted + "\"")
+                            + " is a branch — only leaf cards can be moved with this action.");
+        }
+        if (text.contains("TARGET_PARENT_NOT_FOUND")) {
+            return base + (german
+                    ? " Das angegebene Ziel existiert nicht im Konzept."
+                    : " The requested target does not exist in the concept.");
+        }
+        if (text.contains("AMBIGUOUS_SOURCE") || text.contains("AMBIGUOUS_PARENT")) {
+            return base + (german
+                    ? " " + (quoted == null ? "Der Name" : "„" + quoted + "“")
+                            + " ist mehrdeutig — bitte gib den vollständigen Pfad an."
+                    : " " + (quoted == null ? "The name" : "\"" + quoted + "\"")
+                            + " is ambiguous — please give the full path.");
+        }
+        if (text.contains("TARGET_NAME_COLLISION")) {
+            return base + (german
+                    ? " Am Ziel existiert bereits eine Karte mit diesem Namen — es wurde "
+                            + "nichts zusammengeführt oder überschrieben."
+                    : " A card with this name already exists at the target — nothing was "
+                            + "merged or overwritten.");
+        }
+        return base + (german
+                ? " Die Verschiebung wurde abgelehnt."
+                : " The move was refused.");
+    }
+
+    private static String receiptLine(String receiptText, String prefix) {
+        for (String line : (receiptText == null ? "" : receiptText).split("\\r?\\n")) {
+            if (line.startsWith(prefix)) {
+                return line.substring(prefix.length()).trim();
+            }
+        }
+        return "";
+    }
+
+    private static java.util.List<String> receiptPath(String receiptText, String prefix) {
+        String raw = receiptLine(receiptText, prefix);
+        java.util.List<String> names = new java.util.ArrayList<String>();
+        if (raw.startsWith("[") && raw.endsWith("]")) {
+            for (String part : raw.substring(1, raw.length() - 1).split(", ")) {
+                if (!part.trim().isEmpty()) {
+                    names.add(part.trim());
+                }
+            }
+        }
+        return names;
+    }
+
+    /** The first "double-quoted" name inside a diagnostic, or null. */
+    private static String quotedNameIn(String text) {
+        int start = text.indexOf('"');
+        int end = start < 0 ? -1 : text.indexOf('"', start + 1);
+        return end < 0 ? null : text.substring(start + 1, end);
+    }
+
     /** How to use the concept tool: one small step per inference, read before update, no rewrites. */
     private static String conceptToolRules() {
         return "THE CONCEPT (conceptAction):\n"
@@ -490,27 +793,51 @@ public final class TeamAgentPlaybook {
                 + "- Examples:\n"
                 + "    inspect everything:   {\"type\":\"read\",\"path\":[]}\n"
                 + "    inspect one branch:   {\"type\":\"read\",\"path\":[\"FreeRTOS\"]}\n"
-                + "    add a top-level card: {\"type\":\"add\",\"parent\":[],"
-                + "\"name\":\"FreeRTOS\"}\n"
-                + "    add a subtopic:       {\"type\":\"add\",\"parent\":"
-                + "[\"FreeRTOS\",\"Kommunikation\"],\"name\":\"Task Notifications\"}\n"
-                + "    remove a card:        {\"type\":\"remove\",\"path\":"
-                + "[\"FreeRTOS\",\"Praxis\",\"ESP-IDF\"]}\n"
+                + "    capture ALL named areas in ONE step:\n"
+                + "        {\"type\":\"add_cards\",\"parent\":[],\"names\":[\"Grundlagen\","
+                + "\"Entwicklungsumgebung\",\"Architektur\",\"Tasks\",\"Synchronisation\","
+                + "\"Debugging\"]}\n"
+                + "    one new subtopic:     {\"type\":\"add_cards\",\"parent\":"
+                + "[\"FreeRTOS\",\"Kommunikation\"],\"names\":[\"Task Notifications\"]}\n"
+                + "    rename a card:        {\"type\":\"rename\",\"path\":"
+                + "[\"FreeRTOS\",\"Setup\"],\"name\":\"ESP32-Entwicklung\"}\n"
                 + "    change nothing:       {\"type\":\"none\"}\n"
                 + "- Map an explicit user command DIRECTLY to its one action:\n"
                 + "    \"Speichere ausschlie\u00dflich die Karte FreeRTOS.\"  ->  "
-                + "{\"type\":\"add\",\"parent\":[],\"name\":\"FreeRTOS\"}\n"
+                + "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"FreeRTOS\"]}\n"
                 + "    \"F\u00fcge unter FreeRTOS Tasks hinzu.\"           ->  "
-                + "{\"type\":\"add\",\"parent\":[\"FreeRTOS\"],\"name\":\"Tasks\"}\n"
-                + "    \"Entferne ESP-IDF unter Praxis.\"               ->  "
-                + "{\"type\":\"remove\",\"path\":[\"Praxis\",\"ESP-IDF\"]}\n"
-                + "- Do not read unrelated branches before an explicit atomic add/remove. Read "
+                + "{\"type\":\"add_cards\",\"parent\":[\"FreeRTOS\"],\"names\":"
+                + "[\"Tasks\"]}\n"
+                + "    \"ESP-IDF möchte ich nicht behandeln.\"          ->  "
+                + "{\"type\":\"exclude\",\"topic\":\"ESP-IDF\"} (see THE EXCLUSION COMMAND)\n"
+
+                + "    \"Lösche die Karte/den Zweig X.\"                ->  {\"type\":\"none\"} "
+                + "— deleting concept cards is the USER'S manual editor work, never a scope "
+                + "exclusion\n"
+                + "- Do not read unrelated branches before an explicit atomic add_cards. Read "
                 + "only when the current path or structure is genuinely unknown.\n"
-                + "- If you are unsure whether a parent exists: 1) read it, 2) look at the result, "
-                + "3) add. Adding an already-existing card is rejected with the reason.\n"
-                + "- ONE card per add. Build the tree over several steps instead of inventing a deep "
-                + "structure at once; card names are short noun phrases in the user's language, and "
-                + "the user's own words win over your terminology.\n"
+                + "- If you are unsure whether a parent exists: 1) read it, 2) look at the "
+                + "result, 3) add_cards. An existing sibling simply comes back "
+                + "ALREADY_PRESENT.\n"
+                + "- ONE add_cards per parent, carrying EVERY name for that parent — never a "
+                + "round per card (that once cost a user-named area its place in the budget). "
+                + "A single card is a one-element list.\n"
+                + "- \"Das Konzept soll A, B, C abdecken\" is ONE add_cards: either flat "
+                + "(parent=[]) or grouped under ONE plausible parent from the user's words "
+                + "(e.g. the book's core topic). If that parent does not exist yet, the SAME "
+                + "call creates it together with the cards (receipt: CREATED_PARENT) — NEVER "
+                + "a separate call for the parent first, and never any deeper invented "
+                + "hierarchy than that one parent.\n"
+                + "- \"Füge A und B unter X ein\" targets parent=[\"X\"]: a unique existing "
+                + "card name is enough — the application resolves the full path itself; an "
+                + "ambiguous name is rejected with the candidate paths (then use the full "
+                + "path).\n"
+                + "- A multi-word term is ONE name (\"Computer Science\" is one card, never "
+                + "two); card names are short noun phrases in the user's language, and the "
+                + "user's own words win over your terminology.\n"
+                + "- The receipt names every input's fate (ADDED / ALREADY_PRESENT / "
+                + "SUPPRESSED_BY_SCOPE) — claim ONLY what it confirms, and never silently "
+                + "drop a term the user named.\n"
                 + "- NEVER claim a card was saved or the concept changed unless the tool answered "
                 + "APPLIED in this turn. A rejected step changed NOTHING — say so honestly or fix "
                 + "it.\n"
@@ -531,12 +858,77 @@ public final class TeamAgentPlaybook {
                 + "never reconstruct concept paths for this: the application knows them by the "
                 + "conflictId.\n"
                 + "- Never pretend an exclusion or focus is stored when it is not.\n"
+                + "THE SEARCH OFFER COMMAND (how the user gets their yellow exploration tags):\n"
+                + "- While the area is broad or unclear — especially on the FIRST turn of a wide "
+                + "topic — offer 3-5 orientation searches as ONE action:\n"
+                + "    {\"type\": \"offer\", \"suggestions\": [\n"
+                + "      {\"query\": \"FreeRTOS ESP32 Grundlagen Tutorial\", \"purpose\": "
+                + "\"Einstieg und Grundbegriffe sichten\"},\n"
+                + "      {\"query\": \"FreeRTOS task scheduling ESP32\", \"purpose\": "
+                + "\"Kernmechanik verstehen\"},\n"
+                + "      {\"query\": \"ESP32 Arduino FreeRTOS Praxisprojekte\", \"purpose\": "
+                + "\"Praxisbeispiele sammeln\"}\n"
+                + "    ]}\n"
+                + "  Each query opens a DIFFERENT direction of the area. The application shows "
+                + "them as clickable tags — they are HOW the user explores before deciding; "
+                + "nothing runs until the user clicks. Offer once per turn at most, never as a "
+                + "replacement for your answer, and never queries about excluded topics.\n"
+                + "- FIRST-TURN DRILL: on the first substantive turn your action sequence is: "
+                + "FIRST one add_cards capturing EVERY area the user explicitly named (this "
+                + "outranks offers, own additions and hierarchy questions), THEN exactly one "
+                + "offer action, then finish with type \"none\" — the user gets the complete "
+                + "structure AND their exploration tags in the same turn.\n"
                 + "- TWO IDENTITY SPACES, never mixed: conceptAction path/parent segments are the "
                 + "EXACT card names from CURRENT_CONCEPT (e.g. [\"ESP32 und FreeRTOS Setup\"]); "
                 + "scope facet ids from CURRENT RESEARCH SCOPE (e.g. \"esp32-setup\") are "
                 + "NEVER concept path segments, and a card name is NEVER a facetId.\n"
-                + "- The concept mirrors the CONVERSATION: add what the user asks for, propose what "
-                + "scope and sources suggest, and remove only what the user excluded.\n\n";
+                + "- The concept mirrors the CONVERSATION: add what the user asks for, propose "
+                + "what scope and sources suggest.\n"
+                + "THE SCOPE PROBE (a read-only measurement, late-stage only):\n"
+                + "- Use scope_probe ONLY during the late closure check, when CONVERSATION "
+                + "POLICY says CLOSURE_CHECK. Probe several plausible remaining concepts "
+                + "together in ONE action: {\"type\": \"probe\", \"terms\": "
+                + "[\"Priority Inversion\", \"SMP Scheduling\"]}. Do not use it for "
+                + "ordinary exploration.\n"
+                + "- The result is an OBSERVATION, never a decision — it changes nothing.\n"
+                + "- After the result: only LIKELY_IN/LIKELY_OUT -> no new question; summarize "
+                + "the scope briefly, the USER decides whether to close. At least one BOUNDARY "
+                + "-> ask at most ONE relevant boundary question. Otherwise a plausible NOVEL "
+                + "-> ask at most ONE question whether that area belongs.\n"
+                + "- Never reopen a LIKELY_OUT — the blacklist already settled it.\n"
+                + "- MEANING: NOVEL = unanchored, NEVER \"relevant\"; CANONICAL_OUT = "
+                + "settled by the user, never a \"possible remaining area\". The tool "
+                + "result carries the binding rules for your reply — follow them "
+                + "literally. You never ask the follow-up question yourself; the "
+                + "application appends it.\n"
+                + "- After a probe the turn is observation-only: the application refuses "
+                + "every further concept action except read. A NOVEL result is a QUESTION "
+                + "for the user, never your own add_cards.\n"
+                + "MOVING CARDS:\n"
+                + "- You never emit a move action. When the user orders a move, the "
+                + "APPLICATION executes it itself and answers with the receipt — do not "
+                + "attempt it, do not substitute it with add_cards, do not claim it.\n"
+                + "RENAMING (rename):\n"
+                + "- rename changes ONE card's name at any depth; children and position stay: "
+                + "{\"type\": \"rename\", \"path\": [\"FreeRTOS\", \"Setup\"], \"name\": "
+                + "\"ESP32-Entwicklung mit Arduino\"}. A rename is NEVER a deletion.\n"
+                + "YOU CANNOT DELETE OR REBUILD — deliberate, not an error to fight:\n"
+                + "- You have NO delete and NO rewrite action. The ONLY way content leaves the "
+                + "concept: the user rules a topic out -> your exclude command -> the "
+                + "application asks the user -> the APPLICATION removes the entry after their "
+                + "yes.\n"
+                + "- TWO DIFFERENT INTENTS, never merged: \"X möchte ich nicht behandeln\" / "
+                + "\"X raus (aus dem Thema)\" is the exclude command — never a concept edit, "
+                + "never rebuilding the branch without X. \"Lösche die Karte/den Zweig X\" is a "
+                + "CONCEPT deletion: manual editor work, NO exclude, NO edit — deleting a card "
+                + "does not rule the topic out of the research.\n"
+                + "- When the user wants a whole branch deleted, moved, merged or rebuilt, say "
+                + "honestly that this is manual work in the concept editor for now — do NOT "
+                + "improvise a substitute (no re-adding neighbours, no emptying cards one by "
+                + "one, no partial adds standing in for a rewrite).\n"
+                + "- A read names the SUPPRESSED cards of a branch — excluded topics stay "
+                + "suppressed for research either way; the physical cleanup is the user's "
+                + "editor work for now.\n\n";
     }
 
     /**
@@ -617,12 +1009,62 @@ public final class TeamAgentPlaybook {
     }
 
     /**
+     * The one-shot offer nudge (gate 9b: the FIRST-TURN DRILL alone did not move the model —
+     * machinery instructions do). Sent when a turn built concept cards but the session still
+     * has no exploration tags; asks for EXACTLY the missing step and nothing else.
+     */
+    /**
+     * Offer-receipt grounding: the nudge ran, no OFFERED receipt exists — the final answer
+     * must not claim suggestions (a turn once said "einige erste Suchvorschläge gemacht"
+     * over zero tags). Machine block English; the instruction follows the language selector.
+     */
+    public static String searchSuggestionsGrounding(boolean german) {
+        String block = "SEARCH SUGGESTIONS\n"
+                + "No search suggestions were actually offered in this turn.\n"
+                + "Do not claim that suggestions were provided or are available.\n\n";
+        return block + (german
+                ? "Formuliere deine finale assistantMessage entsprechend — ohne behauptete "
+                        + "Suchvorschläge. Keine weiteren Aktionen nötig: type \"none\"."
+                : "Write your final assistantMessage accordingly — without claimed search "
+                        + "suggestions. No further actions needed: type \"none\".");
+    }
+
+    public static String offerSearchesMissing(boolean german) {
+        return german
+                ? "SEARCH TAGS MISSING — der Nutzer hat noch keine gelben Erkundungs-Tags.\n"
+                        + "Sende jetzt GENAU EINE offer-Aktion mit 3-5 Queries, die je eine "
+                        + "ANDERE Richtung des Themas öffnen: {\"type\": \"offer\", "
+                        + "\"suggestions\": [{\"query\": \"...\", \"purpose\": \"...\"}]}. "
+                        + "Keine Konzept-Änderung in diesem Schritt; danach schließe mit type "
+                        + "\"none\" ab."
+                : "SEARCH TAGS MISSING — the user has no yellow exploration tags yet.\n"
+                        + "Now send EXACTLY ONE offer action with 3-5 queries, each opening a "
+                        + "DIFFERENT direction of the area: {\"type\": \"offer\", "
+                        + "\"suggestions\": [{\"query\": \"...\", \"purpose\": \"...\"}]}. "
+                        + "No concept change in this step; afterwards finish with type "
+                        + "\"none\".";
+    }
+
+    /**
      * The AUTHORITATIVE artifact state, prepended to every concept feedback as a machine-like
      * block — small models follow a regular state block better than prose, and it removes any
      * room for the "the conversation is the state" fiction: only an APPLIED tool call changes
      * the artifact.
      */
     public static String conceptReceipts(long conceptRevision, java.util.List<String> applied,
+                                         java.util.List<String> rejected, String currentConcept,
+                                         boolean german) {
+        return conceptReceipts(conceptRevision, applied,
+                java.util.Collections.<String>emptyList(), rejected, currentConcept, german);
+    }
+
+    /**
+     * As above, with the HONEST third truth (first-turn derail finding): a NO_CHANGE receipt
+     * was booked as APPLIED, so every wirkungslose repetition read as accomplished work and
+     * the model kept working. Three receipt categories now — applied, no-change, rejected.
+     */
+    public static String conceptReceipts(long conceptRevision, java.util.List<String> applied,
+                                         java.util.List<String> noChange,
                                          java.util.List<String> rejected, String currentConcept,
                                          boolean german) {
         StringBuilder sb = new StringBuilder("ARTIFACT_STATE\n");
@@ -638,6 +1080,12 @@ public final class TeamAgentPlaybook {
                 sb.append("- ").append(line).append('\n');
             }
         }
+        if (!noChange.isEmpty()) {
+            sb.append("NO_CHANGE_ACTIONS\n");
+            for (String line : noChange) {
+                sb.append("- ").append(line).append('\n');
+            }
+        }
         sb.append("REJECTED_ACTIONS\n");
         if (rejected.isEmpty()) {
             sb.append("- (none)\n");
@@ -650,10 +1098,14 @@ public final class TeamAgentPlaybook {
             sb.append("CURRENT_CONCEPT\n").append(currentConcept.trim()).append('\n');
         }
         sb.append(german
-                ? "Behaupte nur Änderungen, die unter APPLIED_ACTIONS stehen. Eine abgelehnte "
-                        + "Aktion hat NICHTS am Konzept verändert.\n\n"
-                : "Only claim changes listed under APPLIED_ACTIONS. A rejected action changed "
-                        + "NOTHING about the concept.\n\n");
+                ? "Behaupte nur Änderungen, die unter APPLIED_ACTIONS stehen. "
+                        + "NO_CHANGE_ACTIONS waren gültige Aufträge, deren Ergebnis bereits "
+                        + "unverändert vorlag — wiederhole sie nicht. Eine abgelehnte Aktion "
+                        + "hat NICHTS am Konzept verändert.\n\n"
+                : "Only claim changes listed under APPLIED_ACTIONS. NO_CHANGE_ACTIONS were "
+                        + "valid requests whose resulting artifact was already unchanged — do "
+                        + "not repeat them. A rejected action changed NOTHING about the "
+                        + "concept.\n\n");
         return sb.toString();
     }
 

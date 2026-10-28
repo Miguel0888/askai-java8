@@ -64,17 +64,111 @@ public final class ConceptToolRounds {
                                       ConceptTool tool, int maxToolRounds,
                                       int maxRepairAttempts, boolean germanFeedback,
                                       IntermediateSink intermediateSink, Trace trace) {
+        return run(initial, turn, tool, maxToolRounds, maxRepairAttempts, germanFeedback,
+                intermediateSink, trace, false);
+    }
+
+    /**
+     * @param nudgeOfferWhenMissing gate 9b: the session has never offered exploration tags —
+     *  a turn that BUILT concept cards but ends without an offer gets ONE machinery nudge for
+     *  exactly the missing step (the FIRST-TURN DRILL prose alone did not move the model).
+     */
+    public static TeamAgentResult run(TeamAgentResult initial, FollowUpTurn turn,
+                                      ConceptTool tool, int maxToolRounds,
+                                      int maxRepairAttempts, boolean germanFeedback,
+                                      IntermediateSink intermediateSink, Trace trace,
+                                      boolean nudgeOfferWhenMissing) {
+        return run(initial, turn, tool, maxToolRounds, maxRepairAttempts, germanFeedback,
+                intermediateSink, trace, nudgeOfferWhenMissing, ConceptTurnPolicy.Mode.FULL);
+    }
+
+    /**
+     * @param mode the turn's machine-classified mutation policy (safety-slice gate 2): in a
+     *  read-only turn concept MUTATIONS are refused for the WHOLE turn — capability withdrawal
+     *  per action was not enough, the model substituted partial adds for the forbidden rewrite;
+     *  a DELETE-classified turn additionally refuses the exclude (a concept deletion is not a
+     *  scope exclusion).
+     */
+    public static TeamAgentResult run(TeamAgentResult initial, FollowUpTurn turn,
+                                      ConceptTool tool, int maxToolRounds,
+                                      int maxRepairAttempts, boolean germanFeedback,
+                                      IntermediateSink intermediateSink, Trace trace,
+                                      boolean nudgeOfferWhenMissing,
+                                      ConceptTurnPolicy.Mode mode) {
+        return run(initial, turn, tool, maxToolRounds, maxRepairAttempts, germanFeedback,
+                intermediateSink, trace, nudgeOfferWhenMissing, mode, false, null);
+    }
+
+    /**
+     * @param seededMovedReceipt / @param seededMoveOutcome the DEDICATED move generation ran
+     *  BEFORE this loop (move-gate ruling: the universal grammar starved source/parent) and
+     *  already holds the authoritative receipt state — the truth guard judges the whole turn
+     *  including that pre-executed move.
+     */
+    public static TeamAgentResult run(TeamAgentResult initial, FollowUpTurn turn,
+                                      ConceptTool tool, int maxToolRounds,
+                                      int maxRepairAttempts, boolean germanFeedback,
+                                      IntermediateSink intermediateSink, Trace trace,
+                                      boolean nudgeOfferWhenMissing,
+                                      ConceptTurnPolicy.Mode mode,
+                                      boolean seededMovedReceipt, String seededMoveOutcome) {
+        boolean readOnly = mode == ConceptTurnPolicy.Mode.RESTRUCTURE_READ_ONLY
+                || mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY;
+        if (readOnly) {
+            trace.line("concept mutations READ-ONLY this turn ("
+                    + (mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY
+                            ? "delete wish — manual editor work"
+                            : "compound restructuring request") + ")");
+        }
+        if (mode == ConceptTurnPolicy.Mode.MOVE_TRUTH) {
+            trace.line("move-truth guard armed (explicit move order)");
+        }
+        if (mode == ConceptTurnPolicy.Mode.EXCLUDE_TRUTH) {
+            trace.line("exclude-truth guard armed (explicit exclusion order)");
+        }
+        if (mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY) {
+            // TERMINAL like the exclusion receipt (safety-gate rerun: the refusal held, but the
+            // model's free-form close claimed the branch was deleted over an unchanged concept).
+            // The host answers deterministically; the turn's other proposals are DROPPED on
+            // purpose — a delete turn changes neither the concept nor the scope.
+            trace.line("delete wish -> deterministic host answer (terminal, model narration "
+                    + "replaced)");
+            return syntheticAnswer(TeamAgentPlaybook.deleteWishAnswer(germanFeedback), initial);
+        }
         TeamAgentResult result = initial;
         int rounds = 0;
         int repairs = 0;
+        // Receipt truth (move_leaf slice): "verschoben" may only close a turn when a MOVED
+        // receipt of THIS turn covers it — otherwise the host owns the closing sentence.
+        boolean movedReceipt = seededMovedReceipt;
+        String moveOutcome = seededMoveOutcome;
+        // AP3 gate finding: after a probe the SAME loop kept FULL permission and the model
+        // wrote all three NOVEL terms straight into the concept. "Sensor, never author" is
+        // MACHINERY now: once a probe ran, the remainder of the turn is structurally
+        // observation-only — prompt text alone never held.
+        boolean probedThisTurn = false;
+        // AP3 retest 2: the MEANING directive sat on the probe receipt, but later READ
+        // feedbacks displaced it as the LAST grounding before the narration (clear-only
+        // probe ended in "Möchten Sie mit der Recherche beginnen?"). The directive is
+        // STICKY for the rest of the turn — turn-local only, never persisted.
+        String probeMeaningReminder = null;
+        String probeReceiptText = null;
         boolean budgetExhausted = false;
+        boolean offeredThisTurn = false;
+        boolean offerNudgeSpent = false;
+        boolean suggestionGroundingSpent = false;
         // The AUTHORITATIVE change receipts, carried across the rounds: every feedback lists
         // WHICH actions were applied and WHICH were rejected (and why), plus the CURRENT
         // persisted concept after any mutation attempt — a lone boolean once let one applied
         // add be claimed as four.
         long conceptRevision = -1L;
         java.util.List<String> applied = new java.util.ArrayList<String>();
+        java.util.List<String> noChange = new java.util.ArrayList<String>();
         java.util.List<String> rejected = new java.util.ArrayList<String>();
+        // Fix B (first-turn derail): a mutation that already reached the host THIS turn
+        // (APPLIED or NO_CHANGE) is never executed again on an identical signature —
+        // turn-local, gone after the close.
+        java.util.Set<String> executedMutationSignatures = new java.util.HashSet<String>();
         String currentConcept = null;
         boolean refetchConcept = false;
         while (result != null && result.isOk()
@@ -102,18 +196,70 @@ public final class ConceptToolRounds {
                         // exactly the observability the technical_log gate asked for.
                         intermediateSink.intermediate(output);
                     }
-                    result = turn.run(TeamAgentPlaybook.scopePatchRejected(
-                            scopeUpdate.describeViolations(), germanFeedback));
+                    result = turn.run(withProbeMeaning(TeamAgentPlaybook.scopePatchRejected(
+                            scopeUpdate.describeViolations(), germanFeedback),
+                            probeMeaningReminder));
                     continue;
                 }
-                // Mission bookkeeping is the HOST'S job (live-gate 4 decision): it records the
-                // user's first message as the mission mechanically — no repair loop begs the
-                // model for setMission anymore.
-                return result; // the model finished without a further action — the normal end
+                // Gate 9b: the session's FIRST substantive card-building turn must not end
+                // without exploration tags — ONE machinery nudge asks for exactly the offer.
+                // Never spent twice, never on turns that built nothing, never over budget.
+                if (nudgeOfferWhenMissing && !offerNudgeSpent && !offeredThisTurn
+                        && !applied.isEmpty() && !budgetExhausted && !probedThisTurn) {
+                    offerNudgeSpent = true;
+                    trace.line("search tags missing — offer nudge turn");
+                    if (intermediateSink != null) {
+                        intermediateSink.intermediate(output);
+                    }
+                    result = turn.run(TeamAgentPlaybook.offerSearchesMissing(germanFeedback));
+                    continue;
+                }
+                if (offerNudgeSpent && !offeredThisTurn && !suggestionGroundingSpent
+                        && !budgetExhausted) {
+                    // Offer-receipt grounding (the turn-1 finding): the nudge was sent and NO
+                    // OFFERED receipt exists in this turn, yet the close once claimed "einige
+                    // erste Suchvorschläge gemacht" over zero tags. The OBJECTIVE condition
+                    // (nudge fired, receipt absent) replaces any keyword truth guard; with an
+                    // OFFERED receipt this block never runs.
+                    suggestionGroundingSpent = true;
+                    trace.line("offer nudge unanswered — search-suggestion grounding turn");
+                    if (intermediateSink != null) {
+                        intermediateSink.intermediate(output);
+                    }
+                    result = turn.run(
+                            TeamAgentPlaybook.searchSuggestionsGrounding(germanFeedback));
+                    continue;
+                }
+                // The model finished without a further action — the normal end.
+                return closeProbeTurn(withMoveTruth(result, mode, movedReceipt,
+                        !applied.isEmpty(), moveOutcome, germanFeedback, trace),
+                        probeReceiptText, germanFeedback, trace);
             }
             if (budgetExhausted) {
+                if (action != null && action.getType() == ConceptAction.Type.OFFER
+                        && !offeredThisTurn) {
+                    // Gate finding: the first broad turn regularly EXHAUSTS the budget building
+                    // cards, so the wrap-up's offer landed exactly here and was dropped — tags
+                    // are display state, not a concept edit; executing them over budget is safe
+                    // and costs no further inference.
+                    try {
+                        tool.call(action);
+                        trace.line("wrap-up offer executed (tags are display state, not a "
+                                + "concept edit)");
+                    } catch (ToolInvoker.ToolFailure rejectedOffer) {
+                        trace.line("wrap-up offer REJECTED "
+                                + compactReason(rejectedOffer.getMessage()));
+                    } catch (ToolInvoker.EndpointUnavailable dead) {
+                        trace.line("wrap-up offer lost — endpoint unavailable");
+                    }
+                    return closeProbeTurn(withMoveTruth(result, mode, movedReceipt,
+                            !applied.isEmpty(), moveOutcome, germanFeedback, trace),
+                            probeReceiptText, germanFeedback, trace);
+                }
                 trace.line("tool budget exhausted — dropping the further conceptAction");
-                return result;
+                return closeProbeTurn(withMoveTruth(result, mode, movedReceipt,
+                        !applied.isEmpty(), moveOutcome, germanFeedback, trace),
+                        probeReceiptText, germanFeedback, trace);
             }
             rounds++;
             String feedback;
@@ -123,6 +269,88 @@ public final class ConceptToolRounds {
                 rejected.add("(invalid) " + firstLine(actionError));
                 trace.line("round " + rounds + ": invalid conceptAction (" + actionError + ")");
                 feedback = TeamAgentPlaybook.conceptToolRejected(actionError, germanFeedback);
+            } else if (probedThisTurn && action.getType() != ConceptAction.Type.READ
+                    && action.getType() != ConceptAction.Type.PROBE) {
+                // The post-probe sensor lock: reads may still ground the summary, every
+                // mutation and scope command is refused BEFORE the host — the probe's
+                // observation must never become the model's own decision in the same turn.
+                repairs++;
+                rejected.add(action.describe() + " — refused (post-probe sensor lock)");
+                trace.line("round " + rounds + ": " + action.describe());
+                trace.line("round " + rounds + " -> REFUSED (post-probe sensor lock: "
+                        + "observation-only turn)");
+                feedback = TeamAgentPlaybook.conceptToolRejected(
+                        TeamAgentPlaybook.probeSensorLock(), germanFeedback);
+            } else if (isMutatingAction(action.getType())
+                    && executedMutationSignatures.contains(action.describe())) {
+                // Fix B: the derailed first turn re-sent the SAME add_cards until round 4 —
+                // an exact repetition of an executed mutation ends before the host.
+                repairs++;
+                rejected.add(action.describe() + " — already executed this turn");
+                trace.line("round " + rounds + ": " + action.describe());
+                trace.line("round " + rounds + " -> REFUSED (exact repetition of an "
+                        + "executed mutation)");
+                feedback = TeamAgentPlaybook.conceptToolRejected(
+                        "You already executed exactly this action in this turn — do not "
+                                + "repeat it. Finish with your final answer, or perform a "
+                                + "genuinely different REQUESTED action.", germanFeedback);
+            } else if (action.getType() == ConceptAction.Type.MOVE) {
+                // The dedicated generator owns the model side of moves exclusively (gate
+                // ruling: two competing paths produced invalid rounds and a false close) —
+                // a legacy/misrouted in-loop move never reaches the host.
+                repairs++;
+                rejected.add(action.describe() + " — moves run through the dedicated path");
+                trace.line("round " + rounds + ": " + action.describe());
+                trace.line("round " + rounds + " -> REFUSED (the application executes moves "
+                        + "itself on an explicit user order)");
+                feedback = TeamAgentPlaybook.conceptToolRejected(
+                        "You never emit a move action: when the user orders a move, the "
+                                + "application executes it itself and reports the receipt. "
+                                + "Do not retry.", germanFeedback);
+            } else if (action.getType() == ConceptAction.Type.ADD) {
+                // add_cards slice: the single add left the active contract — a legacy
+                // transcript's "add" is read but never executed (four one-by-one rounds once
+                // cost a user-named card its place in the budget).
+                repairs++;
+                rejected.add(action.describe() + " — single add left the contract");
+                trace.line("round " + rounds + ": " + action.describe());
+                trace.line("round " + rounds + " -> REFUSED (send ONE add_cards with ALL "
+                        + "names)");
+                feedback = TeamAgentPlaybook.conceptToolRejected(
+                        "The single \"add\" action is not part of your contract anymore. Send "
+                                + "ONE add_cards action carrying ALL card names as one list — "
+                                + "a single card is a one-element list.", germanFeedback);
+            } else if (readOnly
+                    && (action.getType() == ConceptAction.Type.ADD_CARDS
+                            || action.getType() == ConceptAction.Type.MOVE
+                            || action.getType() == ConceptAction.Type.RENAME
+                            || (mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY
+                                    && action.getType() == ConceptAction.Type.EXCLUDE))) {
+                // Gate 2 of the safety slice: in a read-only turn EVERY mutation is refused —
+                // the model once replaced the withdrawn rewrite with partial adds and claimed
+                // success; a delete wish must not silently become a scope exclusion either.
+                repairs++;
+                String refusal = mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY
+                        ? TeamAgentPlaybook.deleteReadOnlyRefusal()
+                        : TeamAgentPlaybook.restructureReadOnlyRefusal();
+                rejected.add(action.describe() + " — refused (read-only turn)");
+                trace.line("round " + rounds + ": " + action.describe());
+                trace.line("round " + rounds + " -> REFUSED (read-only turn: no substitute "
+                        + "edits)");
+                feedback = TeamAgentPlaybook.conceptToolRejected(refusal, germanFeedback);
+            } else if (action.getType() == ConceptAction.Type.REMOVE
+                    || action.getType() == ConceptAction.Type.REWRITE) {
+                // Safety slice after the slice-2 gate: destructive edits left the model contract
+                // (a natural "ESP-IDF raus, Toolchain bleibt" once became a remove that vaporised
+                // the branch). The parser stays tolerant for legacy transcripts, but the action
+                // NEVER reaches the host — the model gets the honest alternative instead.
+                repairs++;
+                rejected.add(action.describe() + " — destructive edits left the contract");
+                trace.line("round " + rounds + ": " + action.describe());
+                trace.line("round " + rounds
+                        + " -> REFUSED (destructive concept edits are user-owned)");
+                feedback = TeamAgentPlaybook.conceptToolRejected(
+                        TeamAgentPlaybook.destructiveEditRefusal(), germanFeedback);
             } else {
                 trace.line("round " + rounds + ": " + action.describe());
                 try {
@@ -143,19 +371,65 @@ public final class ConceptToolRounds {
                         }
                         return receiptResult(text, result);
                     }
-                    if (action.getType() == ConceptAction.Type.READ) {
+                    if (text != null && text.startsWith("NO_CHANGE")) {
+                        // Fix A (generalizing the move special case — ONE truth for
+                        // NO_CHANGE): the honest idempotent outcome is a receipt, never a
+                        // mutation. It was once booked as APPLIED, so every wirkungslose
+                        // repetition read as accomplished work.
+                        if (action.getType() == ConceptAction.Type.MOVE) {
+                            moveOutcome = "already-at-target"; // the truth guard's seed
+                        }
+                        conceptRevision = revisionIn(text, conceptRevision);
+                        noChange.add(action.describe() + " — already unchanged");
+                        executedMutationSignatures.add(action.describe());
+                        refetchConcept = true; // prove to the model that NOTHING changed
+                        trace.line("round " + rounds + " -> NO_CHANGE");
+                        feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
+                    } else if (action.getType() == ConceptAction.Type.OFFER) {
+                        // A working step like READ: the tags are display state, not the concept —
+                        // no revision, no grounding re-read, the loop simply continues.
+                        offeredThisTurn = true;
+                        trace.line("round " + rounds + " -> OFFERED");
+                        feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
+                    } else if (action.getType() == ConceptAction.Type.READ) {
                         trace.line("round " + rounds + " -> RESULT");
                         feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
+                    } else if (action.getType() == ConceptAction.Type.PROBE) {
+                        // scope_probe (AP3): a read-only MEASUREMENT — a working step like
+                        // READ, never a mutation receipt; the loop continues ONLY so the model
+                        // can summarize or ask its one question — the sensor lock above
+                        // refuses everything else for the rest of the turn.
+                        probedThisTurn = true;
+                        probeReceiptText = text;
+                        int meaning = text == null ? -1
+                                : text.indexOf("MEANING — hard rules");
+                        probeMeaningReminder = meaning >= 0 ? text.substring(meaning)
+                                : TeamAgentPlaybook.probeSensorLock();
+                        trace.line("round " + rounds + " -> PROBED");
+                        trace.line("post-probe sensor lock armed (observation-only for the "
+                                + "rest of the turn)");
+                        feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback)
+                                + "\n\n" + TeamAgentPlaybook.probeSensorLock();
                     } else {
                         conceptRevision = revisionIn(text, conceptRevision);
                         applied.add(action.describe() + " (revision " + conceptRevision + ")");
+                        executedMutationSignatures.add(action.describe());
                         refetchConcept = true;
+                        if (action.getType() == ConceptAction.Type.MOVE) {
+                            movedReceipt = true; // ONLY an APPLIED move licenses "verschoben"
+                        }
                         trace.line("round " + rounds + " -> APPLIED revision=" + conceptRevision);
                         feedback = TeamAgentPlaybook.conceptToolApplied(text, germanFeedback);
                     }
                 } catch (ToolInvoker.ToolFailure toolRejected) {
                     repairs++;
-                    String reason = firstLine(toolRejected.getMessage());
+                    if (action.getType() == ConceptAction.Type.MOVE) {
+                        moveOutcome = firstLine(toolRejected.getMessage());
+                    }
+                    // The WHOLE reason, flattened (slice-2 gate finding: the log showed only
+                    // "Error: BRANCH_GRAFT_FAILED" while the teaching bottom-up diagnostic
+                    // reached the model alone — the observer must see the same truth).
+                    String reason = compactReason(toolRejected.getMessage());
                     rejected.add(action.describe() + " — " + reason);
                     refetchConcept = true; // prove to the model that NOTHING changed
                     trace.line("round " + rounds + " -> REJECTED " + reason);
@@ -193,14 +467,31 @@ public final class ConceptToolRounds {
                 trace.line("budget reached (rounds=" + rounds + "/" + maxToolRounds
                         + " repairs=" + repairs + "/" + maxRepairAttempts + ") — wrap-up turn");
                 feedback = feedback + "\n\n" + TeamAgentPlaybook.conceptToolBudgetExhausted(germanFeedback);
+                if (nudgeOfferWhenMissing && !offerNudgeSpent && !offeredThisTurn
+                        && !applied.isEmpty() && !probedThisTurn) {
+                    // Gate finding: broad first turns exhaust the budget on cards, so the
+                    // normal-end nudge never ran and the first-turn offer stayed red — the
+                    // wrap-up turn asks for the offer too (executed above despite the budget).
+                    offerNudgeSpent = true;
+                    trace.line("search tags missing — offer nudge in wrap-up");
+                    feedback = feedback + "\n\n"
+                            + TeamAgentPlaybook.offerSearchesMissing(germanFeedback);
+                }
             }
             if (intermediateSink != null) {
                 // This output is about to be REPLACED by the follow-up inference — whatever it
                 // proposed beyond the concept action (scopePatch!) must not vanish with it.
-                intermediateSink.intermediate(output);
+                // EXCEPT after a probe: the sensor lock covers EVERY scope mutation, and the
+                // host applies valid intermediate patches — a post-probe patch is suppressed.
+                if (probedThisTurn && hasCommittableScopePatch(output)) {
+                    trace.line("post-probe sensor lock: intermediate scope patch suppressed");
+                } else {
+                    intermediateSink.intermediate(output);
+                }
             }
-            result = turn.run(TeamAgentPlaybook.conceptReceipts(conceptRevision, applied,
-                    rejected, currentConcept, germanFeedback) + feedback);
+            result = turn.run(withProbeMeaning(TeamAgentPlaybook.conceptReceipts(
+                    conceptRevision, applied, noChange, rejected, currentConcept,
+                    germanFeedback) + feedback, probeMeaningReminder));
         }
         return result;
     }
@@ -227,6 +518,20 @@ public final class ConceptToolRounds {
         if (userMessage == null) {
             return fallback;
         }
+        return syntheticAnswer(userMessage, fallback);
+    }
+
+    /**
+     * A host-authored visible answer for a TERMINAL turn (the dedicated move path): the exact
+     * mechanics every deterministic receipt answer uses. {@code fallback} may be null when the
+     * message is host-built plain text (the synthetic parse cannot fail on it).
+     */
+    public static TeamAgentResult hostAnswer(String userMessage, TeamAgentResult fallback) {
+        return syntheticAnswer(userMessage, fallback);
+    }
+
+    /** A host-authored visible answer as a regular parsed output (shared receipt mechanics). */
+    private static TeamAgentResult syntheticAnswer(String userMessage, TeamAgentResult fallback) {
         StringBuilder json = new StringBuilder("{\"assistantMessage\":\"");
         for (int index = 0; index < userMessage.length(); index++) {
             char character = userMessage.charAt(index);
@@ -267,11 +572,125 @@ public final class ConceptToolRounds {
         return fallback;
     }
 
+    /**
+     * The move-truth close: a MOVE_TRUTH turn without an APPLIED move receipt never keeps the
+     * model's narration — the host states deterministically that nothing changed (optionally
+     * why). Grounded in the same synthetic-answer mechanics as every host receipt.
+     */
+    private static TeamAgentResult withMoveTruth(TeamAgentResult result,
+                                                 ConceptTurnPolicy.Mode mode,
+                                                 boolean movedReceipt, boolean appliedAny,
+                                                 String moveOutcome,
+                                                 boolean german, Trace trace) {
+        if (mode == ConceptTurnPolicy.Mode.EXCLUDE_TRUTH) {
+            // The connector gate's finding: a rejected scopePatch detour ('exclude' as an
+            // operation kind) closed with "the card is excluded" over an unchanged scope.
+            // A COMMITTED exclusion never reaches this close — the EXCLUDE action returns
+            // terminally with the host's receipt answer — so reaching it means the ordered
+            // exclusion did not happen, whatever the narration claims.
+            trace.line("exclude-truth guard -> deterministic host answer (no EXCLUDED "
+                    + "receipt this turn)");
+            return syntheticAnswer(
+                    TeamAgentPlaybook.excludeTruthAnswer(german, appliedAny), result);
+        }
+        if (mode != ConceptTurnPolicy.Mode.MOVE_TRUTH || movedReceipt) {
+            return result;
+        }
+        if (appliedAny) {
+            // The gate's negation finding, generalized: NEVER state 'nothing changed' over ANY
+            // authoritative APPLIED receipt of this turn — the receipts feedback already
+            // grounds the model's own narration for what DID happen.
+            trace.line("move-truth guard stands down — other mutations were APPLIED this turn");
+            return result;
+        }
+        trace.line("move-truth guard -> deterministic host answer (no MOVED receipt this "
+                + "turn)");
+        return syntheticAnswer(TeamAgentPlaybook.moveTruthAnswer(german, moveOutcome), result);
+    }
+
+    /** The guard's scope (ratified): mutating actions only — READ/PROBE/OFFER repeat freely. */
+    private static boolean isMutatingAction(ConceptAction.Type type) {
+        return type == ConceptAction.Type.ADD_CARDS || type == ConceptAction.Type.RENAME
+                || type == ConceptAction.Type.MOVE || type == ConceptAction.Type.EXCLUDE
+                || type == ConceptAction.Type.RESOLVE;
+    }
+
+    /** A valid scope patch with real operations — the kind the host would commit. */
+    private static boolean hasCommittableScopePatch(ScopingAssistantOutput output) {
+        ScopeUpdateDocument patch = output.getScopeUpdate();
+        return patch != null && patch.isValid() && !"[]".equals(patch.operationsJson());
+    }
+
+    /**
+     * The deterministic probe close (AP3 retest 3): the ONE follow-up question no longer
+     * depends on the small model's obedience — the host derives it from the receipt's
+     * readings (BOUNDARY outranks NOVEL; clear-only asks nothing) and appends it to the
+     * summary. A final output still carrying a committable scope patch is stripped here:
+     * the sensor lock covers the WHOLE turn, patches included.
+     */
+    private static TeamAgentResult closeProbeTurn(TeamAgentResult result, String receipt,
+                                                  boolean german, Trace trace) {
+        if (receipt == null || result == null || !result.isOk()
+                || !(result.getOutput() instanceof ScopingAssistantOutput)) {
+            return result;
+        }
+        ScopingAssistantOutput output = (ScopingAssistantOutput) result.getOutput();
+        java.util.List<String> boundary = probeTermsWithHint(receipt, "BOUNDARY");
+        java.util.List<String> novel = probeTermsWithHint(receipt, "NOVEL");
+        String question = TeamAgentPlaybook.probeFollowUpQuestion(german, boundary, novel);
+        boolean dropPatch = hasCommittableScopePatch(output);
+        if (question == null && !dropPatch) {
+            return result;
+        }
+        if (question != null) {
+            trace.line("post-probe host question appended ("
+                    + (!boundary.isEmpty() ? "BOUNDARY" : "NOVEL membership") + ")");
+        }
+        if (dropPatch) {
+            trace.line("post-probe sensor lock: final scope patch dropped");
+        }
+        return syntheticAnswer(output.getAssistantMessage()
+                + (question == null ? "" : "\n\n" + question), result);
+    }
+
+    /** The receipt's terms carrying one hint, in reading order ('"term" -> HINT'). */
+    private static java.util.List<String> probeTermsWithHint(String receipt, String hint) {
+        java.util.List<String> terms = new java.util.ArrayList<String>();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\"([^\"]+)\" -> " + hint).matcher(receipt);
+        while (matcher.find()) {
+            terms.add(matcher.group(1));
+        }
+        return terms;
+    }
+
+    /**
+     * The sticky probe directive: every later feedback of the SAME turn re-carries the
+     * receipt's MEANING rules, so the final narration still sees them after reads — a
+     * feedback that already contains them (the probe round itself, a fresh re-probe)
+     * travels unchanged.
+     */
+    private static String withProbeMeaning(String feedback, String meaning) {
+        if (meaning == null || feedback.contains("MEANING — hard rules")) {
+            return feedback;
+        }
+        return feedback + "\n\nSTILL BINDING — this turn's probe:\n" + meaning;
+    }
+
     private static String firstLine(String text) {
         if (text == null) {
             return "";
         }
         int newline = text.indexOf('\n');
         return newline < 0 ? text : text.substring(0, newline);
+    }
+
+    /** A rejection reason as ONE readable log line: newlines flattened, length capped. */
+    private static String compactReason(String text) {
+        if (text == null) {
+            return "";
+        }
+        String flat = text.replace("\r", "").replace('\n', ' ').trim();
+        return flat.length() <= 220 ? flat : flat.substring(0, 217) + "...";
     }
 }

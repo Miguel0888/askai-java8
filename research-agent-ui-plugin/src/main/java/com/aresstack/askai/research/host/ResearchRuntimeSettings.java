@@ -21,6 +21,51 @@ public final class ResearchRuntimeSettings {
     static final String KEY_SIDECAR_JAR = "research.runtime.sidecarJar";
     static final String KEY_BROWSER_CHANNEL = "research.runtime.browserChannel";
     static final String KEY_HEADLESS = "research.runtime.headless";
+    /** Conversation-policy thresholds (documented defaults; adjustable WITHOUT a rebuild via
+     *  the env hand-off — the same mechanism as the concept loop budgets; a settings-UI row
+     *  can layer on loadPositiveInt later). */
+    public static final int DEFAULT_POLICY_SPARSE_CARDS = 4;
+    public static final int DEFAULT_POLICY_NOVELTY_TURNS = 3;
+
+    public static int policySparseCards() {
+        return envOverride("ASKAI_POLICY_SPARSE_CARDS", DEFAULT_POLICY_SPARSE_CARDS);
+    }
+
+    public static int policyNoveltyTurns() {
+        return envOverride("ASKAI_POLICY_NOVELTY_TURNS", DEFAULT_POLICY_NOVELTY_TURNS);
+    }
+
+    /**
+     * #42: background topic discovery over the prepared corpus (pure CPU over persisted
+     * vectors — it never calls the embedding endpoint, so it cannot compete with the
+     * foreground GPU/LLM path). Default OFF, deliberately: no hidden background analysis
+     * until the user opts in; a settings-UI row can layer on later.
+     */
+    public static boolean backgroundTopicDiscovery() {
+        try {
+            return "true".equalsIgnoreCase(System.getenv("ASKAI_BACKGROUND_TOPIC_DISCOVERY"));
+        } catch (RuntimeException noEnv) {
+            return false;
+        }
+    }
+
+    /** scope_probe (AP3): the max terms one probe judges — a bound, never hidden magic. */
+    public static final int DEFAULT_SCOPE_PROBE_MAX_TERMS = 8;
+
+    public static int scopeProbeMaxTerms() {
+        return envOverride("ASKAI_SCOPE_PROBE_MAX_TERMS", DEFAULT_SCOPE_PROBE_MAX_TERMS);
+    }
+
+    private static int envOverride(String name, int fallback) {
+        try {
+            String value = System.getenv(name);
+            return value == null || value.trim().isEmpty()
+                    ? fallback : Math.max(1, Integer.parseInt(value.trim()));
+        } catch (NumberFormatException invalid) {
+            return fallback;
+        }
+    }
+
     /** DEAD legacy override — kept ONLY so load() can destroy a persisted leftover value. */
     static final String KEY_SEARCH_URL = "research.runtime.searchUrl";
     static final String KEY_ALLOW_PRIVATE = "research.runtime.allowPrivateNetworks";
@@ -379,6 +424,7 @@ public final class ResearchRuntimeSettings {
     static final String KEY_CONNECTOR_ORIGIN = KEY_CONNECTOR + ".publicOrigin";
     static final String KEY_CONNECTOR_CLIENT_ID = KEY_CONNECTOR + ".clientId";
     static final String KEY_CONNECTOR_CLIENT_SECRET = KEY_CONNECTOR + ".clientSecret";
+    static final String KEY_CONNECTOR_CENTRAL_ISSUER = KEY_CONNECTOR + ".centralIssuer";
     /** Pre-global legacy keys (may exist frozen in session scopes) — read-only migration fallback. */
     private static final String LEGACY_CONNECTOR = "research.runtime.chatgptConnector";
 
@@ -417,7 +463,8 @@ public final class ResearchRuntimeSettings {
                 store.get(KEY_CONNECTOR_CLIENT_ID,
                         store.get(LEGACY_CONNECTOR + ".clientId", "")),
                 store.get(KEY_CONNECTOR_CLIENT_SECRET,
-                        store.get(LEGACY_CONNECTOR + ".clientSecret", "")));
+                        store.get(LEGACY_CONNECTOR + ".clientSecret", "")),
+                store.get(KEY_CONNECTOR_CENTRAL_ISSUER, ""));
     }
 
     public static void saveChatGptConnectorSettings(WorkspaceStateStore store,
@@ -430,6 +477,7 @@ public final class ResearchRuntimeSettings {
         store.put(KEY_CONNECTOR_ORIGIN, settings.getPublicOrigin());
         store.put(KEY_CONNECTOR_CLIENT_ID, settings.getClientId());
         store.put(KEY_CONNECTOR_CLIENT_SECRET, settings.getClientSecret());
+        store.put(KEY_CONNECTOR_CENTRAL_ISSUER, settings.getCentralIssuer());
     }
 
     /** The typed ChatGPT-connector configuration (persisted; applies to NEW sessions). */
@@ -439,14 +487,22 @@ public final class ResearchRuntimeSettings {
         private final String publicOrigin;
         private final String clientId;
         private final String clientSecret;
+        /** Non-empty = CENTRAL mode: the AresStack webserver issues the tokens. */
+        private final String centralIssuer;
 
         public ChatGptConnectorSettings(boolean enabled, int port, String publicOrigin,
                                         String clientId, String clientSecret) {
+            this(enabled, port, publicOrigin, clientId, clientSecret, "");
+        }
+
+        public ChatGptConnectorSettings(boolean enabled, int port, String publicOrigin,
+                                        String clientId, String clientSecret, String centralIssuer) {
             this.enabled = enabled;
             this.port = port;
             this.publicOrigin = nullToEmpty(publicOrigin);
             this.clientId = nullToEmpty(clientId);
             this.clientSecret = nullToEmpty(clientSecret);
+            this.centralIssuer = nullToEmpty(centralIssuer);
         }
 
         public boolean isEnabled() { return enabled; }
@@ -454,6 +510,7 @@ public final class ResearchRuntimeSettings {
         public String getPublicOrigin() { return publicOrigin; }
         public String getClientId() { return clientId; }
         public String getClientSecret() { return clientSecret; }
+        public String getCentralIssuer() { return centralIssuer; }
     }
 
     static final String KEY_SEARCH_STRATEGY = "research.search.strategy";

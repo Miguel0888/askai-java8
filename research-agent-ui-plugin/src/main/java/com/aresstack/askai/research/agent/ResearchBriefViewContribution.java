@@ -4,16 +4,17 @@ import com.aresstack.askai.plugin.api.agent.AgentSession;
 import com.aresstack.askai.plugin.api.agent.artifact.ArtifactViewContext;
 import com.aresstack.askai.plugin.api.agent.artifact.ArtifactViewContribution;
 import com.aresstack.askai.plugin.api.service.UiExecutor;
-import com.aresstack.askai.research.store.FileResearchBriefStore;
 
 import javax.swing.JComponent;
 
 /**
- * Contributes the "Konzept" view for the {@code research.brief} artifact — the scoping phase's PRIMARY
- * artifact. Since K3 it shows the {@link ConceptPaperView}: mindmap + read-only JSON of the Konzeptpapier
- * (one atomic snapshot per refresh, rendered straight from the session's ConceptBranchService — no second
- * UI model, no JSON in events) plus the legacy brief markdown until K4 retires it. Re-renders on every
- * session state change; the stores are re-read on restore. Read-only, no approval, no phase transition.
+ * Contributes the "Concept" view for the {@code research.brief} artifact — the scoping phase's
+ * PRIMARY artifact and, since the raw-edit slice, the user's DIRECT editor: manual edits go
+ * through {@code ConceptBranchService.replaceDocument} (strict parse → envelope check → CAS →
+ * pretty-print → atomic commit), history browsing reads the working-revision files. One atomic
+ * snapshot per refresh, rendered straight from the session's ConceptBranchService — no second
+ * UI model, no JSON in events. Re-renders on every session state change; unsaved user edits are
+ * never clobbered (the view keeps them until Save/Discard).
  */
 public final class ResearchBriefViewContribution implements ArtifactViewContribution {
 
@@ -29,28 +30,161 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
 
     @Override
     public JComponent createView(ArtifactViewContext context) {
-        final ConceptPaperView view = new ConceptPaperView(context.getMarkdownViewFactory());
+        final ConceptPaperView view = new ConceptPaperView();
         AgentSession session = context.getSession();
         if (!(session instanceof ResearchAgentSession)) {
             return view;
         }
         final ResearchAgentSession research = (ResearchAgentSession) session;
         final UiExecutor uiExecutor = context.getUiExecutor();
+        // The user's manual edit + rollback path — the SAME validating pipeline as every agent
+        // write (strict parse, envelope check, CAS against the shown revision, atomic commit).
+        view.setEditActions(new ConceptPaperView.SaveHandler() {
+            public String save(String documentJson, long expectedRevision) {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                if (service == null) {
+                    return "This session has no concept service.";
+                }
+                com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
+                        service.replaceDocument(documentJson, expectedRevision);
+                return result.isApplied() ? null : result.getDiagnostic().describeForModel();
+            }
+        }, new ConceptPaperView.HistoryReader() {
+            public String content(long revision) {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                return service == null ? null : service.workingHistoryContent(revision);
+            }
+        }, new ConceptPaperView.RestoreHandler() {
+            public String restore(long revision) {
+                // Clean browse + Save = identity-preserving restore (V3 §5): the historical
+                // document/identity pair returns as the new head, epoch and UUIDs included.
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                if (service == null) {
+                    return "This session has no concept service.";
+                }
+                com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
+                        service.restoreRevision(revision);
+                return result.isApplied() ? null : result.getDiagnostic().describeForModel();
+            }
+        });
+        // Tree-editor gestures, ID-HARDENED: every action travels as (epoch, nodeId) and the
+        // service resolves the CURRENT path inside the same atomic operation — a stale epoch
+        // or a vanished id aborts honestly, never a label-guessed edit on another card. The
+        // deep branch delete stays the deliberate, confirmed USER action.
+        view.setTreeActions(new ConceptTreeView.Actions() {
+            public String rename(String epoch, String nodeId, String newName) {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                if (service == null) {
+                    return "This session has no concept service.";
+                }
+                com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
+                        service.renameNodeById(epoch, nodeId, newName);
+                research.logConceptUiAction("rename -> " + (result.isApplied()
+                        ? "applied revision=" + result.getNewRevision() : "refused"));
+                return result.isApplied() ? null : result.getDiagnostic().describeForModel();
+            }
+
+            public String deleteLeafOrTerminal(String epoch, String nodeId) {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                if (service == null) {
+                    return "This session has no concept service.";
+                }
+                com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
+                        service.deleteTerminalBranchById(epoch, nodeId);
+                research.logConceptUiAction("delete leaf/terminal -> " + (result.isApplied()
+                        ? "applied revision=" + result.getNewRevision() : "refused"));
+                return result.isApplied() ? null : result.getDiagnostic().describeForModel();
+            }
+
+            public String deleteBranch(String epoch, String nodeId) {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                if (service == null) {
+                    return "This session has no concept service.";
+                }
+                com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
+                        service.removeNodeById(epoch, nodeId);
+                research.logConceptUiAction("delete branch (confirmed) -> "
+                        + (result.isApplied()
+                                ? "applied revision=" + result.getNewRevision() : "refused"));
+                return result.isApplied() ? null : result.getDiagnostic().describeForModel();
+            }
+
+            public String addChild(String epoch, String parentNodeId,
+                                   String insertBeforeNodeId, String name) {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                if (service == null) {
+                    return "This session has no concept service.";
+                }
+                com.aresstack.askai.research.concept.ConceptBranchService.AddCardsResult result =
+                        service.addCardsUnderId(epoch, parentNodeId,
+                                java.util.Collections.singletonList(name),
+                                insertBeforeNodeId);
+                research.logConceptUiAction("add \"" + name + "\""
+                        + (insertBeforeNodeId == null ? " (end)" : " (before anchor)")
+                        + (result.isApplied() ? " -> applied revision="
+                                + result.getNewRevision() : " -> refused"));
+                return result.isApplied() ? null : result.getDiagnostic().describeForModel();
+            }
+
+            public String moveLeaf(String epoch, String sourceNodeId,
+                                   String targetParentNodeId, String insertBeforeNodeId) {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                if (service == null) {
+                    return "This session has no concept service.";
+                }
+                com.aresstack.askai.research.concept.ConceptBranchService.MoveLeafResult result =
+                        service.moveLeafById(epoch, sourceNodeId, targetParentNodeId,
+                                insertBeforeNodeId);
+                String position = insertBeforeNodeId == null ? "end" : "before anchor";
+                research.logConceptUiAction("move (" + position + ") -> "
+                        + (!result.isApplied() ? "refused"
+                                : result.isNoChange() ? "no change (already in place)"
+                                        : "applied revision=" + result.getNewRevision()
+                                                + " \"" + result.getLabel() + "\" "
+                                                + result.getFromPath() + " -> "
+                                                + result.getToPath()));
+                return result.isApplied() ? null : result.getDiagnostic().describeForModel();
+            }
+        }, new ConceptTreeView.BlacklistSource() {
+            public java.util.List<String> terms() {
+                return research.blacklistTermsForDisplay();
+            }
+        }, new ConceptTreeView.IdentityContext() {
+            public String epoch() {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                return service == null ? null : service.currentEpoch();
+            }
+
+            public String idAt(java.util.List<String> path) {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                return service == null ? null : service.nodeIdAtPath(path);
+            }
+        });
         final Runnable refresh = new Runnable() {
             public void run() {
-                // ONE atomic snapshot per refresh (mindmap + JSON + revision from the same
-                // state); the store stays the only truth — no event ever carries the JSON.
+                // ONE atomic snapshot per refresh (JSON + revision from the same state); the
+                // store stays the only truth — no event ever carries the JSON. K4: the legacy
+                // brief is no longer read — the concept IS the scoping artifact (persisted old
+                // briefs stay on disk untouched, they just are not a view anymore).
                 com.aresstack.askai.research.concept.ConceptBranchService service =
                         research.conceptBranchService();
                 final com.aresstack.askai.research.concept.ConceptProjection projection =
                         service == null ? null
                                 : com.aresstack.askai.research.concept.ConceptProjection
                                         .of(service.snapshot());
-                FileResearchBriefStore store = research.researchBriefStore();
-                final String brief = store == null ? "" : store.effectiveContent();
                 uiExecutor.execute(new Runnable() {
                     public void run() {
-                        view.render(projection, brief);
+                        view.render(projection);
                     }
                 });
             }

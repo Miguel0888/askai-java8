@@ -24,9 +24,49 @@ public final class ScopeSweepPlanAssembler {
     /** The generation request, derived exclusively from the draft snapshot + configuration. */
     public static ProbeGenerationRequest requestOf(ResearchScopeDraft draft,
                                                    ScopeSweepConfiguration configuration) {
+        return requestOf(draft,
+                java.util.Collections.<com.aresstack.askai.research.domain.scope.ScopeAnchor>
+                        emptyList(), configuration);
+    }
+
+    /**
+     * Zielbild slice 1: the fence is a PROJECTION of the two artifacts — the draft's own anchors
+     * (EXCLUDED → OUT) PLUS the effective mindmap's IN posts, assembled here so request and
+     * vectors can never describe different fences. The concept anchors' texts join the known
+     * labels, so the broad generator does not re-paraphrase existing cards.
+     */
+    public static ProbeGenerationRequest requestOf(
+            ResearchScopeDraft draft,
+            List<com.aresstack.askai.research.domain.scope.ScopeAnchor> conceptAnchors,
+            ScopeSweepConfiguration configuration) {
+        List<String> knownLabels = facetLabels(draft);
+        for (com.aresstack.askai.research.domain.scope.ScopeAnchor anchor : conceptAnchors) {
+            if (!anchor.getSemanticText().isEmpty()) {
+                knownLabels.add(anchor.getSemanticText());
+            }
+        }
         return new ProbeGenerationRequest(draft.getMission(), draft.getDomains(),
-                draft.getContexts(), facetLabels(draft), draft.getAnchors(),
+                draft.getContexts(), knownLabels, combinedAnchors(draft, conceptAnchors),
                 configuration.targetBroadProbes);
+    }
+
+    /** Draft anchors first (they own the facet ids), concept posts appended, deduped by id. */
+    public static List<com.aresstack.askai.research.domain.scope.ScopeAnchor> combinedAnchors(
+            ResearchScopeDraft draft,
+            List<com.aresstack.askai.research.domain.scope.ScopeAnchor> conceptAnchors) {
+        List<com.aresstack.askai.research.domain.scope.ScopeAnchor> combined =
+                new ArrayList<com.aresstack.askai.research.domain.scope.ScopeAnchor>(
+                        draft.getAnchors());
+        java.util.Set<String> ids = new java.util.HashSet<String>();
+        for (com.aresstack.askai.research.domain.scope.ScopeAnchor anchor : combined) {
+            ids.add(anchor.getAnchorId());
+        }
+        for (com.aresstack.askai.research.domain.scope.ScopeAnchor anchor : conceptAnchors) {
+            if (ids.add(anchor.getAnchorId())) {
+                combined.add(anchor);
+            }
+        }
+        return combined;
     }
 
     /**
@@ -47,8 +87,22 @@ public final class ScopeSweepPlanAssembler {
                                                      String embeddingFingerprint,
                                                      List<AnchorVector> anchorVectors,
                                                      ScopeSweepConfiguration configuration) {
+        return planOf(draft,
+                java.util.Collections.<com.aresstack.askai.research.domain.scope.ScopeAnchor>
+                        emptyList(),
+                embeddingFingerprint, anchorVectors, configuration);
+    }
+
+    /** As above, with the effective mindmap's IN posts joining the fence (Zielbild slice 1). */
+    public static ScopeSweepService.SweepPlan planOf(
+            ResearchScopeDraft draft,
+            List<com.aresstack.askai.research.domain.scope.ScopeAnchor> conceptAnchors,
+            String embeddingFingerprint,
+            List<AnchorVector> anchorVectors,
+            ScopeSweepConfiguration configuration) {
         return new ScopeSweepService.SweepPlan(draft.getRevision(), embeddingFingerprint,
-                requestOf(draft, configuration), anchorVectors, missionReferenceTexts(draft),
+                requestOf(draft, conceptAnchors, configuration), anchorVectors,
+                missionReferenceTexts(draft),
                 configuration.fenceThresholds, configuration.calibrationParameters,
                 configuration.boundaryMargin, configuration.sweepNoveltyGap,
                 configuration.selectorParameters);
