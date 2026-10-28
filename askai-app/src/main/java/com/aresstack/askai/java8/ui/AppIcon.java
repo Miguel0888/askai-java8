@@ -9,7 +9,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * The AskAI application icon (the robot with the speech bubble), replacing the Java default cup
+ * The AskAI application icon (the crystal "A" with the shadow wizard), replacing the Java default cup
  * on every window. Loaded ONCE from the bundled resource and offered in multiple sizes so the
  * title bar, taskbar and Alt-Tab each pick a crisp variant instead of scaling one blurry image.
  * A missing/broken resource logs loudly and yields an empty list — a window without an icon is
@@ -31,6 +31,20 @@ public final class AppIcon {
         if (window != null && !images.isEmpty()) {
             window.setIconImages(images);
         }
+    }
+
+    /** The variant closest to (at least) {@code size} pixels, or null when the icon is unavailable. */
+    public static Image sized(int size) {
+        List<Image> images = images();
+        if (images.isEmpty()) {
+            return null;
+        }
+        for (int i = 0; i < SIZES.length; i++) {
+            if (SIZES[i] >= size) {
+                return images.get(i);
+            }
+        }
+        return images.get(images.size() - 1);
     }
 
     public static List<Image> images() {
