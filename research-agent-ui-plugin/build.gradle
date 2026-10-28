@@ -11,8 +11,8 @@ dependencies {
     // split).
     implementation project(':browser-api')
     // Central OAuth (AP 6): offline JWT validation of centrally issued access tokens.
-    implementation 'com.aresstack:anauthentia:0.1.0-SNAPSHOT'
-    implementation 'com.aresstack:anauthentia-jwt:0.1.0-SNAPSHOT'
+    implementation 'com.aresstack:anauthentia:0.1.0'
+    implementation 'com.aresstack:anauthentia-jwt:0.1.0'
     implementation 'org.jsoup:jsoup:1.17.2'   // #39: structural HTML import extraction (Java 8 bytecode)
     implementation 'org.apache.pdfbox:pdfbox:2.0.31'   // #39: PDF text extraction (2.0.x = Java 8 line)
     // The knowledge-processing application layer (persistent FIFO + worker + scheduler) and, transitively,
