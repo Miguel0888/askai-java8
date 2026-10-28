@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.agent;
 
+import org.junit.Assume;
 import org.junit.Test;
 
 import javax.swing.JFrame;
@@ -10,6 +11,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Graphics2D;
+import java.awt.GraphicsEnvironment;
 import java.awt.image.BufferedImage;
 
 import static org.junit.Assert.assertEquals;
@@ -63,6 +65,7 @@ public class ResearchSkyHostGeometryTest {
 
     @Test
     public void aDynamicallyAddedSkyGetsRealBoundsAndPaintsThroughTheHostChain() throws Exception {
+        Assume.assumeFalse("needs a display", GraphicsEnvironment.isHeadless());
         SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
                 JLayeredPane layers = transcriptLayersReplica();
@@ -135,6 +138,7 @@ public class ResearchSkyHostGeometryTest {
 
     @Test
     public void theCollapsedStatusBarReallyPaintsThroughTheHostChain() throws Exception {
+        Assume.assumeFalse("needs a display", GraphicsEnvironment.isHeadless());
         // The user-facing regression check: DEFAULT state, no setOpenForTest, no hand-sizing —
         // the firmer sky-blue status bar must actually appear over the transcript.
         SwingUtilities.invokeAndWait(new Runnable() {

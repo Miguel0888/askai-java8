@@ -27,14 +27,30 @@ public final class ConnectorConfig {
     private final File refreshTokenStore;
     private final int accessTokenTtlSeconds;
     private final int refreshTokenTtlSeconds;
+    /** Non-empty = CENTRAL mode: tokens come from this AresStack issuer, AskAI only validates. */
+    private final String centralIssuer;
 
     public ConnectorConfig(int port, String publicOrigin, String clientId, String clientSecret,
                            File refreshTokenStore) {
-        this(port, publicOrigin, clientId, clientSecret, refreshTokenStore, 3600, 2592000);
+        this(port, publicOrigin, clientId, clientSecret, refreshTokenStore, 3600, 2592000, "");
+    }
+
+    public ConnectorConfig(int port, String publicOrigin, String clientId, String clientSecret,
+                           File refreshTokenStore, String centralIssuer) {
+        this(port, publicOrigin, clientId, clientSecret, refreshTokenStore, 3600, 2592000,
+                centralIssuer);
     }
 
     public ConnectorConfig(int port, String publicOrigin, String clientId, String clientSecret,
                            File refreshTokenStore, int accessTokenTtlSeconds, int refreshTokenTtlSeconds) {
+        this(port, publicOrigin, clientId, clientSecret, refreshTokenStore,
+                accessTokenTtlSeconds, refreshTokenTtlSeconds, "");
+    }
+
+    public ConnectorConfig(int port, String publicOrigin, String clientId, String clientSecret,
+                           File refreshTokenStore, int accessTokenTtlSeconds, int refreshTokenTtlSeconds,
+                           String centralIssuer) {
+        this.centralIssuer = trimTrailingSlash(centralIssuer);
         this.port = port;
         this.publicOrigin = trimTrailingSlash(publicOrigin);
         this.clientId = clientId == null || clientId.trim().isEmpty()
@@ -78,6 +94,15 @@ public final class ConnectorConfig {
 
     public int getRefreshTokenTtlSeconds() {
         return refreshTokenTtlSeconds;
+    }
+
+    /** e.g. {@code https://askai.aresstack.de} — empty in local mode. */
+    public String getCentralIssuer() {
+        return centralIssuer;
+    }
+
+    public boolean isCentralMode() {
+        return !centralIssuer.isEmpty();
     }
 
     /**
