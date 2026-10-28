@@ -1,6 +1,6 @@
 package com.aresstack.askai.java8.hf;
 
-import com.aresstack.askai.java8.net.SystemTrustSslSocketFactory;
+import com.aresstack.wintrust.SystemTrustSslSocketFactory;
 
 import java.util.Collections;
 import java.util.List;
@@ -230,7 +230,9 @@ public final class HuggingFaceConnectionTestResult {
         builder.append("JVM default=").append(trust.isJvmDefaultTrusted()).append('\n');
         builder.append("Windows-ROOT=").append(trust.isWindowsRootTrusted()).append('\n');
         builder.append("Windows CA stores=").append(trust.isWindowsCaStoresTrusted()).append('\n');
-        builder.append("Windows exported certificates=").append(trust.getWindowsExportedCertificateCount()).append('\n');
+        builder.append("Windows exported certificates=").append(trust.getWindowsExportedCertificateCount())
+                .append(" (").append(trust.getWindowsRootAnchorCount()).append(" root anchors, ")
+                .append(trust.getWindowsIntermediateCount()).append(" intermediates for path building)").append('\n');
         List<String> diagnostics = trust.getDiagnostics();
         for (int i = 0; i < diagnostics.size(); i++) {
             builder.append("  - ").append(diagnostics.get(i)).append('\n');
