@@ -22,7 +22,12 @@ import java.awt.CardLayout;
 import java.awt.FlowLayout;
 
 /**
- * #43 slice 9 — the Document tab: the {@link DocumentPageView} page canvas is the default
+ * The Document tab (Outline + Document in one): its DRAWER pane is the outline
+ * ({@link com.aresstack.askai.research.agent.ResearchOutlineViewContribution} — later also the navigation
+ * inside the document), the document itself shows in the workspace's MAIN area (where the chat is) while
+ * the Document pane is active.
+ *
+ * <p>#43 slice 9 — the document: the {@link DocumentPageView} page canvas is the default
  * face (chapter hierarchy, flowing text, clickable {@code [n]} source badges); the plain
  * editor stays one toggle away with the SAME optimistic-locking save semantics the host
  * markdown view used (conflict → reload, never overwrite).
@@ -159,7 +164,9 @@ public final class ResearchDocumentViewContribution implements ArtifactViewContr
         root.add(center, BorderLayout.CENTER);
         load.run();
         showCard.run();
-        return root;
+        // the document in the main area, the outline in the drawer
+        context.showMainContent(root);
+        return new com.aresstack.askai.research.agent.ResearchOutlineViewContribution().createView(context);
     }
 
 }

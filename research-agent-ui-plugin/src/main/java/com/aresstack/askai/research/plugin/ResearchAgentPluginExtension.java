@@ -57,7 +57,6 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
         // toolbar button next to the Websuche (and /map) as a transcript overlay instead.
         return Arrays.<ArtifactViewContribution>asList(
                 new com.aresstack.askai.research.agent.ResearchBriefViewContribution(),
-                new com.aresstack.askai.research.agent.ResearchOutlineViewContribution(),
                 new ResearchSourcesViewContribution(),
                 new com.aresstack.askai.research.document.ResearchDocumentViewContribution(),
                 new ResearchStateViewContribution());

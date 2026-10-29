@@ -33,10 +33,9 @@ public class ResearchArtifactsCatalogTest {
 
     @Test
     public void theCatalogContainsExactlyTheMvpArtifacts() {
-        // Sources BEFORE outline: the concept already yields first sources and the outline is generated
-        // from them — the tab order mirrors that flow.
-        assertEquals(Arrays.asList("research-brief", "sources",
-                "outline", "document", "state"), ids());
+        // Sources BEFORE the document: the concept already yields first sources and the outline (the
+        // Document tab's drawer) is generated from them — the tab order mirrors that flow.
+        assertEquals(Arrays.asList("research-brief", "sources", "document", "state"), ids());
     }
 
     @Test
