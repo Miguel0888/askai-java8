@@ -275,15 +275,14 @@ public final class AskAiFrame extends JFrame {
         header.setLayout(new javax.swing.BoxLayout(header, javax.swing.BoxLayout.Y_AXIS));
         header.setOpaque(false);
         titleBar.setAlignmentX(LEFT_ALIGNMENT);
-        // Right-aligned in the title bar, left of the close chip: the connection dot (address, status
-        // and version in its hover popup; click refreshes) and the settings gear (same size as the chip).
+        // Right-aligned in the title bar, left of the close chip: the Text | Audio toggle, the connection dot
+        // (address, status and version in its hover popup; click refreshes), models, gear and help.
         connectionStatusView.setCompact(true);
+        titleBar.addTrailingControl(createModeToggle());
         titleBar.addTrailingControl(connectionStatusView);
         titleBar.addTrailingControl(createModelsButton());
         titleBar.addTrailingControl(createSettingsGear());
         titleBar.addTrailingControl(createHelpButton());
-        // The only remaining main functions, centered between the logo and the search (no menu bar).
-        titleBar.addNavigation(createModeToggle());
         header.add(titleBar);
         JPanel windowSurface = new JPanel(new BorderLayout());
         windowSurface.add(header, BorderLayout.NORTH);
