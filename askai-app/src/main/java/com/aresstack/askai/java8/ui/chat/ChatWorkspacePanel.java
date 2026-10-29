@@ -526,8 +526,8 @@ public final class ChatWorkspacePanel extends JPanel {
         topLeft.setLayout(new javax.swing.BoxLayout(topLeft, javax.swing.BoxLayout.X_AXIS));
         topLeft.setOpaque(false);
         topLeft.add(burger);
-        // The MODE pill (Yapping / agent / Partying) sits right beside the burger: switching the
-        // mode is navigation, and the plugin-branded burger icon reads as its consequence.
+        // The MODE pill (Yapping / agent / Partying) is configured here and placed centered in the
+        // Chats footer (between New chat and the trash).
         modePill.setFont(ResearchUiTypography.regular(12.5f));
         modePill.setToolTipText("Chat-Modus: Yapping, Questing (Agent) oder Partying");
         modePill.addActionListener(event -> {
@@ -536,8 +536,7 @@ public final class ChatWorkspacePanel extends JPanel {
                 ((OllamaChatPanel) active).openModePopupAt(modePill);
             }
         });
-        topLeft.add(javax.swing.Box.createHorizontalStrut(6));
-        topLeft.add(modePill);
+        // The MODE pill lives in the Chats footer now (centered between New chat and the trash).
         topLeft.add(javax.swing.Box.createHorizontalStrut(6));
         // The LEADING agent slot stays as generic infrastructure (currently unused by research).
         agentLeadingSlot.setOpaque(false);
@@ -783,8 +782,7 @@ public final class ChatWorkspacePanel extends JPanel {
 
         agentFooterToolbarSlot.setOpaque(false);
         // Left group: the New-chat icon button (moved down from above the list, icon + tooltip only),
-        // then the agent's footer contributions (if any). The MODE pill moved up beside the
-        // burger: mode is navigation.
+        // then the agent's footer contributions (if any); the MODE pill sits centered in this footer.
         ResearchIconButton newChat = new ResearchIconButton(
                 ChatComposerPanel.createNewChatGlyphIcon(), "New chat");
         newChat.addActionListener(event -> {
@@ -810,6 +808,11 @@ public final class ChatWorkspacePanel extends JPanel {
         deleteAll.setHoverColors(ResearchUiPalette.DANGER_RED, ThemeColor.of("bubble.assistantForeground"));
         deleteAll.addActionListener(event -> deleteAllChats());
         footer.add(deleteAll, BorderLayout.EAST);
+        // The chat MODE pill (Yapping / Research Agent / Partying), centered between New chat and the trash.
+        JPanel modeWrap = new JPanel(new java.awt.GridBagLayout());
+        modeWrap.setOpaque(false);
+        modeWrap.add(modePill);
+        footer.add(modeWrap, BorderLayout.CENTER);
         return footer;
     }
 
