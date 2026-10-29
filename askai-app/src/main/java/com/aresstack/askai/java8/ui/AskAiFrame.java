@@ -311,7 +311,6 @@ public final class AskAiFrame extends JFrame {
         menuBar.add(createTopLevelMenu("Chat", CHAT_VIEW));
         menuBar.add(createTopLevelMenu("Batch", BATCH_VIEW));
         menuBar.add(createModelsMenu());
-        menuBar.add(createConfigurationMenu());
         menuBar.add(createHelpMenu());
         menuBar.add(Box.createHorizontalGlue());
         // The settings gear, right-aligned directly left of the connection widget: opens the
@@ -324,19 +323,39 @@ public final class AskAiFrame extends JFrame {
         return menuBar;
     }
 
-    /** The flat menu-bar gear (glyph only, ink like the menus); opens the active chat's settings. */
+    /** The gear's menu: chat settings first, then the configuration screens. */
+    private javax.swing.JPopupMenu createSettingsMenu() {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        JMenuItem chatSettings = new JMenuItem("Chat settings…");
+        chatSettings.addActionListener(event -> {
+            if (chatWorkspace != null) {
+                chatWorkspace.openActiveChatSettings();
+            }
+        });
+        menu.add(chatSettings);
+        menu.addSeparator();
+        menu.add(createScreenItem("Connections", CONNECTIONS_VIEW));
+        menu.add(createScreenItem("AI models", AI_MODELS_VIEW));
+        menu.add(createScreenItem("Network", NETWORK_VIEW));
+        menu.add(createScreenItem("Audio processing", AUDIO_PROCESSING_VIEW));
+        menu.add(createScreenItem("Plugins", PLUGINS_VIEW));
+        return menu;
+    }
+
+    /** The flat menu-bar gear (glyph only, ink like the menus); opens the settings menu. */
     private javax.swing.JComponent createSettingsGear() {
         com.aresstack.comiccontrols.control.ComicButton gear = new com.aresstack.comiccontrols.control.ComicButton(
                 com.aresstack.askai.java8.ui.ChatComposerPanel.createGearGlyphIcon());
         gear.setContentAreaFilled(false); // flat: just the glyph in the menu bar
         gear.setFocusable(false);
         gear.setMargin(new java.awt.Insets(0, 6, 0, 6));
-        gear.setToolTipText("Settings");
+        gear.setToolTipText("Settings and configuration");
         gear.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        // The gear is THE settings menu: the chat settings dialog plus the configuration screens
+        // (formerly the "Configuration" menu). Built per click, so it always wears the current theme.
         gear.addActionListener(event -> {
-            if (chatWorkspace != null) {
-                chatWorkspace.openActiveChatSettings();
-            }
+            javax.swing.JPopupMenu menu = createSettingsMenu();
+            menu.show(gear, gear.getWidth() - menu.getPreferredSize().width, gear.getHeight());
         });
         gear.setMaximumSize(gear.getPreferredSize()); // never stretched by the menu-bar layout
         return gear;
@@ -477,16 +496,6 @@ public final class AskAiFrame extends JFrame {
         modelsMenu.add(installedItem);
         modelsMenu.add(runningItem);
         return modelsMenu;
-    }
-
-    private JMenu createConfigurationMenu() {
-        JMenu configurationMenu = new ComicHoverMenu("Configuration");
-        configurationMenu.add(createScreenItem("Connections", CONNECTIONS_VIEW));
-        configurationMenu.add(createScreenItem("AI models", AI_MODELS_VIEW));
-        configurationMenu.add(createScreenItem("Network", NETWORK_VIEW));
-        configurationMenu.add(createScreenItem("Audio processing", AUDIO_PROCESSING_VIEW));
-        configurationMenu.add(createScreenItem("Plugins", PLUGINS_VIEW));
-        return configurationMenu;
     }
 
     private JMenu createHelpMenu() {
