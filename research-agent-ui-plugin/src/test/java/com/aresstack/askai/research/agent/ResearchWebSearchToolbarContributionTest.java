@@ -14,11 +14,13 @@ import static org.junit.Assert.assertFalse;
 public class ResearchWebSearchToolbarContributionTest {
 
     @Test
-    public void theWebSearchTagTrailsAtTheFarRight() {
+    public void theWebSearchTagSitsCenteredAndTheVisualizeButtonsTrail() {
         ResearchWebSearchToolbarContribution contribution =
                 new ResearchWebSearchToolbarContribution();
         assertEquals("research-web-search", contribution.getId());
-        assertEquals(AgentToolbarContribution.Placement.TRAILING, contribution.getPlacement());
+        assertEquals(AgentToolbarContribution.Placement.CENTER, contribution.getPlacement());
+        assertEquals(AgentToolbarContribution.Placement.TRAILING,
+                new ResearchOverlayButtonsToolbarContribution().getPlacement());
         assertFalse("only research sessions get the tag", contribution.supports(null));
     }
 

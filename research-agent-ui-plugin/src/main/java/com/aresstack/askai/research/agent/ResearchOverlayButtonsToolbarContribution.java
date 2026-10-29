@@ -14,8 +14,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
 /**
- * The CENTERED comic icon-button strip in the top bar — the spot the phase selector (and before
- * it, the search bar) vacated. Each button opens ITS overlay over the chat; the first resident is
+ * The comic icon-button strip TRAILING at the far right of the top bar (it swapped places with the
+ * Websuche tag, which now sits centered). Each button opens ITS overlay over the chat; the first resident is
  * the sources MINDMAP (moved here from beside the Websuche tag, action unchanged:
  * {@link ResearchMindmapAction}, the same path {@code /map} runs). Later overlay buttons join
  * this row, one small quiet ComicButton each.
@@ -29,7 +29,7 @@ public final class ResearchOverlayButtonsToolbarContribution implements AgentToo
 
     @Override
     public Placement getPlacement() {
-        return Placement.CENTER;
+        return Placement.TRAILING;
     }
 
     @Override

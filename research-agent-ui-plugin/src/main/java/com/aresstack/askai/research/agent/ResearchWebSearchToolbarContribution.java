@@ -23,11 +23,11 @@ import java.awt.event.ActionListener;
 
 /**
  * The "Websuche" tag in the workspace top bar: the {@link ComicSearchTag} (calm surface with the
- * amber rim), TRAILING at the far right of the top bar (the old centered spot now belongs to the
- * phase selector). Firing runs {@link ResearchAgentSession#requestManualWebSearch}
+ * amber rim), CENTERED in the top bar (it swapped places with the visualize buttons, which now
+ * trail at the far right). Firing runs {@link ResearchAgentSession#requestManualWebSearch}
  * — the SAME phase-independent /search path as a suggestion click, so the captured sources flow
  * into the corpus and the bot can review them afterwards. Never a chat turn, never a state command.
- * (The mindmap button moved into the CENTERED overlay-button strip, see
+ * (The mindmap buttons live in the TRAILING overlay-button strip, see
  * {@link ResearchOverlayButtonsToolbarContribution}.)
  */
 public final class ResearchWebSearchToolbarContribution implements AgentToolbarContribution {
@@ -39,7 +39,7 @@ public final class ResearchWebSearchToolbarContribution implements AgentToolbarC
 
     @Override
     public Placement getPlacement() {
-        return Placement.TRAILING;
+        return Placement.CENTER;
     }
 
     @Override

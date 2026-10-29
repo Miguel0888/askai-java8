@@ -530,7 +530,7 @@ public final class ChatWorkspacePanel extends JPanel {
         topBar.add(topLeft, BorderLayout.WEST);
         agentCenterSlot.setOpaque(false);
         topBar.add(agentCenterSlot, BorderLayout.CENTER);
-        // The agent's TRAILING contributions (e.g. Websuche + Mindmap) sit at the FAR right — the
+        // The agent's TRAILING contributions (e.g. the visualize buttons) sit at the FAR right — the
         // old "+"/gear pair moved into the drawer's Chats pane. The workspace only hosts the slot;
         // components come from the plugin.
         agentToolbarSlot.setOpaque(false);
