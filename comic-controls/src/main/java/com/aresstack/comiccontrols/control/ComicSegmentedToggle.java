@@ -100,17 +100,26 @@ public class ComicSegmentedToggle extends JComponent {
         return selected;
     }
 
-    private Font font() {
+    /** The design font: it alone defines the segment widths, so a slim toggle only loses height. */
+    private Font layoutFont() {
         Font font = getFont();
-        return (font != null ? font : new Font(Font.SANS_SERIF, Font.PLAIN, 12)).deriveFont(Font.BOLD, fontSize());
+        return (font != null ? font : new Font(Font.SANS_SERIF, Font.PLAIN, 12)).deriveFont(Font.BOLD, DESIGN_SIZE);
     }
 
+    /** The font the labels are drawn with: the design font, scaled down to fit a slim toggle. */
+    private Font labelFont() {
+        return layoutFont().deriveFont(fontSize());
+    }
+
+    private static final float DESIGN_SIZE = 12.5f;
+
     /**
-     * 12.5 pt at the default height; a slim toggle scales the label down with its height so the text
-     * is never clipped (a 12 px title-bar toggle cut the 12.5 pt label at top and bottom).
+     * 12.5 pt at the default height; a slim toggle scales the LABEL down with its height so the text
+     * is never clipped (a 12 px title-bar toggle cut the 12.5 pt label at top and bottom). The width
+     * stays that of the design size.
      */
     float fontSize() {
-        return Math.min(12.5f, toggleHeight * FONT_TO_HEIGHT);
+        return Math.min(DESIGN_SIZE, toggleHeight * FONT_TO_HEIGHT);
     }
 
     /** Bold label size relative to the toggle height: line height ~1.2 x size stays inside the plate. */
@@ -121,7 +130,7 @@ public class ComicSegmentedToggle extends JComponent {
     }
 
     private int segmentAt(int x) {
-        FontMetrics metrics = getFontMetrics(font());
+        FontMetrics metrics = getFontMetrics(layoutFont());
         int left = 0;
         for (int i = 0; i < labels.length; i++) {
             int width = segmentWidth(metrics, i);
@@ -135,7 +144,7 @@ public class ComicSegmentedToggle extends JComponent {
 
     @Override
     public Dimension getPreferredSize() {
-        FontMetrics metrics = getFontMetrics(font());
+        FontMetrics metrics = getFontMetrics(layoutFont());
         int width = 0;
         for (int i = 0; i < labels.length; i++) {
             width += segmentWidth(metrics, i);
@@ -154,8 +163,9 @@ public class ComicSegmentedToggle extends JComponent {
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            g2.setFont(font());
-            FontMetrics metrics = g2.getFontMetrics();
+            FontMetrics metrics = g2.getFontMetrics(layoutFont());
+            g2.setFont(labelFont());
+            FontMetrics label = g2.getFontMetrics();
             int h = Math.min(getHeight(), toggleHeight) - 2;
             int top = (getHeight() - h) / 2;
             RoundRectangle2D pill = new RoundRectangle2D.Float(1f, top, getWidth() - 2f, h, h, h);
@@ -189,8 +199,8 @@ public class ComicSegmentedToggle extends JComponent {
             for (int i = 0; i < labels.length; i++) {
                 int width = segmentWidth(metrics, i);
                 g2.setColor(i == selected ? ThemeColor.of("comic.buttonPlate") : palette.getInk());
-                g2.drawString(labels[i], left + (width - metrics.stringWidth(labels[i])) / 2,
-                        top + (h - metrics.getHeight()) / 2 + metrics.getAscent());
+                g2.drawString(labels[i], left + (width - label.stringWidth(labels[i])) / 2,
+                        top + (h - label.getHeight()) / 2 + label.getAscent());
                 left += width;
             }
         } finally {
