@@ -57,7 +57,7 @@ public final class BubbleTranscriptPanel extends JPanel {
     private BubbleMessageRow currentActionsRow;
 
     public BubbleTranscriptPanel() {
-        this(BubblePalette.windowsPhoneInspired());
+        this(BubblePalette.themed());
     }
 
     public BubbleTranscriptPanel(BubblePalette palette) {

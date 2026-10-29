@@ -22,7 +22,7 @@ final class ChatTranscript {
     private final BubbleTranscriptPanel panel;
 
     ChatTranscript() {
-        this.panel = new BubbleTranscriptPanel(BubblePalette.windowsPhoneInspired());
+        this.panel = new BubbleTranscriptPanel(BubblePalette.themed());
     }
 
     JComponent getComponent() {
@@ -44,9 +44,12 @@ final class ChatTranscript {
         panel.applyPalette(paletteFrom(colors));
     }
 
-    /** Maps the adjustable chat colors onto a full bubble palette (activity/failure/info stay default). */
+    /**
+     * Maps the adjustable chat colors onto a full bubble palette; activity/failure/info follow the
+     * active theme (living colors).
+     */
     static BubblePalette paletteFrom(ChatColorSettings colors) {
-        BubblePalette defaults = BubblePalette.windowsPhoneInspired();
+        BubblePalette defaults = BubblePalette.themed();
         if (colors == null) {
             return defaults;
         }

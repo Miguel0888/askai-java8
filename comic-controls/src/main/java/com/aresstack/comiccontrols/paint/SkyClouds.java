@@ -77,25 +77,44 @@ public final class SkyClouds {
         if (skyHeight <= 0 || contentBottom <= 0) {
             return;
         }
-        Color top = research("SKY_TOP");
-        float contentStop = Math.max(0.1f, Math.min(0.85f,
-                contentBottom / (float) skyHeight));
         LinearGradientPaint sky = new LinearGradientPaint(0f, 0f, 0f, skyHeight,
-                new float[]{0f, contentStop * 0.55f, contentStop, 1f},
-                new Color[]{
-                        new Color(top.getRed(), top.getGreen(), top.getBlue(), 242),
-                        new Color(top.getRed(), top.getGreen(), top.getBlue(), 205),
-                        new Color(top.getRed(), top.getGreen(), top.getBlue(), 105),
-                        new Color(top.getRed(), top.getGreen(), top.getBlue(), 0)});
+                skyFractions(contentBottom, skyHeight),
+                skyColors(research("SKY_TOP"), research("SKY_MID")));
         g2.setPaint(sky);
         g2.fillRect(0, 0, width, skyHeight);
 
-        Color ghost = AskAiTheme.active().buttonPlate();
-        g2.setColor(new Color(ghost.getRed(), ghost.getGreen(), ghost.getBlue(), 30));
+        g2.setColor(ghostCloudColor());
         g2.fill(new Ellipse2D.Float(width * 0.08f, contentBottom * 0.15f, width * 0.28f,
                 Math.max(18f, contentBottom * 0.4f)));
         g2.fill(new Ellipse2D.Float(width * 0.58f, contentBottom * 0.45f, width * 0.34f,
                 Math.max(16f, contentBottom * 0.35f)));
+    }
+
+    /**
+     * The gradient stops of the sky: top, 55 % of the content zone, the content edge, the bottom of the tail.
+     * The content stop is clamped to 0.1..0.85.
+     */
+    public static float[] skyFractions(int contentBottom, int skyHeight) {
+        float contentStop = Math.max(0.1f, Math.min(0.85f, contentBottom / (float) skyHeight));
+        return new float[]{0f, contentStop * 0.55f, contentStop, 1f};
+    }
+
+    /**
+     * The sunset gradient colors (pure): {@code top} at alpha 242, then {@code mid} at 205, 105 and 0. With
+     * {@code mid == top} (classic theme) this is exactly the historic single-tone sky.
+     */
+    public static Color[] skyColors(Color top, Color mid) {
+        return new Color[]{
+                new Color(top.getRed(), top.getGreen(), top.getBlue(), 242),
+                new Color(mid.getRed(), mid.getGreen(), mid.getBlue(), 205),
+                new Color(mid.getRed(), mid.getGreen(), mid.getBlue(), 105),
+                new Color(mid.getRed(), mid.getGreen(), mid.getBlue(), 0)};
+    }
+
+    /** The color of the two faint background clouds: the light plate at alpha 30 (white in classic). */
+    public static Color ghostCloudColor() {
+        Color ghost = AskAiTheme.active().buttonPlate();
+        return new Color(ghost.getRed(), ghost.getGreen(), ghost.getBlue(), 30);
     }
 
     /**

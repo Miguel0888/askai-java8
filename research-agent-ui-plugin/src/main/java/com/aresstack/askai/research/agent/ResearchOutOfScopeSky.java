@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.agent;
 
+import com.aresstack.comiccontrols.paint.SkyClouds;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.ResearchUiPainter;
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
@@ -376,24 +377,18 @@ final class ResearchOutOfScopeSky extends JPanel {
             if (skyHeight <= 0) {
                 return;
             }
-            Color top = ResearchUiPalette.SKY_TOP;
             // Air, not a panel: strongly covering at the very top, bubbles faintly visible through
             // the middle, fully transparent at the bottom — a LONG soft ramp instead of a filled
-            // rectangle, so no horizontal edge is ever perceptible.
-            float contentStop = Math.max(0.1f, Math.min(0.85f,
-                    contentBottom / (float) skyHeight));
+            // rectangle, so no horizontal edge is ever perceptible. Two tones: SKY_TOP runs into
+            // SKY_MID (a sunset in arcane; identical tones = the single-tone classic sky).
             LinearGradientPaint sky = new LinearGradientPaint(0f, 0f, 0f, skyHeight,
-                    new float[]{0f, contentStop * 0.55f, contentStop, 1f},
-                    new Color[]{
-                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 242),
-                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 205),
-                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 105),
-                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 0)});
+                    SkyClouds.skyFractions(contentBottom, skyHeight),
+                    SkyClouds.skyColors(ResearchUiPalette.SKY_TOP, ResearchUiPalette.SKY_MID));
             g2.setPaint(sky);
             g2.fillRect(0, 0, getWidth(), skyHeight);
 
-            // Polish: two very faint white cloud forms drifting in the background.
-            g2.setColor(new Color(255, 255, 255, 30));
+            // Polish: two very faint light cloud forms drifting in the background.
+            g2.setColor(SkyClouds.ghostCloudColor());
             int w = getWidth();
             g2.fill(new Ellipse2D.Float(w * 0.08f, contentBottom * 0.15f, w * 0.28f,
                     Math.max(18f, contentBottom * 0.4f)));

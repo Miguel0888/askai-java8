@@ -7,8 +7,10 @@ import java.awt.Color;
  * small immutable value object so it threads through {@link AppConfiguration} like any other setting; the
  * UI maps it onto the full bubble palette (activity/failure/info colors keep their defaults).
  *
- * <p>Defaults match the shipped Windows-Phone-inspired palette, so an install with no stored colors looks
- * exactly as before.</p>
+ * <p>Defaults are the bubble tokens of the ACTIVE theme as living colors ({@code ThemeColor}), so untouched
+ * bubbles follow every theme switch. Only real user choices are fixed colors (and only those are persisted).
+ * Migration: a stored value that equals the OLD classic default exactly counts as "not customized" and is
+ * replaced by the theme default when loading.</p>
  */
 public final class ChatColorSettings {
 
@@ -20,17 +22,43 @@ public final class ChatColorSettings {
 
     public ChatColorSettings(Color transcriptBackground, Color userBackground, Color userForeground,
                              Color assistantBackground, Color assistantForeground) {
-        this.transcriptBackground = orDefault(transcriptBackground, 0xF4F4F4);
-        this.userBackground = orDefault(userBackground, 0x1676D2);
-        this.userForeground = orDefault(userForeground, 0xFFFFFF);
-        this.assistantBackground = orDefault(assistantBackground, 0x15827A);
-        this.assistantForeground = orDefault(assistantForeground, 0xFFFFFF);
+        this.transcriptBackground = orDefault(transcriptBackground, "transcriptBackground");
+        this.userBackground = orDefault(userBackground, "userBackground");
+        this.userForeground = orDefault(userForeground, "userForeground");
+        this.assistantBackground = orDefault(assistantBackground, "assistantBackground");
+        this.assistantForeground = orDefault(assistantForeground, "assistantForeground");
     }
 
-    /** @return the shipped defaults (the Windows-Phone-inspired chat colors). */
+    /** @return the defaults: the active theme's bubble tokens as living colors. */
     public static ChatColorSettings defaults() {
-        return new ChatColorSettings(new Color(0xF4F4F4), new Color(0x1676D2), new Color(0xFFFFFF),
-                new Color(0x15827A), new Color(0xFFFFFF));
+        return new ChatColorSettings(null, null, null, null, null);
+    }
+
+    /**
+     * Loads one stored color with the migration rule: missing/invalid → theme default; exactly the OLD
+     * classic default → theme default ("not customized"); anything else is a real user choice and stays.
+     *
+     * @param role the bubble role ({@code transcriptBackground}, {@code userBackground}, ...)
+     */
+    public static Color fromStored(String storedHex, String role) {
+        Color stored = parseHex(storedHex, null);
+        if (stored == null || (stored.getRGB() & 0xFFFFFF) == (classicDefault(role).getRGB() & 0xFFFFFF)) {
+            return themeDefault(role);
+        }
+        return stored;
+    }
+
+    /** Whether the color is a theme default (living) rather than a user choice; defaults are not persisted. */
+    public static boolean isThemeDefault(Color color) {
+        return color instanceof com.aresstack.comiccontrols.theme.ThemeColor;
+    }
+
+    private static Color classicDefault(String role) {
+        return com.aresstack.comiccontrols.theme.AskAiTheme.classic().bubble(role);
+    }
+
+    private static Color themeDefault(String role) {
+        return com.aresstack.comiccontrols.theme.ThemeColor.of("bubble." + role);
     }
 
     public Color getTranscriptBackground() {
@@ -97,7 +125,7 @@ public final class ChatColorSettings {
         return String.format("%06X", color.getRGB() & 0xFFFFFF);
     }
 
-    private static Color orDefault(Color color, int fallbackRgb) {
-        return color == null ? new Color(fallbackRgb) : color;
+    private static Color orDefault(Color color, String role) {
+        return color == null ? themeDefault(role) : color;
     }
 }

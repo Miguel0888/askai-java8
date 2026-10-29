@@ -38,18 +38,46 @@ public final class BubblePalette {
         this.infoForeground = requireColor(infoForeground, "infoForeground");
     }
 
+    /** The classic Windows-Phone-inspired palette: the bubble tokens of the classic theme (fixed values). */
     public static BubblePalette windowsPhoneInspired() {
+        return fromTheme(com.aresstack.comiccontrols.theme.AskAiTheme.classic());
+    }
+
+    /** The bubble tokens of one theme as fixed values. */
+    public static BubblePalette fromTheme(com.aresstack.comiccontrols.theme.AskAiTheme theme) {
         return new BubblePalette(
-                new Color(0xF4F4F4),
-                new Color(0x1676D2),
-                Color.WHITE,
-                new Color(0x15827A),
-                Color.WHITE,
-                new Color(0xF2C94C),
-                new Color(0x252525),
-                new Color(0xE39A18),
-                new Color(0xC94C4C),
-                new Color(0x6B6F76));
+                theme.bubble("transcriptBackground"),
+                theme.bubble("userBackground"),
+                theme.bubble("userForeground"),
+                theme.bubble("assistantBackground"),
+                theme.bubble("assistantForeground"),
+                theme.bubble("activityBackground"),
+                theme.bubble("activityForeground"),
+                theme.bubble("activityAccent"),
+                theme.bubble("failureAccent"),
+                theme.bubble("infoForeground"));
+    }
+
+    /**
+     * The LIVING bubble palette: every role is a {@code ThemeColor} of the bubble token, so the
+     * transcript follows a runtime theme switch on its next repaint.
+     */
+    public static BubblePalette themed() {
+        return new BubblePalette(
+                themeColor("transcriptBackground"),
+                themeColor("userBackground"),
+                themeColor("userForeground"),
+                themeColor("assistantBackground"),
+                themeColor("assistantForeground"),
+                themeColor("activityBackground"),
+                themeColor("activityForeground"),
+                themeColor("activityAccent"),
+                themeColor("failureAccent"),
+                themeColor("infoForeground"));
+    }
+
+    private static Color themeColor(String role) {
+        return com.aresstack.comiccontrols.theme.ThemeColor.of("bubble." + role);
     }
 
     public Color getTranscriptBackground() {

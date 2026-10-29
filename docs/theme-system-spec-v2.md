@@ -416,3 +416,15 @@ Nur Dinge, die der User NICHT gefordert hat:
   was moved to the new index. The theme combo is a `ComicControls.comboBox`; choosing an entry applies it at once
   and saves.
 
+### T5
+- Bubble defaults are living (`ThemeColor` of `bubble.*`), so the save path must not freeze them: the repository
+  persists a `chat.color.*` value ONLY when it is a real user choice (not a `ThemeColor`); theme defaults stay
+  absent and keep following the theme. Load applies the E6 migration rule (`ChatColorSettings.fromStored`):
+  missing/invalid or exactly the OLD classic default of that role → theme default; anything else stays.
+- `BubblePalette.windowsPhoneInspired()` keeps its classic values but now reads them from
+  `AskAiTheme.classic()` (no literals); new `BubblePalette.themed()` (living) is the transcript default and the
+  base of `ChatTranscript.paletteFrom` (activity/failure/info roles follow the theme).
+- Sky: the pure gradient logic lives in comic-controls `SkyClouds.skyFractions/skyColors/ghostCloudColor`; both the
+  plugin `ResearchOutOfScopeSky` and `SkyClouds.paintSky` use it. Classic (`SKY_MID == SKY_TOP`) yields the historic
+  stops exactly (pinned); the faint background clouds use the light plate (white in classic).
+
