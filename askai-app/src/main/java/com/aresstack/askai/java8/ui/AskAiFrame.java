@@ -308,7 +308,6 @@ public final class AskAiFrame extends JFrame {
 
     private JMenuBar createMenuBar() {
         JMenuBar menuBar = new JMenuBar();
-        menuBar.add(createFileMenu());
         menuBar.add(createTopLevelMenu("Chat", CHAT_VIEW));
         menuBar.add(createTopLevelMenu("Batch", BATCH_VIEW));
         menuBar.add(createModelsMenu());
@@ -341,21 +340,6 @@ public final class AskAiFrame extends JFrame {
         });
         gear.setMaximumSize(gear.getPreferredSize()); // never stretched by the menu-bar layout
         return gear;
-    }
-
-    /** Far-left "Datei" menu with an explicit "Beenden" that runs the same logged shutdown as the window X. */
-    private JMenu createFileMenu() {
-        JMenu menu = new ComicHoverMenu("Datei");
-        javax.swing.JMenuItem quit = new javax.swing.JMenuItem("Beenden");
-        quit.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent event) {
-                shutdownLog("quit requested via File > Beenden");
-                performShutdown();
-                dispose();
-            }
-        });
-        menu.add(quit);
-        return menu;
     }
 
     /** Load installed model names for the chat model list (blocking; runs off the EDT in the refresh service). */
