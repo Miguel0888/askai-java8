@@ -16,6 +16,9 @@ Abweichungen nur unter „Implementation notes“ am Ende dokumentieren, nicht s
 4. **Brauner Wolkenhimmel.** `SKY_BAR_SURFACE`/`SKY_TOP` wurden mechanisch „blau → gold“ übersetzt.
    Ein Himmel ist nie braun. Gewünscht: Sonnenuntergang, Orange-Rot.
 5. **Keine Theme-Auswahl in den Settings.** Nur eine JVM-Property.
+6. **Eigenmächtige Kürzungen der Anforderungen.** Der User verlangt: Theme-Wechsel ZUR LAUFZEIT
+   und das Theme EINHEITLICH FÜR ALLES (auch die ~145 verstreuten Farben). Beides ist Pflicht.
+   Diese Spec kürzt nichts davon; die Implementierung auch nicht.
 
 ## 1. Ist-Analyse (verifiziert)
 
@@ -74,10 +77,13 @@ MainframeMate: Combo in den Settings, Wert in JSON persistiert, Settings-Change-
 `Window.getWindows()`. Übernommen wird **das Muster** (Combo, Persistenz, ein Apply-Punkt), nicht
 der Code (gekoppelt an LockerStyle, JNA, RSyntaxTextArea).
 
-**Entscheidung: Theme-Wechsel wirkt nach Neustart.** Grund: `ResearchUiPalette` besteht aus
-`public static final Color`-Konstanten, die das Plugin überall direkt liest. Sie lassen sich zur
-Laufzeit nicht ändern. Live-Umschalten würde alle Plugin-Verbraucher auf Methodenaufrufe umbauen.
-Das ist ausdrücklich NICHT Teil dieses Auftrags.
+**Anforderung: Theme-Wechsel wirkt SOFORT zur Laufzeit, ohne Neustart.** Hindernis:
+`ResearchUiPalette` besteht aus `public static final Color`-Konstanten, die das Plugin überall
+direkt liest und teils per `setBackground(...)` an Komponenten hängt. Lösung ohne Umbau der
+Verbraucher: E8 (lebende Farben). Nachgewiesen am 2026-10-29: Ein `JPanel` mit einer
+`Color`-Subklasse, deren `getRGB()` den aktiven Token liest, malt nach dem Umschalten beim nächsten
+`paint` die neue Farbe. (Innerhalb EINES `Graphics`-Objekts cacht `SunGraphics2D.setColor` dieselbe
+Referenz — irrelevant, weil nach dem Umschalten neu gezeichnet wird.)
 
 ### 1.4 Bubbles
 
@@ -100,18 +106,25 @@ unter `chat.color.*` in `AppConfigurationRepository`, Zeilen 77–81 und 148–1
 
 ## 2. Verbindliche Entscheidungen
 
-- **E1 — Theme-Quelle.** `AskAiTheme` bekommt `public static void activate(String name)`. Der Host
-  ruft es GENAU EINMAL in `AskAiJava8App.main`, VOR `invokeLater` und vor jeder UI-Klasse, mit dem
-  Wert aus der Konfiguration (Key `ui.theme`). Vorrang: JVM-Property `askai.theme`, dann `ui.theme`,
-  dann Default `arcane`. `active()` liefert danach immer dasselbe Objekt. Wird `activate` nach dem
-  ersten `active()`-Aufruf gerufen, dann `IllegalStateException`. Das ist Absicht: so fällt ein
-  falscher Startreihenfolge-Fehler im Test auf.
-- **E2 — Settings.** Neue Kategorie **„Appearance“** im Settings-Dialog (Englisch, UI-Regel), als
-  erste Kategorie nach „General“. Inhalt: Label „Theme“ + `JComboBox` (selbst schon ComicComboBoxUI)
-  mit „Arcane Knowledge“ (`arcane`) und „Classic Comic“ (`classic`), darunter der Hinweis
-  „Restart AskAI to apply the theme.“ (Label in Muted-Farbe). Speichern über den bestehenden
-  Settings-Speicherweg; neuer Key `ui.theme` in `AppConfiguration`/`AppConfigurationRepository`
-  (Muster wie die `chat.color.*`-Keys).
+- **E1 — Theme-Quelle und Umschalten.** `AskAiTheme` bekommt
+  `public static void setActive(AskAiTheme theme)` (EDT, beliebig oft) und
+  `addChangeListener(Runnable)` / `removeChangeListener(Runnable)`. `active()` liefert das zuletzt
+  gesetzte Theme. Startwert: JVM-Property `askai.theme`, sonst Konfigurationswert `ui.theme`,
+  sonst `arcane`. Der Host setzt den Startwert in `AskAiJava8App.main` vor `invokeLater`.
+  Danach ist das einzige Umschalt-Tor der Host-Dienst **`ThemeSwitcher.apply(AskAiTheme)`**
+  (askai-app, Muster MainframeMate `ThemeManager.applyTheme` + `refreshWindow`):
+  1. `AskAiTheme.setActive(theme)`,
+  2. `ComicTheme.install(theme)` (UIManager-Defaults neu),
+  3. für jedes `Window.getWindows()`: `SwingUtilities.updateComponentTreeUI(window)`, die
+     JMenuBar extra, `invalidate/validate/repaint`,
+  4. Change-Listener feuern (der bestehende `AskAiThemeService` leitet an Plugin-Listener weiter;
+     `ThemeService.isDark()`/`color(...)` liefern danach die neuen Werte).
+- **E2 — Settings.** Neue Kategorie **„Appearance“** im Settings-Dialog (Englisch, UI-Regel),
+  direkt nach „General“. Inhalt: Label „Theme“ + Combo (selbst Comic-Combo) mit
+  „Arcane Knowledge“ (`arcane`) und „Classic Comic“ (`classic`). Auswahl wirkt SOFORT über
+  `ThemeSwitcher.apply` (Live-Vorschau beim Auswählen) und wird über den bestehenden
+  Settings-Speicherweg als `ui.theme` in `AppConfiguration`/`AppConfigurationRepository`
+  persistiert (Muster `chat.color.*`). KEIN Neustart-Hinweis.
 - **E3 — Controls einheitlich auf Comic-Controls.** JEDE Instanziierung aus Tabelle 1.1 in App und
   Plugin wird ersetzt durch das Comic-Pendant. Stil: Subklasse, wo eine existiert
   (`ComicButton`, `ComicScrollPane`, `ComicSplitPane`, `ComicToggleButton`), sonst eine **Fabrik in
@@ -144,6 +157,19 @@ unter `chat.color.*` in `AppConfigurationRepository`, Zeilen 77–81 und 148–1
   `chat.color.*`-Wert, der GENAU dem alten Classic-Default entspricht, gilt als „nicht angepasst“
   und wird beim Laden durch den Theme-Default ersetzt. Abweichende Werte sind echte
   Nutzerentscheidungen und bleiben. Der Reset-Knopf in den Settings setzt auf die Theme-Defaults.
+- **E8 — Lebende Farben (Pflicht-Mechanik für Live-Wechsel).** Neue Klasse
+  `comic-controls/.../theme/ThemeColor extends java.awt.Color`, erzeugt über
+  `ThemeColor.of(String tokenKey)`. `getRGB()` liefert den Wert des Tokens im AKTUELL aktiven
+  Theme (alle anderen Color-Getter leiten sich in `Color` von `getRGB()` ab; zusätzlich
+  `getColorComponents/getRGBComponents/getComponents/getRGBColorComponents` überschreiben, damit
+  sie ebenfalls live sind). `equals/hashCode` bleiben die von `Color` (wertbasiert). Verwendung:
+  - Jede `ResearchUiPalette`-Konstante ist ein `ThemeColor` (Name/Typ/Sichtbarkeit unverändert).
+  - `ComicPalette.defaultPalette()` liefert eine Palette aus `ThemeColor`s.
+  - Bubble-Defaults (E6) und alle in T7 migrierten Farben sind `ThemeColor`s.
+  - UIManager-Werte bleiben feste `ColorUIResource` und werden in `ThemeSwitcher` neu installiert.
+  **Regel:** Keine Farbe, die aus einem Token abgeleitet ist (`brighter()`, `new Color(t.getRed(),…,
+  alpha)`, Mischfarben), darf in einem Feld/Konstruktor GECACHT werden — Ableitung erst beim Malen.
+  Gefundene Caches werden in T7 auf Ableitung-beim-Malen umgestellt.
 - **E7 — Himmel als Sonnenuntergang.** Neuer Token `SKY_MID` in der Research-Gruppe (Konstante
   `ResearchUiPalette.SKY_MID`). `ResearchOutOfScopeSky` malt einen Zwei-Farben-Verlauf: oben
   `SKY_TOP` (Alpha 242), bei `contentStop*0.55` `SKY_MID` (Alpha 205), bei `contentStop` `SKY_MID`
@@ -224,11 +250,16 @@ JTextField/JPasswordField (abgerundete Kontur `fieldBorder`, Fokus-Kontur `navig
 Inhalt `surface`), `ComicProgressBarUI` (abgerundet, Füllung `accentOrange`), `ComicListSupport`,
 `ComicBorder.titled(String, palette)` (Tintenlinie gerundet, Titel in `ink` bold). Tests je Control.
 
-**T3 — Token v2 + Theme-Aktivierung:** Werte aus Abschnitt 3, `SKY_MID`, Bubble-Gruppe, `activate`
-(E1), Default `arcane`. Classic-Pin-Tests erweitern (Bubble-Gruppe, `SKY_MID == SKY_TOP`).
+**T3 — Token v2 + lebende Farben + Umschalten:** Werte aus Abschnitt 3, `SKY_MID`, Bubble-Gruppe,
+`ThemeColor` (E8), `setActive`/Listener (E1), Default `arcane`. Tests: Classic-Pins erweitern
+(Bubble-Gruppe, `SKY_MID == SKY_TOP`); `ThemeColor` liefert nach `setActive` den neuen Wert;
+Headless-Live-Test: `JPanel` mit `ResearchUiPalette.DARK_BASE` als Hintergrund in ein
+`BufferedImage` malen, umschalten, erneut malen → Pixel = neuer Token.
 
-**T4 — Settings „Appearance“ + Persistenz + Startpfad** (E1, E2). Tests: Roundtrip `ui.theme` in
-`AppConfigurationRepository`; `activate` vor/nach `active()`.
+**T4 — `ThemeSwitcher` + Settings „Appearance“ + Persistenz + Startpfad** (E1, E2). Tests:
+Roundtrip `ui.theme` in `AppConfigurationRepository`; `ThemeSwitcher.apply` setzt aktives Theme,
+installiert UIManager neu und feuert Listener genau einmal; Startwert-Vorrang Property > Config >
+Default.
 
 **T5 — Bubbles + Himmel** (E6, E7). Tests: Migrationsregel (Classic-Default gespeichert → Theme-Wert;
 abweichend → bleibt); Himmel-Verlauf: Farbstopps aus Token (Painter-Logik in pure Methode
@@ -245,22 +276,43 @@ extrahieren und testen).
   `OllamaActionsPanel`, `OllamaModelCard`, `AiModelsPanel`, `ProxyPanel`, `FilterDialog`
 - T6e: Rest + `RawSwingGuardTest` (E4) scharf schalten (leere bzw. begründete Allowlist)
 
+**T7a–T7d — Alle verstreuten Farben auf Token (Pflicht, „einheitlich für alles“).** Jede
+`new Color(…)`, `Color.WHITE/BLACK/GRAY/…`-Verwendung und jede Hex-Farbe in `askai-app/src/main`
+und `research-agent-ui-plugin/src/main` (~145 Stellen) wird ein `ThemeColor` aus `AskAiTheme`.
+Gruppen: T7a `research-agent-ui-plugin` (alle Pakete), T7b `askai-app/ui` (Chat, Composer,
+Model-Browser, Settings-Panels, Rest von `ui`), T7c `askai-app/ui/markdown` (Markdown/Mermaid/Code),
+T7d Rest (`ui/bubble`, `notify`, `config`, `video`, `batch`). Zuordnungsregeln (verbindlich):
+1. Entspricht der Literalwert einem vorhandenen Classic-Token → diesen Token verwenden.
+2. Sonst neuen Token in einer Gruppe pro Bereich anlegen (`chat.*`, `models.*`, `markdown.*`,
+   `research.*`, …), Name = Rolle („statusOkText“, „codeBlockBackground“), NICHT die Farbe.
+   Classic-Wert = der bisherige Literalwert (Classic bleibt pixelgleich).
+3. Arcane-Wert nach Familie: Grau-/Weißflächen → Pergament-Familie (`surface`/`buttonPlate`/
+   `fieldBg`); Schwarz/Dunkelgrau-Text → `ink`; Blau → Marine-Familie (`navigationBlue`);
+   Gelb/Orange/Amber → Gold-Familie (`accentYellow`/`accentOrange`); Grün/Petrol → `agentPetrol`-
+   Familie; Rot → unverändert (Funktionsfarbe); Lila → Gold (wie `PURPLE_*`).
+4. Statusfarben (Erfolg/Warnung/Fehler) behalten ihre Bedeutung: Erfolg grün-petrol, Warnung
+   Gold, Fehler Rot — nur im Theme-Ton.
+5. Halbtransparenzen (`new Color(r,g,b,a)`): Token für die Grundfarbe, Alpha bleibt im Code und
+   wird beim Malen kombiniert (E8-Regel).
+6. Vom User gewählte Farben (ChatColorSettings, Farbwähler) sind KEINE Literale und bleiben
+   unberührt (E6 regelt deren Defaults).
+Test: `RawColorGuardTest` (wie E4) scannt beide Module auf `new Color(`/`new java.awt.Color(`/
+`Color.(WHITE|BLACK|GRAY|LIGHT_GRAY|DARK_GRAY|RED|GREEN|BLUE|YELLOW|ORANGE|PINK|MAGENTA|CYAN)`
+außerhalb von comic-controls; Allowlist leer oder einzeln begründet.
+
 Regeln für T6: rein mechanisch (Konstruktor → Fabrik/Subklasse, gleiche Argumente). KEINE
 Layout-, Text- oder Logikänderung. Wo ein Control danach explizit `setBackground`/`setForeground`/
 `setBorder` mit einer HARDKODIERTEN Farbe bekommt, die den Comic-Look überschreibt: Zeile entfernen,
 wenn sie nur „Swing-Standard nachbaut“ (weiß, grau, schwarz); sonst stehen lassen und unter
 „Implementation notes“ auflisten.
 
-## 5. Nicht in diesem Auftrag (bewusst, beziffert)
+## 5. Nicht in diesem Auftrag
 
-- **Die ~145 verstreuten `new Color(…)`** (u. a. 20 Dateien `askai-app/ui`, 5 `ui/markdown`) jenseits
-  von T6-Fall „Swing-Standard nachbauen“. Eigener Folgeauftrag pro Bereich.
-- **Live-Umschalten ohne Neustart** (Umbau der `ResearchUiPalette`-Konstanten auf Methoden).
+Nur Dinge, die der User NICHT gefordert hat:
 - **Rahmenlose Fenster** (`ComicWindow*`).
 - **Fremdbefunde aus dem GUI-Gate**, je eigenes Ticket: deutsche statische Texte in
   `ResearchSourcesView` (Titel, Status, Relevanz, Speichern, Neu laden, Ausschließen, Volltext …,
-  Verstoß gegen die UI-Englisch-Regel) und Mojibake in Quellentiteln (`Ã¢Â€Â¦` statt `…`,
-  Encoding-Fehler beim Import/Anzeigen).
+  Verstoß gegen die UI-Englisch-Regel) und Mojibake in Quellentiteln (`Ã¢Â€Â¦` statt `…`).
 
 ## 6. Leitplanken (verbindlich)
 
@@ -284,8 +336,11 @@ wenn sie nur „Swing-Standard nachbaut“ (weiß, grau, schwarz); sonst stehen 
 - [ ] `RawSwingGuardTest` grün, Allowlist leer oder jeder Eintrag begründet.
 - [ ] Portierte Klassen: kein `com.aresstack.enterpriseai`, keine hartkodierten Farben, nur Token.
 - [ ] Classic pixelgleich zu heute (Pins inkl. Bubble-Gruppe, `SKY_MID == SKY_TOP`).
-- [ ] `activate` einmal in `main`, vor `invokeLater`; Settings „Appearance“ speichert `ui.theme`;
-      Hinweis auf Neustart sichtbar.
+- [ ] Theme-Wechsel in „Appearance“ wirkt SOFORT in allen offenen Fenstern (ThemeSwitcher),
+      wird als `ui.theme` gespeichert und beim Start wieder aktiv; kein Neustart nötig.
+- [ ] `ResearchUiPalette`, `ComicPalette.defaultPalette()`, Bubble-Defaults und alle T7-Farben
+      sind `ThemeColor`s; keine abgeleiteten Farben gecacht; Live-Test grün.
+- [ ] `RawColorGuardTest` grün (T7 vollständig).
 - [ ] Bubble-Migrationsregel getestet; Reset → Theme-Defaults.
 - [ ] Himmel-Verlauf aus `SKY_TOP` → `SKY_MID`, Classic unverändert.
 - [ ] Kontrasttest vorhanden.
