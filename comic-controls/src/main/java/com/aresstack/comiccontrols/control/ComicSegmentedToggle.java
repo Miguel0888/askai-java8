@@ -1,0 +1,179 @@
+package com.aresstack.comiccontrols.control;
+
+import com.aresstack.comiccontrols.theme.ComicPalette;
+import com.aresstack.comiccontrols.theme.ThemeColor;
+
+import javax.swing.JComponent;
+import java.awt.BasicStroke;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.geom.RoundRectangle2D;
+import java.util.function.IntConsumer;
+
+/**
+ * A comic two-or-more-way TOGGLE: one rounded pill with an ink contour, split into segments ("Text | Audio").
+ * The selected segment is filled with the navigation blue and light text (like a selected
+ * {@link ComicToggleButton}), an unselected one warms up yellow under the pointer. Clicking a segment
+ * selects it and notifies the listener. Theme colors, live.
+ */
+public class ComicSegmentedToggle extends JComponent {
+
+    private static final long serialVersionUID = 1L;
+    private static final int HEIGHT = 24;
+    private static final int SEGMENT_PADDING = 14;
+
+    private final String[] labels;
+    private final ComicPalette palette = ComicPalette.defaultPalette();
+    private int selected;
+    private int hovered = -1;
+    private IntConsumer listener;
+
+    public ComicSegmentedToggle(String... labels) {
+        if (labels == null || labels.length < 2) {
+            throw new IllegalArgumentException("a toggle needs at least two segments");
+        }
+        this.labels = labels.clone();
+        setOpaque(false);
+        setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        MouseAdapter mouse = new MouseAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent event) {
+                int at = segmentAt(event.getX());
+                if (at != hovered) {
+                    hovered = at;
+                    repaint();
+                }
+            }
+
+            @Override
+            public void mouseExited(MouseEvent event) {
+                hovered = -1;
+                repaint();
+            }
+
+            @Override
+            public void mousePressed(MouseEvent event) {
+                int at = segmentAt(event.getX());
+                if (at >= 0 && at != selected) {
+                    setSelectedIndex(at);
+                    if (listener != null) {
+                        listener.accept(at);
+                    }
+                }
+            }
+        };
+        addMouseListener(mouse);
+        addMouseMotionListener(mouse);
+    }
+
+    /** Called with the newly selected segment index after a user click. */
+    public void setSelectionListener(IntConsumer listener) {
+        this.listener = listener;
+    }
+
+    /** Select a segment programmatically (no listener call). */
+    public void setSelectedIndex(int index) {
+        if (index >= 0 && index < labels.length && index != selected) {
+            selected = index;
+            repaint();
+        }
+    }
+
+    public int getSelectedIndex() {
+        return selected;
+    }
+
+    private Font font() {
+        Font font = getFont();
+        return (font != null ? font : new Font(Font.SANS_SERIF, Font.PLAIN, 12)).deriveFont(Font.BOLD, 12.5f);
+    }
+
+    private int segmentWidth(FontMetrics metrics, int index) {
+        return metrics.stringWidth(labels[index]) + 2 * SEGMENT_PADDING;
+    }
+
+    private int segmentAt(int x) {
+        FontMetrics metrics = getFontMetrics(font());
+        int left = 0;
+        for (int i = 0; i < labels.length; i++) {
+            int width = segmentWidth(metrics, i);
+            if (x >= left && x < left + width) {
+                return i;
+            }
+            left += width;
+        }
+        return -1;
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+        FontMetrics metrics = getFontMetrics(font());
+        int width = 0;
+        for (int i = 0; i < labels.length; i++) {
+            width += segmentWidth(metrics, i);
+        }
+        return new Dimension(width + 1, HEIGHT);
+    }
+
+    @Override
+    public Dimension getMaximumSize() {
+        return getPreferredSize();
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setFont(font());
+            FontMetrics metrics = g2.getFontMetrics();
+            int h = Math.min(getHeight(), HEIGHT) - 2;
+            int top = (getHeight() - h) / 2;
+            RoundRectangle2D pill = new RoundRectangle2D.Float(1f, top, getWidth() - 2f, h, h, h);
+            g2.setColor(ThemeColor.of("comic.buttonPlate"));
+            g2.fill(pill);
+            java.awt.Shape clip = g2.getClip();
+            g2.clip(pill);
+            int left = 0;
+            for (int i = 0; i < labels.length; i++) {
+                int width = segmentWidth(metrics, i);
+                if (i == selected) {
+                    g2.setColor(palette.getNavigationBlue());
+                    g2.fillRect(left, top, width, h);
+                } else if (i == hovered) {
+                    g2.setColor(palette.getAccentYellow());
+                    g2.fillRect(left, top, width, h);
+                }
+                left += width;
+            }
+            g2.setClip(clip);
+            // segment separators and the contour
+            g2.setColor(palette.getInk());
+            g2.setStroke(new BasicStroke(1.6f));
+            left = 0;
+            for (int i = 0; i < labels.length - 1; i++) {
+                left += segmentWidth(metrics, i);
+                g2.drawLine(left, top + 1, left, top + h - 1);
+            }
+            g2.draw(pill);
+            left = 0;
+            for (int i = 0; i < labels.length; i++) {
+                int width = segmentWidth(metrics, i);
+                g2.setColor(i == selected ? ThemeColor.of("comic.buttonPlate") : palette.getInk());
+                g2.drawString(labels[i], left + (width - metrics.stringWidth(labels[i])) / 2,
+                        top + (h - metrics.getHeight()) / 2 + metrics.getAscent());
+                left += width;
+            }
+        } finally {
+            g2.dispose();
+        }
+    }
+}

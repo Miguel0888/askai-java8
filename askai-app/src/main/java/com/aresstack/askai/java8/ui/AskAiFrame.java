@@ -283,8 +283,7 @@ public final class AskAiFrame extends JFrame {
         titleBar.addTrailingControl(createSettingsGear());
         titleBar.addTrailingControl(createHelpButton());
         // The only remaining main functions, centered between the logo and the search (no menu bar).
-        titleBar.addNavigation(createNavigationButton("Chat", CHAT_VIEW));
-        titleBar.addNavigation(createNavigationButton("Batch", BATCH_VIEW));
+        titleBar.addNavigation(createModeToggle());
         header.add(titleBar);
         JPanel windowSurface = new JPanel(new BorderLayout());
         windowSurface.add(header, BorderLayout.NORTH);
@@ -312,26 +311,60 @@ public final class AskAiFrame extends JFrame {
         }
     }
 
-    /** Title-bar navigation buttons by screen; the shown screen's button carries the plate. */
-    private final java.util.Map<String, com.aresstack.comiccontrols.control.ComicButton> navigationButtons =
-            new java.util.LinkedHashMap<String, com.aresstack.comiccontrols.control.ComicButton>();
+    /** The title bar's main switch: Text (the chat) | Audio (batch transcription, audio processing). */
+    private com.aresstack.comiccontrols.control.ComicSegmentedToggle modeToggle;
 
-    /** A main-function button of the title bar (Chat, Batch): flat at rest, a plate while its screen shows. */
-    private javax.swing.JComponent createNavigationButton(String title, final String screenName) {
-        com.aresstack.comiccontrols.control.ComicButton button = new com.aresstack.comiccontrols.control.ComicButton(title);
-        button.setFocusable(false);
-        button.setMargin(new java.awt.Insets(3, 12, 3, 12));
-        button.addActionListener(event -> showScreen(screenName));
-        navigationButtons.put(screenName, button);
-        markNavigation(screenName);
-        return button;
+    private javax.swing.JComponent createModeToggle() {
+        modeToggle = new com.aresstack.comiccontrols.control.ComicSegmentedToggle("Text", "Audio");
+        modeToggle.setToolTipText("Text: the chat · Audio: batch transcription and audio processing");
+        modeToggle.setSelectionListener(index -> showScreen(index == 0 ? CHAT_VIEW : AUDIO_SCREEN));
+        return modeToggle;
     }
 
     private void markNavigation(String screenName) {
-        for (java.util.Map.Entry<String, com.aresstack.comiccontrols.control.ComicButton> entry
-                : navigationButtons.entrySet()) {
-            entry.getValue().setContentAreaFilled(entry.getKey().equals(screenName));
+        if (modeToggle == null) {
+            return;
         }
+        if (CHAT_VIEW.equals(screenName)) {
+            modeToggle.setSelectedIndex(0);
+        } else if (AUDIO_SCREEN.equals(screenName)) {
+            modeToggle.setSelectedIndex(1);
+        }
+    }
+
+    // ------------------------------------------------------------------ drawer screens (Audio, Models)
+
+    /** The Audio screen: drawer with Batch transcription and Audio processing. */
+    private static final String AUDIO_SCREEN = "audio-screen";
+    /** The Models screen: drawer with Setup, Installed and Running Models, "Back" in the footer. */
+    private static final String MODELS_SCREEN = "models-screen";
+    private static final String PAGE_BATCH = "Batch transcription";
+    private static final String PAGE_AUDIO_PROCESSING = "Audio processing";
+    private static final String PAGE_SETUP = "Setup";
+    private static final String PAGE_INSTALLED = "Installed";
+    private static final String PAGE_RUNNING = "Running Models";
+    private com.aresstack.askai.java8.ui.chat.DrawerScreen audioScreen;
+    private com.aresstack.askai.java8.ui.chat.DrawerScreen modelsScreen;
+    /** The last Text/Audio screen — where the Models drawer's "Back" returns to. */
+    private String lastMainScreen = CHAT_VIEW;
+
+    private com.aresstack.askai.java8.ui.chat.DrawerScreen audioScreen() {
+        if (audioScreen == null) {
+            audioScreen = new com.aresstack.askai.java8.ui.chat.DrawerScreen("AUDIO");
+            audioScreen.addPage(PAGE_BATCH, new JPanel(), null); // placeholder: fixes the page order
+            contentPanel.add(audioScreen, AUDIO_SCREEN);
+        }
+        return audioScreen;
+    }
+
+    private com.aresstack.askai.java8.ui.chat.DrawerScreen modelsScreen() {
+        if (modelsScreen == null) {
+            modelsScreen = new com.aresstack.askai.java8.ui.chat.DrawerScreen("MODELS");
+            modelsScreen.addPage(PAGE_SETUP, new JPanel(), null); // placeholder: fixes the page order
+            modelsScreen.setBackAction("Back", () -> showScreen(lastMainScreen));
+            contentPanel.add(modelsScreen, MODELS_SCREEN);
+        }
+        return modelsScreen;
     }
 
     /** The round blue "?" (MainframeMate's help button): the help entries as a menu. */
@@ -364,19 +397,9 @@ public final class AskAiFrame extends JFrame {
         models.setFocusable(false);
         models.setMargin(new java.awt.Insets(0, 0, 0, 0));
         models.setPreferredSize(new Dimension(24, 24));
-        models.setToolTipText("Models");
+        models.setToolTipText("Models: setup, installed, running");
         models.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
-        models.addActionListener(event -> {
-            javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
-            menu.add(createScreenItem("Setup", INSTALL_VIEW));
-            JMenuItem installed = new JMenuItem("Installed");
-            installed.addActionListener(e -> showModels(true));
-            menu.add(installed);
-            JMenuItem running = new JMenuItem("Running Models");
-            running.addActionListener(e -> showModels(false));
-            menu.add(running);
-            menu.show(models, models.getWidth() - menu.getPreferredSize().width, models.getHeight());
-        });
+        models.addActionListener(event -> showScreen(MODELS_SCREEN)); // the Models drawer
         models.setMaximumSize(models.getPreferredSize());
         return models;
     }
@@ -396,7 +419,6 @@ public final class AskAiFrame extends JFrame {
         menu.add(createScreenItem("Connections", CONNECTIONS_VIEW));
         menu.add(createScreenItem("AI models", AI_MODELS_VIEW));
         menu.add(createScreenItem("Network", NETWORK_VIEW));
-        menu.add(createScreenItem("Audio processing", AUDIO_PROCESSING_VIEW));
         menu.add(createScreenItem("Plugins", PLUGINS_VIEW));
         return menu;
     }
@@ -1216,7 +1238,8 @@ public final class AskAiFrame extends JFrame {
                 useModelInChat(modelName);
             }
         });
-        contentPanel.add(modelsPanel, MODELS_VIEW);
+        modelsScreen().addPage(PAGE_INSTALLED, modelsPanel, () -> showModelsPage(true));
+        modelsScreen().addPage(PAGE_RUNNING, modelsPanel, () -> showModelsPage(false));
         contentPanel.add(new OllamaActionsPanel(featureActionService, ollamaService), ACTIONS_VIEW);
         // Java 8 port: model search with two sources in tabs — HuggingFace (search/analyze/import)
         // and the Ollama Library (scrape ollama.com, pull a tag on the remote server).
@@ -1245,7 +1268,7 @@ public final class AskAiFrame extends JFrame {
                 }
             }
         });
-        contentPanel.add(modelSearchPanel, INSTALL_VIEW);
+        modelsScreen().addPage(PAGE_SETUP, modelSearchPanel, null);
         // "Add-ons on Hugging Face" from an installed model card: switch to Setup and enter add-on mode so
         // the chosen encoder is attached to this model (from/adapters), not installed as a new model.
         modelsPanel.setFindAddOnsHandler(new OllamaModelsPanel.FindAddOnsHandler() {
@@ -1281,7 +1304,7 @@ public final class AskAiFrame extends JFrame {
         contentPanel.add(new OllamaAboutPanel(), ABOUT_VIEW);
         // Java2D pipeline editor for audio-processing profiles (shared repository instance).
         this.audioProcessingPanel = new AudioProcessingPanel(audioProfileRepository, applicationState);
-        contentPanel.add(audioProcessingPanel, AUDIO_PROCESSING_VIEW);
+        audioScreen().addPage(PAGE_AUDIO_PROCESSING, audioProcessingPanel, null);
         // Configuration → Plugins: the real PF4J catalog (enable/disable, details), built after the host so
         // pluginService/enablement exist.
         contentPanel.add(new com.aresstack.askai.plugin.host.PluginManagementPanel(
@@ -1326,7 +1349,7 @@ public final class AskAiFrame extends JFrame {
                 Collections.<String>emptyList(),
                 audioProfileRepository.findAll(),
                 profileRefresher);
-        contentPanel.add(batchPanel, BATCH_VIEW);
+        audioScreen().addPage(PAGE_BATCH, batchPanel, null);
     }
 
     /** Switches to the Chat view and selects the given model in the active chat, keeping its conversation. */
@@ -1353,8 +1376,24 @@ public final class AskAiFrame extends JFrame {
         if (!INSTALL_VIEW.equals(screenName) && installSearchPanel != null) {
             installSearchPanel.leaveAddOnMode();
         }
+        // The former screens live as pages in the drawer screens now.
+        if (BATCH_VIEW.equals(screenName)) {
+            audioScreen().select(PAGE_BATCH);
+            screenName = AUDIO_SCREEN;
+        } else if (AUDIO_PROCESSING_VIEW.equals(screenName)) {
+            audioScreen().select(PAGE_AUDIO_PROCESSING);
+            screenName = AUDIO_SCREEN;
+        } else if (INSTALL_VIEW.equals(screenName)) {
+            modelsScreen().select(PAGE_SETUP);
+            screenName = MODELS_SCREEN;
+        } else if (MODELS_VIEW.equals(screenName)) {
+            screenName = MODELS_SCREEN;
+        }
+        if (CHAT_VIEW.equals(screenName) || AUDIO_SCREEN.equals(screenName)) {
+            lastMainScreen = screenName;
+        }
         contentLayout.show(contentPanel, screenName);
-        markNavigation(screenName); // the title bar's Chat/Batch plate follows the shown screen
+        markNavigation(screenName); // the title bar's Text | Audio toggle follows the shown screen
         refreshConnectionStatus();
         // Re-check speech-to-text readiness when returning to the chat (server/model may have changed).
         if (CHAT_VIEW.equals(screenName)) {
@@ -1365,12 +1404,17 @@ public final class AskAiFrame extends JFrame {
         }
     }
 
-    /** Show the Models view and select the Installed or Running Models sub-view. */
+    /** Show the Models drawer on the Installed or Running Models page. */
     private void showModels(boolean installed) {
+        showScreen(MODELS_SCREEN);
+        modelsScreen().select(installed ? PAGE_INSTALLED : PAGE_RUNNING);
+    }
+
+    /** The Installed / Running Models page of the Models drawer was chosen. */
+    private void showModelsPage(boolean installed) {
         if (installSearchPanel != null) {
             installSearchPanel.leaveAddOnMode(); // leaving Setup drops any transient add-on target
         }
-        contentLayout.show(contentPanel, MODELS_VIEW);
         if (installed) {
             modelsPanel.showInstalled();
         } else {
