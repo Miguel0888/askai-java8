@@ -184,7 +184,7 @@ public final class ConnectionWidget extends JComponent {
                 return; // the address lives in the hover popup
             }
             String address = stripScheme(url);
-            g2.setFont(getFont());
+            g2.setFont(effectiveFont());
             FontMetrics metrics = g2.getFontMetrics();
             int textX = PAD_LEFT + DOT_ZONE + GAP;
             int textY = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
@@ -201,12 +201,21 @@ public final class ConnectionWidget extends JComponent {
 
     @Override
     public Dimension getPreferredSize() {
-        FontMetrics metrics = getFontMetrics(getFont());
+        FontMetrics metrics = getFontMetrics(effectiveFont());
         if (compact) {
             return new Dimension(DOT_ZONE + 4, Math.max(20, metrics.getHeight() + 4));
         }
         int width = PAD_LEFT + DOT_ZONE + GAP + metrics.stringWidth(stripScheme(url)) + PAD_RIGHT;
         return new Dimension(width, Math.max(20, metrics.getHeight() + 4));
+    }
+
+    /** The font even before the widget hangs in a window (it inherits one only then). */
+    private java.awt.Font effectiveFont() {
+        java.awt.Font font = getFont();
+        if (font == null) {
+            font = javax.swing.UIManager.getFont("Label.font");
+        }
+        return font != null ? font : new java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.PLAIN, 12);
     }
 
     private static String escape(String text) {

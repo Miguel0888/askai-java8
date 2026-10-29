@@ -12,7 +12,7 @@ public class ConnectionWidgetCompactTest {
     @Test
     public void compactShowsOnlyTheDotAndPutsTheAddressIntoThePopup() {
         ConnectionWidget widget = new ConnectionWidget(null, null);
-        widget.setFont(new java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.PLAIN, 12)); // inherited in the window
+        // deliberately NO font: the frame calls setCompact before the widget hangs in a window
         widget.setStatus(ConnectionStatus.CONNECTED, "http://127.0.0.1:11434", "version 0.32.3");
         int full = widget.getPreferredSize().width;
         widget.setCompact(true);
