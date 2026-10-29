@@ -33,6 +33,9 @@ public class ComicOverlayPanel extends JPanel {
     private static final int MARGIN = 24;
 
     private final ComicPalette palette;
+    private final CloseButton closeButton;
+    private final JPanel plate;
+    private Dimension plateLimit;
 
     public ComicOverlayPanel(String title, JComponent content, Runnable closeAction) {
         this(title, content, closeAction, ComicPalette.defaultPalette());
@@ -51,7 +54,7 @@ public class ComicOverlayPanel extends JPanel {
         addMouseMotionListener(new javax.swing.event.MouseInputAdapter() { });
         addMouseWheelListener(e -> { });
 
-        JPanel plate = new ComicSectionPanel(palette);
+        plate = new ComicSectionPanel(palette);
         plate.setLayout(new BorderLayout(0, 6));
         plate.setBorder(BorderFactory.createEmptyBorder(10, 14, 12, 14));
 
@@ -61,7 +64,8 @@ public class ComicOverlayPanel extends JPanel {
         JPanel titleRow = new JPanel(new BorderLayout(8, 0));
         titleRow.setOpaque(false);
         titleRow.add(heading, BorderLayout.CENTER);
-        titleRow.add(new CloseButton(palette, closeAction), BorderLayout.EAST);
+        closeButton = new CloseButton(palette, closeAction);
+        titleRow.add(closeButton, BorderLayout.EAST);
         plate.add(titleRow, BorderLayout.NORTH);
         plate.add(content, BorderLayout.CENTER);
 
@@ -71,6 +75,35 @@ public class ComicOverlayPanel extends JPanel {
         constraints.weighty = 1;
         constraints.insets = new java.awt.Insets(MARGIN, MARGIN, MARGIN, MARGIN);
         add(plate, constraints);
+    }
+
+    /**
+     * Caps the plate at {@code limit} (centered, backdrop all around) when the overlay is larger, e.g. when it
+     * covers a whole maximized window; {@code null} lets the plate fill the overlay minus the margin (default).
+     */
+    public void setPlateLimit(Dimension limit) {
+        this.plateLimit = limit == null ? null : new Dimension(limit);
+        revalidate();
+    }
+
+    @Override
+    public void doLayout() {
+        int horizontal = MARGIN;
+        int vertical = MARGIN;
+        if (plateLimit != null) {
+            horizontal = Math.max(MARGIN, (getWidth() - plateLimit.width) / 2);
+            vertical = Math.max(MARGIN, (getHeight() - plateLimit.height) / 2);
+        }
+        GridBagLayout layout = (GridBagLayout) getLayout();
+        GridBagConstraints constraints = layout.getConstraints(plate);
+        constraints.insets = new java.awt.Insets(vertical, horizontal, vertical, horizontal);
+        layout.setConstraints(plate, constraints);
+        super.doLayout();
+    }
+
+    /** The overlay's ✕ (for tests and keyboard wiring). */
+    public CloseButton closeButton() {
+        return closeButton;
     }
 
     @Override

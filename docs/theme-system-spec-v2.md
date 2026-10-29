@@ -350,4 +350,16 @@ Nur Dinge, die der User NICHT gefordert hat:
 
 ## Implementation notes
 
-(von der Implementierungs-Session zu füllen)
+### T1
+- `AskAiTheme` internally became a flat token table (`group.role` keys, `color(String)`), so later packages can
+  add groups without new typed fields; the v1 typed accessors stay as views. One new comic token was needed for
+  the port: `comic.placeholderText` (classic `0x6B6F76` = the enterprise `PlaceholderTextArea` literal; arcane
+  `0x7A7262` = the arcane `infoForeground` of 3.3).
+- White plates/tracks of the ported controls map to `comic.buttonPlate` (buttons, toggles, badge digits, sky ghost
+  clouds) or `comic.fieldBg` (check box, slider track, spinner plate — field-like controls).
+- Ported `ResearchUiPalette.X` reads became `token("research.X")` via one private helper per class; T3 makes those
+  helpers live (`ThemeColor`).
+- German comments of `SkyClouds`/`ColorContrast` translated (rule 6.2).
+- `ResearchPillDropdown` is now identical to the enterprise version (only additions); `ComicOverlayPanel` keeps its
+  own `CloseButton` (enterprise extends the non-ported `ComicWindowCloseButton`); only `setPlateLimit`/`closeButton()`
+  were merged.
