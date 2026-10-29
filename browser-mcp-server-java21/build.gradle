@@ -23,11 +23,12 @@ dependencies {
     // replacement com.microsoft.playwright.impl.driver.Driver that spawns a second Java process running
     // the Playwright Core JS driver on GraalJS (no Node.js). Excluding upstream 'driver' is mandatory:
     // two Driver classes on the fat-jar classpath would make the winner order-dependent.
-    implementation('com.microsoft.playwright:playwright:1.59.0') {
+    // Keep the API version aligned with the Playwright Core that playwright4j embeds (0.3.0 → 1.62.x).
+    implementation('com.microsoft.playwright:playwright:1.62.0') {
         exclude group: 'com.microsoft.playwright', module: 'driver'
         exclude group: 'com.microsoft.playwright', module: 'driver-bundle'
     }
-    implementation 'com.aresstack:playwright4j:0.1.0' // brings driver-bundle:1.59.0 (JS driver resources)
+    implementation 'com.aresstack:playwright4j:0.3.0' // embeds the Core JS package itself (no driver-bundle)
     implementation 'org.noear:solon:3.10.1'
     implementation 'org.noear:solon-boot-jdkhttp:3.10.1'
     implementation 'org.noear:solon-ai-mcp:3.10.1'

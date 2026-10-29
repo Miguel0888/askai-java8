@@ -13,7 +13,7 @@ import java.util.Map;
  * Real capability probing before the sidecar reports the Playwright backend as usable. Checks, in order:
  * (1) the effective {@code com.microsoft.playwright.impl.driver.Driver} is playwright4j's replacement (its
  * child command runs {@code GraalDriverMain} — the upstream one would try to install/spawn Node),
- * (2) the Playwright Core JS driver package is on the classpath (driver-bundle resources),
+ * (2) the Playwright Core JS driver package is on the classpath (embedded in the playwright4j jar),
  * (3) an executable for the configured browser channel exists locally.
  * Launchability itself is verified by the actual launch at session start ({@code BROWSER_START_FAILED}).
  * The probe NEVER downloads or installs anything.
@@ -65,7 +65,7 @@ final class PlaywrightCapabilityProbe {
         }
         if (!checks.driverBundlePresent()) {
             return new PlaywrightReadiness(PlaywrightReadiness.Status.DRIVER_BUNDLE_NOT_FOUND,
-                    "Playwright Core driver package (com.microsoft.playwright:driver-bundle) is not on the classpath.");
+                    "Playwright Core driver package (embedded in com.aresstack:playwright4j) is not on the classpath.");
         }
         String executable = checks.browserExecutable(channel);
         if (executable == null) {
@@ -86,8 +86,8 @@ final class PlaywrightCapabilityProbe {
         }
 
         public boolean driverBundlePresent() {
-            String resource = "driver/" + platformDirectory() + "/package/cli.js";
-            return PlaywrightCapabilityProbe.class.getClassLoader().getResource(resource) != null;
+            // playwright4j >= 0.3.0 embeds the Core JS package platform-neutrally under driver/package/.
+            return PlaywrightCapabilityProbe.class.getClassLoader().getResource("driver/package/cli.js") != null;
         }
 
         public String browserExecutable(String channel) {
@@ -133,21 +133,6 @@ final class PlaywrightCapabilityProbe {
                 }
             }
             return paths;
-        }
-
-        private static String platformDirectory() {
-            String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-            String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
-            if (os.contains("win")) {
-                return "win32_x64";
-            }
-            if (os.contains("linux")) {
-                return "aarch64".equals(arch) ? "linux-arm64" : "linux";
-            }
-            if (os.contains("mac os x") || os.contains("darwin")) {
-                return "aarch64".equals(arch) ? "mac-arm64" : "mac";
-            }
-            return "win32_x64";
         }
     }
 }

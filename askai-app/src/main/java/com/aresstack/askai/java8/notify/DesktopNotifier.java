@@ -179,7 +179,25 @@ public final class DesktopNotifier {
         trayIcon = null;
     }
 
-    private static BufferedImage trayImage() {
+    /**
+     * The AskAI app icon at the tray's own size (the same artwork as the windows); the drawn blue
+     * badge remains only as the fallback when the icon resource is missing.
+     */
+    private static java.awt.Image trayImage() {
+        java.awt.Image appIcon = com.aresstack.askai.java8.ui.AppIcon.sized(trayIconSize());
+        return appIcon != null ? appIcon : fallbackTrayImage();
+    }
+
+    private static int trayIconSize() {
+        try {
+            java.awt.Dimension size = SystemTray.getSystemTray().getTrayIconSize();
+            return Math.max(size.width, size.height);
+        } catch (Exception unsupported) {
+            return 16;
+        }
+    }
+
+    private static BufferedImage fallbackTrayImage() {
         BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
         try {

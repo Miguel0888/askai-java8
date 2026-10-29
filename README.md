@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/askai-banner.png" alt="AskAI — the golden A, the wizard with &quot;sk&quot; on his robe, and his sparkler staff as the i" width="100%">
+</p>
+
 # AskAI Java 8
 
 Java 8 compatible AskAI multi-project.

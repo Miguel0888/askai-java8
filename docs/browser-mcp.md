@@ -14,15 +14,15 @@
 
 ## How the Playwright backend works (MCP-P005, resolved)
 
-The sidecar uses the OFFICIAL Playwright Java API (`com.microsoft.playwright:playwright:1.59.0`,
-with its `driver`/`driver-bundle` modules excluded) plus `com.aresstack:playwright4j:0.1.0`, which
+The sidecar uses the OFFICIAL Playwright Java API (`com.microsoft.playwright:playwright:1.62.0`,
+with its `driver`/`driver-bundle` modules excluded) plus `com.aresstack:playwright4j:0.3.0`, which
 replaces `com.microsoft.playwright.impl.driver.Driver`: instead of a Node.js process it spawns a
 second **Java** process (`GraalDriverMain`) hosting the Playwright Core JS driver on GraalJS. The
 browser is a **locally installed** Chrome or Edge via the channel mechanism
-(`--browser-channel=chrome|msedge`). Firefox/WebKit are not supported by playwright4j 0.1.0.
+(`--browser-channel=chrome|msedge`). AskAI uses Chrome/Edge only (playwright4j itself also supports Firefox since 0.2.0).
 
-Process tree: `sidecar JVM → GraalDriverMain JVM → Chromium processes`. playwright4j extracts driver
-package assets from the driver-bundle jar to `%TEMP%/playwright4j-driver` (persists between runs).
+Process tree: `sidecar JVM → GraalDriverMain JVM → Chromium processes`. playwright4j embeds the Playwright Core
+JS package (`driver/package/**`, no Node.js binaries) in its own jar; `driver-bundle` is no longer needed.
 
 **Nothing is ever downloaded or installed**: `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is fixed; browser
 discovery only probes standard install locations.
@@ -32,7 +32,7 @@ discovery only probes standard install locations.
 `PlaywrightCapabilityProbe` reports a SPECIFIC status before the backend is offered:
 `READY / INCOMPATIBLE_DRIVER / DRIVER_BUNDLE_NOT_FOUND / BROWSER_NOT_INSTALLED /
 BROWSER_START_FAILED`. There is no `NODE_RUNTIME_NOT_FOUND` — playwright4j needs no Node; the
-equivalent failure is a missing driver-bundle. When not READY, every tool returns the status as a
+equivalent failure is a missing embedded driver package. When not READY, every tool returns the status as a
 readable error; the endpoint stays up and there is no STATIC_HTTP fallback.
 
 ## Security

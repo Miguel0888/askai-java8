@@ -9,15 +9,16 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * The AskAI application icon (the robot with the speech bubble), replacing the Java default cup
- * on every window. Loaded ONCE from the bundled resource and offered in multiple sizes so the
+ * The AskAI application icon (the gold-rimmed navy "A" with the hooded wizard), replacing the Java
+ * default cup on every window. ONE icon for every taskbar theme: the gold rim carries the contrast on
+ * dark and light alike. Loaded ONCE from the bundled resource and offered in multiple sizes so the
  * title bar, taskbar and Alt-Tab each pick a crisp variant instead of scaling one blurry image.
  * A missing/broken resource logs loudly and yields an empty list — a window without an icon is
  * cosmetic, a crash at startup is not.
  */
 public final class AppIcon {
 
-    private static final String RESOURCE = "/icons/askai.png";
+    static final String RESOURCE = "/icons/askai.png";
     private static final int[] SIZES = {16, 20, 24, 32, 40, 48, 64, 128, 256};
 
     private static volatile List<Image> cached;
@@ -33,13 +34,27 @@ public final class AppIcon {
         }
     }
 
+    /** The variant closest to (at least) {@code size} pixels, or null when the icon is unavailable. */
+    public static Image sized(int size) {
+        List<Image> images = images();
+        if (images.isEmpty()) {
+            return null;
+        }
+        for (int i = 0; i < SIZES.length; i++) {
+            if (SIZES[i] >= size) {
+                return images.get(i);
+            }
+        }
+        return images.get(images.size() - 1);
+    }
+
     public static List<Image> images() {
         List<Image> images = cached;
         if (images == null) {
             synchronized (AppIcon.class) {
                 images = cached;
                 if (images == null) {
-                    images = load();
+                    images = load(RESOURCE);
                     cached = images;
                 }
             }
@@ -47,11 +62,11 @@ public final class AppIcon {
         return images;
     }
 
-    private static List<Image> load() {
+    static List<Image> load(String resource) {
         try {
-            InputStream stream = AppIcon.class.getResourceAsStream(RESOURCE);
+            InputStream stream = AppIcon.class.getResourceAsStream(resource);
             if (stream == null) {
-                System.err.println("[app-icon] resource missing: " + RESOURCE);
+                System.err.println("[app-icon] resource missing: " + resource);
                 return Collections.emptyList();
             }
             BufferedImage source;
@@ -61,7 +76,7 @@ public final class AppIcon {
                 stream.close();
             }
             if (source == null) {
-                System.err.println("[app-icon] resource unreadable: " + RESOURCE);
+                System.err.println("[app-icon] resource unreadable: " + resource);
                 return Collections.emptyList();
             }
             List<Image> images = new ArrayList<Image>(SIZES.length);
@@ -70,7 +85,7 @@ public final class AppIcon {
             }
             return Collections.unmodifiableList(images);
         } catch (Exception broken) {
-            System.err.println("[app-icon] failed to load " + RESOURCE + ": " + broken);
+            System.err.println("[app-icon] failed to load " + resource + ": " + broken);
             return Collections.emptyList();
         }
     }

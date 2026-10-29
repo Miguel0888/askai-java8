@@ -21,6 +21,7 @@ import java.awt.datatransfer.StringSelection;
 public final class OllamaAboutPanel extends JPanel {
 
     private static final String PRODUCT = "AskAI";
+    private static final int LOGO_SIZE = 256;
     private static final String DESCRIPTION =
             "Local model management and chat for Ollama, with a Hugging Face import flow.";
     private static final String PROJECT_LINE =
@@ -29,8 +30,27 @@ public final class OllamaAboutPanel extends JPanel {
     public OllamaAboutPanel() {
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
-        add(buildContent(), BorderLayout.NORTH);
+        JPanel header = new JPanel(new BorderLayout(20, 0));
+        JComponent logo = buildLogo();
+        if (logo != null) {
+            header.add(logo, BorderLayout.WEST);
+        }
+        header.add(buildContent(), BorderLayout.CENTER);
+        add(header, BorderLayout.NORTH);
         add(buildActions(), BorderLayout.SOUTH);
+    }
+
+    /** The app icon at full About size — so the user can see what the tiny taskbar version shows. */
+    private static JComponent buildLogo() {
+        java.awt.Image image = AppIcon.sized(LOGO_SIZE);
+        if (image == null) {
+            return null;
+        }
+        JLabel logo = new JLabel(new javax.swing.ImageIcon(image));
+        logo.setVerticalAlignment(JLabel.TOP);
+        logo.setToolTipText("A · sk · A · i — the golden \"A\", \"sk\" on the wizard's robe, "
+                + "the wizard himself as the second \"A\" and his sparkler staff as the \"i\".");
+        return logo;
     }
 
     private JComponent buildContent() {

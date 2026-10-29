@@ -97,14 +97,20 @@ final class Playwright4jDriver implements PlaywrightDriver {
         Playwright playwright = null;
         Browser browser = null;
         BrowserContext context = null;
+        // Which step of the chain was running when it failed — a visible window with a failed start
+        // (browser up, CDP/context not) reads very differently from a driver that never came up.
+        String stage = "PLAYWRIGHT_CREATE";
+        long startedNanos = System.nanoTime();
         try {
             Map<String, String> env = new LinkedHashMap<String, String>();
             env.put("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD", "1");
             env.put("PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS", "1");
             playwright = Playwright.create(new Playwright.CreateOptions().setEnv(env));
+            stage = "BROWSER_LAUNCH";
             browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
                     .setChannel(channel)
                     .setHeadless(headless));
+            stage = "CONTEXT_CREATE";
             context = browser.newContext(new Browser.NewContextOptions().setAcceptDownloads(false));
             context.setDefaultNavigationTimeout(timeoutMillis);
             context.setDefaultTimeout(timeoutMillis);
@@ -117,6 +123,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
                     }
                 });
             }
+            stage = "PAGE_CREATE";
             Page page = context.newPage();
             final Playwright4jDriver driver = new Playwright4jDriver(playwright, browser, context, page,
                     consent, captcha, timeoutMillis);
@@ -130,8 +137,15 @@ final class Playwright4jDriver implements PlaywrightDriver {
             });
             return driver;
         } catch (RuntimeException ex) {
+            long elapsedMillis = (System.nanoTime() - startedNanos) / 1_000_000L;
             closeQuietly(context, browser, playwright);
-            throw new BrowserException("Browser start failed (channel=" + channel + "): " + firstLine(ex));
+            // The one-line message travels to the host and the chat; the FULL exception (Playwright's
+            // multi-line message carries the browser log and call log) goes to a persistent file —
+            // start failures are rare, the next one must be diagnosable without a repro.
+            String report = BrowserStartFailureLog.append(channel, headless, stage, elapsedMillis, ex);
+            throw new BrowserException("Browser start failed (channel=" + channel + ", stage=" + stage
+                    + ", after " + elapsedMillis + " ms): " + firstLine(ex)
+                    + (report == null ? "" : " (full report: " + report + ")"));
         }
     }
 
