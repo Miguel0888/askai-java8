@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicButton;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
@@ -86,7 +87,7 @@ public final class OllamaAboutPanel extends JPanel {
 
     private JComponent buildActions() {
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 8));
-        JButton copy = new JButton("Copy diagnostics");
+        JButton copy = new ComicButton("Copy diagnostics");
         copy.setToolTipText("Copy version and environment details to the clipboard (no secrets included)");
         copy.addActionListener(event -> Toolkit.getDefaultToolkit().getSystemClipboard()
                 .setContents(new StringSelection(diagnostics()), null));

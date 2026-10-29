@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.agent.model.nlp.NlpCapability;
 import com.aresstack.askai.agent.model.nlp.NlpModelCatalog;
 import com.aresstack.askai.java8.localmodels.LocalNlpModelStore;
@@ -75,7 +77,7 @@ public final class NlpModelsPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         JPanel rows = new JPanel();
         rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
-        rows.setBorder(BorderFactory.createTitledBorder("Apache OpenNLP models"));
+        rows.setBorder(ComicControls.titledBorder("Apache OpenNLP models"));
         for (NlpModelCatalogEntry entry : catalog.availableModels()) {
             if (entry.getCapability() != NlpCapability.SENTENCE_DETECTION
                     && entry.getCapability() != NlpCapability.LANGUAGE_DETECTION) {
@@ -91,7 +93,7 @@ public final class NlpModelsPanel extends JPanel {
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
         row.add(new JLabel(languageName(entry.getLanguageCode()) + " — " + entry.getModelId()));
         JLabel status = new JLabel();
-        JButton install = new JButton("Install");
+        JButton install = new ComicButton("Install");
         install.addActionListener(event -> onInstall(entry));
         statusByModel.put(entry.getModelId(), status);
         buttonByModel.put(entry.getModelId(), install);

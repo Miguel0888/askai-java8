@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.vision.ImageAttachment;
 
 import javax.swing.BorderFactory;
@@ -123,7 +124,7 @@ final class ChatAttachmentStrip extends JPanel {
         name.setToolTipText(attachment.getDisplayName());
         chip.add(name, BorderLayout.CENTER);
 
-        JButton remove = new JButton("×");
+        JButton remove = new ComicButton("×");
         remove.setToolTipText("Remove " + attachment.getDisplayName());
         remove.setFocusable(false);
         remove.setBorderPainted(false);

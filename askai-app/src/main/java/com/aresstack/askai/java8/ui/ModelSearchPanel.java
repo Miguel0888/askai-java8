@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.service.AskAiService;
 
@@ -30,7 +31,7 @@ public final class ModelSearchPanel extends JPanel {
                             NlpModelsPanel nlpModelsPanel) {
         super(new BorderLayout());
         this.huggingFacePanel = new OllamaInstallPanel(configurationRepository, askAiService);
-        this.tabs = new JTabbedPane();
+        this.tabs = ComicControls.tabbedPane();
         tabs.addTab("Hugging Face", huggingFacePanel);
         tabs.addTab("Ollama Library", new OllamaLibraryPanel(askAiService));
         if (nlpModelsPanel != null) {

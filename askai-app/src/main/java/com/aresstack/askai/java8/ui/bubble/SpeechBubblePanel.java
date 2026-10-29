@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui.bubble;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -311,7 +312,7 @@ public final class SpeechBubblePanel extends JPanel
     }
 
     private JTextArea createTextArea(String text) {
-        JTextArea area = new JTextArea(normalize(text));
+        JTextArea area = ComicControls.textArea(normalize(text));
         Font baseFont = UIManager.getFont("TextArea.font");
         if (baseFont == null) {
             baseFont = new Font(Font.SANS_SERIF, Font.PLAIN, 13);

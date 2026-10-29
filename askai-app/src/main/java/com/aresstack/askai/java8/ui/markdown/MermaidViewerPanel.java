@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui.markdown;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
 import javax.swing.JFileChooser;
@@ -139,7 +140,7 @@ public final class MermaidViewerPanel extends JPanel {
         bar.setOpaque(false);
         bar.add(info, BorderLayout.CENTER);
 
-        final javax.swing.JSlider opacity = new javax.swing.JSlider(0, 100,
+        final javax.swing.JSlider opacity = ComicControls.slider(0, 100,
                 DEFAULT_SURFACE_OPACITY_PERCENT);
         opacity.setOpaque(false);
         opacity.setFocusable(false);
@@ -266,7 +267,7 @@ public final class MermaidViewerPanel extends JPanel {
     /** No blank canvas, ever: the failure view names the problem and shows the Mermaid source. */
     private void showFailure() {
         removeAll();
-        JTextArea details = new JTextArea(
+        JTextArea details = ComicControls.textArea(
                 "The diagram could not be rendered (details in the terminal log).\n\n"
                         + "Mermaid source:\n" + diagramCode);
         details.setEditable(false);

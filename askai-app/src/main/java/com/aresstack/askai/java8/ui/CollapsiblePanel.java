@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicButton;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
@@ -20,7 +21,7 @@ import java.awt.Font;
  */
 public final class CollapsiblePanel extends JPanel {
 
-    private final JButton header = new JButton();
+    private final JButton header = new ComicButton();
     private final JComponent content;
     private final String title;
     private boolean expanded;

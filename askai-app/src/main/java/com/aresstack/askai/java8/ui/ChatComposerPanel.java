@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -321,7 +322,7 @@ public final class ChatComposerPanel extends JPanel {
     }
 
     private static JProgressBar createLevelBar() {
-        JProgressBar bar = new JProgressBar(0, 100);
+        JProgressBar bar = ComicControls.progressBar(0, 100);
         bar.setOpaque(false);
         bar.setBorderPainted(false);
         bar.setPreferredSize(new Dimension(64, 6));

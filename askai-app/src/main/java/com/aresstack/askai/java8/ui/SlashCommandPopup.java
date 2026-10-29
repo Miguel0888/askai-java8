@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.askai.plugin.api.agent.command.CommandCompletion;
 import com.aresstack.askai.plugin.api.agent.command.CommandCompletionResult;
 import com.aresstack.askai.plugin.host.ActiveAgentCommandRegistry;
@@ -34,7 +35,7 @@ final class SlashCommandPopup {
 
     private final JTextArea editor;
     private final DefaultListModel<CommandCompletion> model = new DefaultListModel<CommandCompletion>();
-    private final JList<CommandCompletion> list = new JList<CommandCompletion>(model);
+    private final JList<CommandCompletion> list = ComicControls.<CommandCompletion>list(model);
     private final JScrollPane scroll;
 
     private ActiveAgentCommandRegistry registry;

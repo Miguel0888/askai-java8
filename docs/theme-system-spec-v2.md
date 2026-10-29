@@ -455,4 +455,10 @@ Nur Dinge, die der User NICHT gefordert hat:
     Kept (meaningful, tokenized in T7): `OllamaModelCard` "Test reranker"/"Use in chat" primary-blue foreground and
     "Delete" red foreground; `OllamaInstallPanel` token "Clear" red foreground and the invalid-file install button
     red foreground; `FilterDialog` orphan catalog check boxes in amber. Nothing removed.
+  - T6e (remaining 17 files, 24 sites incl. bubble/markdown text areas, composer progress, slash/mention popups):
+    flat buttons (`ChatAttachmentStrip`/`MarkdownPreviewTabs` "×", `CollapsiblePanel` header) stay flat through the
+    `ComicButton` compatibility. Kept (tokenized in T7): `CollapsiblePanel` header slate foreground. Bubble text areas
+    keep their explicit bubble text colors (they override the `ComicTextArea` defaults by design).
+  - `RawSwingGuardTest` (askai-app, `ui.theme`) scans `askai-app/src/main` and `research-agent-ui-plugin/src/main`
+    (root found by walking up from `user.dir`); the allowlist is EMPTY — no raw control is left.
 

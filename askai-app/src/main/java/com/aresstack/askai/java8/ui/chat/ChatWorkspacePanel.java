@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui.chat;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.askai.java8.history.ChatHistoryStore;
 import com.aresstack.askai.java8.history.ChatRecord;
 import com.aresstack.askai.java8.ui.ChatComposerPanel;
@@ -1081,7 +1082,7 @@ public final class ChatWorkspacePanel extends JPanel {
      */
     private JComponent buildRenameRow(final ChatSessionId openId, final ChatRecord record,
                                       String title) {
-        final javax.swing.JTextField field = new javax.swing.JTextField(title);
+        final javax.swing.JTextField field = ComicControls.textField(title);
         field.setFont(ResearchUiTypography.regular(13f));
         field.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(ResearchUiPainter.mix(
@@ -1247,7 +1248,7 @@ public final class ChatWorkspacePanel extends JPanel {
             }
         }
         javax.swing.JComboBox<String> combo =
-                new javax.swing.JComboBox<String>(known.toArray(new String[0]));
+                ComicControls.<String>comboBox(known.toArray(new String[0]));
         combo.setEditable(true); // free naming creates a new project on the spot
         combo.setSelectedItem(record.getProject() == null ? "" : record.getProject());
         int choice = JOptionPane.showConfirmDialog(this, combo, "Assign chat to project",

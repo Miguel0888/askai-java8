@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui.bubble;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextArea;
@@ -506,7 +507,7 @@ public class AnimatedThoughtBubblePanel extends JPanel {
     }
 
     private JTextArea createExplanationArea(String explanation) {
-        JTextArea area = new JTextArea(normalize(explanation));
+        JTextArea area = ComicControls.textArea(normalize(explanation));
         Font font = UIManager.getFont("TextArea.font");
         if (font == null) {
             font = new Font(Font.SANS_SERIF, Font.PLAIN, 13);

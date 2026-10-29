@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui.bubble;
 
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.ui.markdown.MarkdownMessageView;
 import com.aresstack.askai.java8.ui.markdown.MarkdownTheme;
 
@@ -273,7 +274,7 @@ public final class BubbleTranscriptPanel extends JPanel {
             final int index = i;
             final boolean isNavigation = navigation != null && index < navigation.size()
                     && Boolean.TRUE.equals(navigation.get(index));
-            final javax.swing.JButton button = new javax.swing.JButton(labels.get(i));
+            final javax.swing.JButton button = new ComicButton(labels.get(i));
             button.addActionListener(event -> {
                 if (isNavigation) {
                     // Navigation shows something; the card (incl. its decisions) stays fully usable.
