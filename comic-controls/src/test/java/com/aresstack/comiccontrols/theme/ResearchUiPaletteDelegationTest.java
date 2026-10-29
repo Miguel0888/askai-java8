@@ -28,7 +28,13 @@ public class ResearchUiPaletteDelegationTest {
 
     @Test
     public void comicDefaultPaletteIsTheActiveThemePalette() {
-        assertEquals(AskAiTheme.active().comicPalette(), ComicPalette.defaultPalette());
+        ComicPalette live = ComicPalette.defaultPalette();
+        ComicPalette active = AskAiTheme.active().comicPalette();
+        assertEquals(active.getSurface(), live.getSurface());
+        assertEquals(active.getInk(), live.getInk());
+        assertEquals(active.getNavigationBlue(), live.getNavigationBlue());
+        assertEquals(active.getAccentYellow(), live.getAccentYellow());
+        assertEquals(active.getAccentRed(), live.getAccentRed());
     }
 
     @Test

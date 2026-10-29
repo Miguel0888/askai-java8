@@ -1,8 +1,7 @@
 package com.aresstack.comiccontrols.control;
 
-import com.aresstack.comiccontrols.theme.AskAiTheme;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.theme.ComicPalette;
-import com.aresstack.comiccontrols.theme.ResearchUiPainter;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -31,7 +30,7 @@ public final class ComicListSupport {
         if (list == null || palette == null) {
             throw new IllegalArgumentException("list and palette must not be null");
         }
-        Color paper = AskAiTheme.active().fieldBg();
+        Color paper = ThemeColor.of("comic.fieldBg");
         list.setBackground(paper);
         list.setForeground(palette.getInk());
         list.setSelectionBackground(selectionWash(palette, paper));
@@ -45,7 +44,7 @@ public final class ComicListSupport {
 
     /** The selection wash: navigation blue mixed into the paper. */
     static Color selectionWash(ComicPalette palette, Color paper) {
-        return ResearchUiPainter.mix(palette.getNavigationBlue(), paper, 0.85f);
+        return ThemeColor.mix(palette.getNavigationBlue(), paper, 0.85f);
     }
 
     /** The default renderer with comic row padding. */

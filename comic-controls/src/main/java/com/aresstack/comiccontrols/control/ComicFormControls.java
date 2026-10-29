@@ -1,5 +1,6 @@
 package com.aresstack.comiccontrols.control;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.theme.AskAiTheme;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
@@ -429,8 +430,8 @@ public final class ComicFormControls {
         }
     }
 
-    /** A theme token by its full key. */
+    /** The living color of a theme token (full key). */
     private static Color token(String key) {
-        return AskAiTheme.active().color(key);
+        return ThemeColor.of(key);
     }
 }

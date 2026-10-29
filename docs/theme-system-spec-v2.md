@@ -383,3 +383,19 @@ Nur Dinge, die der User NICHT gefordert hat:
 - Factory overloads mirror the Swing constructors actually used at the call sites plus the remaining standard
   ones; `checkBox(Icon)` gets the comic glyph (the check box icon is the comic glyph by design).
 
+### T3
+- `AskAiTheme.setActive` is deliberately SILENT; listeners fire through `AskAiTheme.fireChanged()`, which the
+  host switch gate (`ThemeSwitcher`, T4) calls after UIManager re-install and window refresh — so listeners see a
+  fully applied theme (E1 order 1 → 4) and `ThemeSwitcher.apply` fires exactly once.
+- `ThemeColor` also offers live DERIVED colors (`withAlpha(base, a)`, `mix(base, target, f)`): they are the
+  mechanism used for E8's "derive at paint time" wherever a derived color has to be handed to a component as a
+  value (e.g. `ComicTableSupport` grid/selection/header colors, `ComicListSupport` selection wash).
+- `ThemeColor.hashCode()` stays `Color`'s (as E8 says) and therefore reflects the value at creation time while
+  `equals` is live — `ThemeColor`s should not be used as hash keys across theme switches.
+- comic-controls itself had further cached literals that v1 did not list and that would not follow a live switch:
+  `ComicSectionPanel` default plate (`Color.WHITE` → `comic.buttonPlate`), `ResearchPillButton` pressed foreground
+  (`Color.WHITE` → `comic.buttonPlate`), `ComicTableSupport` (`Color.WHITE` → `comic.fieldBg`, mixes live); the
+  search/find bars now receive `ThemeColor`s.
+- Contrast test (6.7) is in `ThemeContrastTest`: all 14 pairs (7 per theme) reach ≥ 4.5:1 — lowest classic
+  user bubble 4.61, classic assistant bubble 4.66; arcane minimum 5.54 (assistant bubble).
+

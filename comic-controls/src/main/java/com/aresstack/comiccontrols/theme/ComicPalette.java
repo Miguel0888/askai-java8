@@ -42,9 +42,23 @@ public final class ComicPalette {
         this.accentRed = requireColor(accentRed, "accentRed");
     }
 
-    /** The default AskAI comic palette: the one of the active {@link AskAiTheme}. */
+    /**
+     * The default AskAI comic palette: LIVING colors ({@link ThemeColor}) of the comic tokens, so a
+     * control built with it follows every runtime theme switch.
+     */
     public static ComicPalette defaultPalette() {
-        return AskAiTheme.active().comicPalette();
+        return LivePalette.INSTANCE;
+    }
+
+    private static final class LivePalette {
+        static final ComicPalette INSTANCE = new ComicPalette(
+                ThemeColor.of("comic.surface"),
+                ThemeColor.of("comic.ink"),
+                ThemeColor.of("comic.navigationBlue"),
+                ThemeColor.of("comic.agentPetrol"),
+                ThemeColor.of("comic.accentYellow"),
+                ThemeColor.of("comic.accentOrange"),
+                ThemeColor.of("comic.accentRed"));
     }
 
     public Color getSurface() {

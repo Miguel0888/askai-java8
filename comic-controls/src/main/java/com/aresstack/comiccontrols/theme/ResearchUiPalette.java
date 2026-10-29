@@ -5,9 +5,9 @@ import java.awt.Color;
 /**
  * The ONE color table of the dark research-UI design study (phase selector, chats footer, blacklist
  * chips, …). New Java2D controls read their colors from here instead of hardcoding hex values per
- * class. The values themselves come from the active {@link AskAiTheme} (its research tokens, keyed
- * by exactly these constant names) — the palette stays changeable in exactly one place, and the
- * theme is fixed per JVM, so filling the constants once at class load is safe.
+ * class. Every constant is a living {@link ThemeColor} of the research token with exactly its name:
+ * it always paints the value of the CURRENTLY active {@link AskAiTheme}, so a runtime theme switch
+ * reaches every consumer without touching it.
  */
 public final class ResearchUiPalette {
 
@@ -64,6 +64,8 @@ public final class ResearchUiPalette {
 
     /** The sky's top tone; it fades to fully transparent towards the chat. */
     public static final Color SKY_TOP = token("SKY_TOP");
+    /** The sky's second tone the gradient runs into (equal to {@link #SKY_TOP} in the classic theme). */
+    public static final Color SKY_MID = token("SKY_MID");
     /**
      * The COLLAPSED sky status bar: a firmer, calm sky blue so the bar reads as a deliberate
      * control — clearly stronger than the airy near-white of the open sky.
@@ -80,8 +82,9 @@ public final class ResearchUiPalette {
     /** The remove ✕ inside a cloud chip (hover uses {@link #CLOUD_TEXT}). */
     public static final Color CLOUD_CLOSE = token("CLOUD_CLOSE");
 
+    /** The living color of this constant's research token (follows every theme switch). */
     private static Color token(String constantName) {
-        return AskAiTheme.active().research(constantName);
+        return ThemeColor.of(AskAiTheme.RESEARCH_PREFIX + constantName);
     }
 
     private ResearchUiPalette() {

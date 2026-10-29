@@ -1,6 +1,6 @@
 package com.aresstack.comiccontrols.control;
 
-import com.aresstack.comiccontrols.theme.AskAiTheme;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
 import java.awt.Dimension;
@@ -25,12 +25,12 @@ public class ComicSearchTag extends ComicSearchBar {
 
     public ComicSearchTag(String placeholder, String tooltip, ComicPalette palette) {
         super(placeholder, tooltip,
-                palette.getSurface(), AskAiTheme.active().warmFocus(),
+                palette.getSurface(), ThemeColor.of("comic.warmFocus"),
                 palette.getInk(), palette.getAccentOrange(),
-                palette.getAccentOrange(), AskAiTheme.active().hintTextSoft(), TAG_ARC, 1.4f);
+                palette.getAccentOrange(), ThemeColor.of("comic.hintTextSoft"), TAG_ARC, 1.4f);
         getTextField().setForeground(palette.getInk());
         getTextField().setCaretColor(palette.getInk());
-        getGoButton().setForeground(AskAiTheme.active().hintText());
+        getGoButton().setForeground(ThemeColor.of("comic.hintText"));
     }
 
     @Override

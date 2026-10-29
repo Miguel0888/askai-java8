@@ -1,6 +1,6 @@
 package com.aresstack.comiccontrols.control;
 
-import com.aresstack.comiccontrols.theme.AskAiTheme;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
 import javax.swing.AbstractAction;
@@ -77,9 +77,9 @@ public class ComicFindBar extends ComicSearchBar {
 
     public ComicFindBar(String placeholder, String tooltip, ComicPalette palette) {
         super(placeholder, tooltip,
-                AskAiTheme.active().fieldBgQuiet(), AskAiTheme.active().warmFocus(),
-                AskAiTheme.active().fieldBorder(), palette.getAccentOrange(),
-                AskAiTheme.active().hintText(), AskAiTheme.active().hintTextSoft(), 10, 1f);
+                ThemeColor.of("comic.fieldBgQuiet"), ThemeColor.of("comic.warmFocus"),
+                ThemeColor.of("comic.fieldBorder"), palette.getAccentOrange(),
+                ThemeColor.of("comic.hintText"), ThemeColor.of("comic.hintTextSoft"), 10, 1f);
 
         // The inherited go button becomes the always-visible clear (✕) button.
         clearButton = getGoButton();

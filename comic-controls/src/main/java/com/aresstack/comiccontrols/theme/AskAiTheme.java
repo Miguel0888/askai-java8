@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * THE semantic color token table of AskAI — the one place every surface takes its colors from.
@@ -14,9 +15,9 @@ import java.util.Map;
  * same table.
  *
  * <p>Two built-in themes exist: {@link #classic()} (the historic values, pinned byte-identical)
- * and {@link #arcane()} (navy + gold, the "Arcane Knowledge" brand). The active theme is chosen
- * once per JVM through the start property {@value #PROPERTY} — a development/A-B switch, not a
- * user setting.</p>
+ * and {@link #arcane()} (parchment, navy and gold: the "Arcane Knowledge" brand). The active theme
+ * can be switched at runtime ({@link #setActive(AskAiTheme)}); consumers holding {@link ThemeColor}s
+ * follow automatically.</p>
  */
 public final class AskAiTheme {
 
@@ -33,6 +34,7 @@ public final class AskAiTheme {
     static final String RESEARCH_PREFIX = "research.";
 
     private static volatile AskAiTheme active;
+    private static final CopyOnWriteArrayList<Runnable> LISTENERS = new CopyOnWriteArrayList<Runnable>();
 
     private final String name;
     private final Map<String, Color> tokens;
@@ -99,27 +101,45 @@ public final class AskAiTheme {
         put(t, "research.CLOUD_HOVER_SURFACE", 0xEAF4FC);
         put(t, "research.CLOUD_HOVER_BORDER", 0x8FB8DE);
         put(t, "research.CLOUD_CLOSE", 0x72879A);
+        put(t, "research.SKY_MID", 0xF5FAFE); // == SKY_TOP: the classic sky is a single tone
+
+        // bubble group: exactly BubblePalette.windowsPhoneInspired()
+        put(t, "bubble.transcriptBackground", 0xF4F4F4);
+        put(t, "bubble.userBackground", 0x1676D2);
+        put(t, "bubble.userForeground", 0xFFFFFF);
+        put(t, "bubble.assistantBackground", 0x15827A);
+        put(t, "bubble.assistantForeground", 0xFFFFFF);
+        put(t, "bubble.activityBackground", 0xF2C94C);
+        put(t, "bubble.activityForeground", 0x252525);
+        put(t, "bubble.activityAccent", 0xE39A18);
+        put(t, "bubble.failureAccent", 0xC94C4C);
+        put(t, "bubble.infoForeground", 0x6B6F76);
         return new AskAiTheme(CLASSIC, t);
     }
 
-    /** "Arcane Knowledge": navy + gold, derived from the AskAI logo. Function reds stay untouched. */
+    /**
+     * "Arcane Knowledge" v2: parchment instead of grey, navy as ink, gold as accent, a sunset sky; the
+     * function reds stay untouched.
+     */
     public static AskAiTheme arcane() {
         Map<String, Color> t = new LinkedHashMap<String, Color>(classic().tokens);
-        put(t, "comic.surface", 0xF7F5F0);
-        put(t, "comic.ink", 0x253048);
-        put(t, "comic.navigationBlue", 0x315B91);
-        put(t, "comic.agentPetrol", 0x287D79);
-        put(t, "comic.accentYellow", 0xE6B650);
-        put(t, "comic.accentOrange", 0xC99232);
-        put(t, "comic.buttonPlate", 0xFFFDF8);
-        put(t, "comic.warmFocus", 0xF8EFD8);
-        put(t, "comic.fieldBg", 0xFFFDF8);
-        put(t, "comic.fieldBgQuiet", 0xFAF7F0);
-        put(t, "comic.fieldBorder", 0xCBC4B4);
-        put(t, "comic.hintText", 0x8F897B);
-        put(t, "comic.hintTextSoft", 0xA9A295);
+        put(t, "comic.surface", 0xEFE4CF);
+        put(t, "comic.ink", 0x24304A);
+        put(t, "comic.navigationBlue", 0x2D4F86);
+        put(t, "comic.agentPetrol", 0x2A6F6B);
+        put(t, "comic.accentYellow", 0xE9B949);
+        put(t, "comic.accentOrange", 0xD08A2C);
+        put(t, "comic.buttonPlate", 0xFBF6EA);
+        put(t, "comic.warmFocus", 0xFFF3D6);
+        put(t, "comic.fieldBg", 0xFFFCF4);
+        put(t, "comic.fieldBgQuiet", 0xF8F1E2);
+        put(t, "comic.fieldBorder", 0xCDBE9E);
+        put(t, "comic.hintText", 0x857A63);
+        put(t, "comic.hintTextSoft", 0xA89C82);
+        t.put("comic.overlayDim", new Color(11, 18, 32, 120));
         put(t, "comic.placeholderText", 0x7A7262);
 
+        // dark side + gold accents: the v1 arcane values
         put(t, "research.DARK_BASE", 0x0B1220);
         put(t, "research.DARK_SURFACE", 0x111A28);
         put(t, "research.WORKSPACE_SURFACE", 0x192338);
@@ -132,23 +152,36 @@ public final class AskAiTheme {
         put(t, "research.BORDER_DARK", 0x645F55);
         put(t, "research.BORDER_WINDOW", 0x3A3F52);
         put(t, "research.ACCENT_BLUE", 0xDAA648);
-        put(t, "research.LIGHT_CONTROL_BG", 0xFFFDF8);
-        put(t, "research.LIGHT_CONTROL_BORDER", 0xCFC8B8);
         put(t, "research.LIGHT_CONTROL_TEXT", 0x474439);
         put(t, "research.LIGHT_TEXT_MUTED", 0x8E897C);
         put(t, "research.CHIP_HOVER_SURFACE", 0x161F33);
         put(t, "research.CHIP_HOVER_BORDER", 0x7D7664);
         put(t, "research.CHIP_CLOSE_HOVER", 0x2C3347);
         put(t, "research.WORKSPACE_DIVIDER", 0x2A3144);
-        put(t, "research.SKY_TOP", 0xFAF6EC);
-        put(t, "research.SKY_BAR_SURFACE", 0xE8D9B0);
-        put(t, "research.SKY_CAPTION", 0x8A7A55);
-        put(t, "research.CLOUD_SURFACE", 0xFDFAF2);
-        put(t, "research.CLOUD_BORDER", 0xD9C690);
-        put(t, "research.CLOUD_TEXT", 0x5C5238);
-        put(t, "research.CLOUD_HOVER_SURFACE", 0xF7F0DD);
-        put(t, "research.CLOUD_HOVER_BORDER", 0xC8B274);
-        put(t, "research.CLOUD_CLOSE", 0x8A8064);
+        // light controls + the sunset sky: v2
+        put(t, "research.SKY_TOP", 0xE4572E);
+        put(t, "research.SKY_MID", 0xF4A259);
+        put(t, "research.SKY_BAR_SURFACE", 0xF3B07A);
+        put(t, "research.SKY_CAPTION", 0x7A3B22);
+        put(t, "research.CLOUD_SURFACE", 0xFFF6EC);
+        put(t, "research.CLOUD_BORDER", 0xEDB48A);
+        put(t, "research.CLOUD_TEXT", 0x5A2E1C);
+        put(t, "research.CLOUD_HOVER_SURFACE", 0xFFEBD6);
+        put(t, "research.CLOUD_HOVER_BORDER", 0xE08F5C);
+        put(t, "research.CLOUD_CLOSE", 0x9A5A3C);
+        put(t, "research.LIGHT_CONTROL_BG", 0xFFFCF4);
+        put(t, "research.LIGHT_CONTROL_BORDER", 0xCDBE9E);
+
+        put(t, "bubble.transcriptBackground", 0xF6EEDD);
+        put(t, "bubble.userBackground", 0x24406E);
+        put(t, "bubble.userForeground", 0xFFF8EA);
+        put(t, "bubble.assistantBackground", 0x2A6F6B);
+        put(t, "bubble.assistantForeground", 0xFFF8EA);
+        put(t, "bubble.activityBackground", 0xE9B949);
+        put(t, "bubble.activityForeground", 0x24304A);
+        put(t, "bubble.activityAccent", 0xB9771F);
+        put(t, "bubble.failureAccent", 0xC94C4C);
+        put(t, "bubble.infoForeground", 0x7A7262);
         return new AskAiTheme(ARCANE, t);
     }
 
@@ -167,7 +200,10 @@ public final class AskAiTheme {
         return ARCANE.equals(DEFAULT_THEME) ? arcane() : classic();
     }
 
-    /** The theme of this JVM: resolved once from {@value #PROPERTY}, then cached. */
+    /**
+     * The active theme: the one last set via {@link #setActive(AskAiTheme)}; before that, resolved once
+     * from {@value #PROPERTY} (missing: the default).
+     */
     public static AskAiTheme active() {
         AskAiTheme theme = active;
         if (theme == null) {
@@ -180,6 +216,38 @@ public final class AskAiTheme {
             }
         }
         return theme;
+    }
+
+    /**
+     * Makes {@code theme} the active one (any number of times, on the EDT). Every {@link ThemeColor}
+     * reads the new values from its next paint on. Deliberately SILENT: the host's switch gate
+     * (re-install the UIManager defaults, refresh the windows) calls {@link #fireChanged()} afterwards.
+     */
+    public static void setActive(AskAiTheme theme) {
+        if (theme == null) {
+            throw new IllegalArgumentException("theme must not be null");
+        }
+        synchronized (AskAiTheme.class) {
+            active = theme;
+        }
+    }
+
+    /** Registers a listener for theme switches (see {@link #fireChanged()}); duplicates are ignored. */
+    public static void addChangeListener(Runnable listener) {
+        if (listener != null) {
+            LISTENERS.addIfAbsent(listener);
+        }
+    }
+
+    public static void removeChangeListener(Runnable listener) {
+        LISTENERS.remove(listener);
+    }
+
+    /** Notifies every change listener once; called by the host after a switch is fully applied. */
+    public static void fireChanged() {
+        for (Runnable listener : LISTENERS) {
+            listener.run();
+        }
     }
 
     public String name() {
@@ -247,6 +315,11 @@ public final class AskAiTheme {
     /** Translucent backdrop behind overlays. */
     public Color overlayDim() {
         return color("comic.overlayDim");
+    }
+
+    /** A bubble token by role ({@code transcriptBackground}, {@code userBackground}, ...). */
+    public Color bubble(String role) {
+        return color("bubble." + role);
     }
 
     /** Muted but readable placeholder text on light plates (about 5:1). */

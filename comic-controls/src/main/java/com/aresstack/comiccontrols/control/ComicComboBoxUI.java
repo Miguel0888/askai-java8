@@ -1,5 +1,6 @@
 package com.aresstack.comiccontrols.control;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.paint.ComposerIcons;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.AskAiTheme;
@@ -269,8 +270,8 @@ public final class ComicComboBoxUI extends BasicComboBoxUI {
         }
     }
 
-    /** A theme token by its full key. */
+    /** The living color of a theme token (full key). */
     private static Color token(String key) {
-        return AskAiTheme.active().color(key);
+        return ThemeColor.of(key);
     }
 }
