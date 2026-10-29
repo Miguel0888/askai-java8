@@ -119,6 +119,20 @@ public class ChatWorkspacePanelTest {
         });
     }
 
+    @Test
+    public void backToChatLeavesTheSettings() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                ChatWorkspacePanel workspace = build();
+                workspace.setMainContent(ChatWorkspacePanel.SETTINGS_TAB, new javax.swing.JLabel("page"));
+                workspace.openSidebarTab(ChatWorkspacePanel.SETTINGS_TAB);
+                assertTrue(workspace.isMainContentShowing());
+                workspace.leaveSettings();
+                assertFalse("the chat is back", workspace.isMainContentShowing());
+            }
+        });
+    }
+
     private static void collect(java.awt.Container root,
                                 List<com.aresstack.comiccontrols.control.ResearchIconButton> into) {
         for (java.awt.Component child : root.getComponents()) {

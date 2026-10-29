@@ -961,8 +961,39 @@ public final class ChatWorkspacePanel extends JPanel {
         settingsPane.removeAll();
         settingsPane.setOpaque(false);
         settingsPane.add(scroll, BorderLayout.CENTER);
+        settingsPane.add(buildSettingsFooter(), BorderLayout.SOUTH);
         settingsPane.revalidate();
         settingsPane.repaint();
+    }
+
+    /**
+     * The Settings pane's FOOTER — the drawer's usual footer row (same height and padding as the Chats
+     * footer) with the way back: "Back to chat" returns to the Chats pane and the chat.
+     */
+    private JComponent buildSettingsFooter() {
+        JPanel footer = new JPanel(new BorderLayout(8, 0));
+        footer.setOpaque(false);
+        footer.setBorder(BorderFactory.createEmptyBorder(
+                ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H,
+                ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H));
+        footer.setPreferredSize(new Dimension(10, ResearchUiMetrics.FOOTER_HEIGHT));
+        com.aresstack.comiccontrols.control.ComicButton back = new com.aresstack.comiccontrols.control.ComicButton(
+                "Back to chat", ChatComposerPanel.createBackGlyphIcon());
+        back.setIconTextGap(8);
+        back.setFocusable(false);
+        back.setToolTipText("Leave the settings and return to the chat");
+        back.addActionListener(event -> leaveSettings());
+        JPanel backWrap = new JPanel(new java.awt.GridBagLayout());
+        backWrap.setOpaque(false);
+        backWrap.add(back);
+        footer.add(backWrap, BorderLayout.WEST);
+        return footer;
+    }
+
+    /** Back from the settings to the Chats pane (the main area shows the chat again). */
+    void leaveSettings() {
+        sidebar.showTab(sidebar.tabTitles().get(0)); // the default pane: Chats
+        refreshRibbonTabs();
     }
 
     private static JComponent alignedLeft(JComponent component) {

@@ -608,6 +608,11 @@ public final class ChatComposerPanel extends JPanel {
      * The bare gear GLYPH (paints with the owning component's foreground) — for buttons that manage
      * their own surface, e.g. the dark chats-footer settings button.
      */
+    public static Icon createBackGlyphIcon() {
+        return new BackIcon();
+    }
+
+    /** The trash glyph (same contract as {@link #createGearGlyphIcon()}). */
     public static Icon createTrashGlyphIcon() {
         return new TrashIcon();
     }
@@ -1076,6 +1081,14 @@ public final class ChatComposerPanel extends JPanel {
             g2.drawLine(2, 5, 8, 5);
             g2.drawLine(12, 9, 12, 14);
             g2.drawLine(9, 12, 14, 12);
+        }
+    }
+
+    /** The BACK glyph: a left arrow (shaft + head), like the "back to the app" arrow of chat apps. */
+    private static final class BackIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            g2.drawLine(2, 7, 13, 7);
+            g2.drawPolyline(new int[]{7, 2, 7}, new int[]{2, 7, 12}, 3);
         }
     }
 
