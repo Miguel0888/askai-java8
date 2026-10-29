@@ -1,3 +1,5 @@
+> **Moved to [aresstack/askai](https://github.com/aresstack/askai).** AskAI continues there with this repository's complete history (all branches and tags). This repository is the frozen Java 8 line and will be archived.
+
 <p align="center">
   <img src="docs/images/askai-banner.png" alt="AskAI — the golden A, the wizard with &quot;sk&quot; on his robe, and his sparkler staff as the i" width="100%">
 </p>
