@@ -70,6 +70,40 @@ public class ChatWorkspacePanelTest {
     }
 
     @Test
+    public void theNewChatIconButtonInTheChatsFooterOpensANewChat() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                ChatWorkspacePanel workspace = build();
+                List<com.aresstack.comiccontrols.control.ResearchIconButton> buttons =
+                        new ArrayList<com.aresstack.comiccontrols.control.ResearchIconButton>();
+                collect(workspace, buttons);
+                com.aresstack.comiccontrols.control.ResearchIconButton newChat = null;
+                for (com.aresstack.comiccontrols.control.ResearchIconButton button : buttons) {
+                    if ("New chat".equals(button.getToolTipText())) {
+                        newChat = button;
+                    }
+                }
+                assertNotNull("an icon-only New chat button with tooltip exists", newChat);
+                assertEquals("icon only, no label", "", newChat.getText() == null ? "" : newChat.getText());
+                newChat.doClick();
+                assertEquals(2, workspace.openSessionCount());
+            }
+        });
+    }
+
+    private static void collect(java.awt.Container root,
+                                List<com.aresstack.comiccontrols.control.ResearchIconButton> into) {
+        for (java.awt.Component child : root.getComponents()) {
+            if (child instanceof com.aresstack.comiccontrols.control.ResearchIconButton) {
+                into.add((com.aresstack.comiccontrols.control.ResearchIconButton) child);
+            }
+            if (child instanceof java.awt.Container) {
+                collect((java.awt.Container) child, into);
+            }
+        }
+    }
+
+    @Test
     public void openingANewChatMakesItTheActiveOne() throws Exception {
         onEdt(new Runnable() {
             public void run() {

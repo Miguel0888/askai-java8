@@ -9,6 +9,7 @@ import com.aresstack.askai.java8.ui.sidebar.ChatSidebarPanel;
 import com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab;
 import com.aresstack.comiccontrols.control.ComicScrollPane;
 import com.aresstack.comiccontrols.control.ComicSplitPane;
+import com.aresstack.comiccontrols.control.ResearchIconButton;
 import com.aresstack.comiccontrols.control.ResearchPillButton;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
@@ -45,7 +46,7 @@ import java.util.Map;
  * sessions with the saved history, so one list is both the tab bar replacement and the history. The
  * drawer spans the workspace's full height on the left, opens on hamburger hover/click, closes when
  * the mouse leaves it (unless pinned), and the top bar carries the hamburger (top-left) plus the
- * agent toolbar slots; New chat lives INSIDE the drawer's Chats pane (button on top); the settings
+ * agent toolbar slots; New chat lives INSIDE the drawer's Chats pane (icon button in its footer); the settings
  * gear sits in the application menu bar (see {@link #openActiveChatSettings()}). Each chat keeps a stable {@link ChatSessionId}; sessions are addressed
  * by id, never by index. At least one chat stays open.
  */
@@ -734,35 +735,15 @@ public final class ChatWorkspacePanel extends JPanel {
         scroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         scroll.getVerticalScrollBar().setUnitIncrement(16);
 
-        // "+ Neuer Chat" above the list — the design study's dark pill, only as wide as its text.
-        ResearchPillButton newChat = new ResearchPillButton("+ Neuer Chat",
-                ResearchUiMetrics.NEW_CHAT_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL,
-                ResearchUiMetrics.NEW_CHAT_PADDING_H);
-        newChat.setFont(ResearchUiTypography.semiBold(13f));
-        newChat.setToolTipText("Open a new chat");
-        newChat.addActionListener(event -> {
-            openNewChat();
-            if (menuLocked) {
-                refreshChatList();
-            } else {
-                collapseMenuAndSidebar();
-            }
-        });
-        JPanel north = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
-        north.setOpaque(false);
-        north.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
-        north.add(newChat);
-
         JPanel tab = new JPanel(new BorderLayout());
         tab.setOpaque(false);
-        tab.add(north, BorderLayout.NORTH);
         tab.add(scroll, BorderLayout.CENTER);
         tab.add(buildChatsFooter(), BorderLayout.SOUTH);
         return tab;
     }
 
     /**
-     * The Chats-pane FOOTER: [language slot] [Delete all chats…] in ONE row, pinned to the
+     * The Chats-pane FOOTER: [new chat] [agent slot] [Delete all chats…] in ONE row, pinned to the
      * bottom of the pane (it never scrolls with the list). The language control is the active
      * agent's SIDEBAR_FOOTER toolbar contribution; delete-all lost its own full-width row — it is a
      * small quiet control now that only turns red on hover (the confirmation logic is unchanged).
@@ -777,9 +758,26 @@ public final class ChatWorkspacePanel extends JPanel {
         footer.setPreferredSize(new Dimension(10, ResearchUiMetrics.FOOTER_HEIGHT));
 
         agentFooterToolbarSlot.setOpaque(false);
-        // Left group: the agent's footer contributions (language pill + phase selector — the
-        // maintenance controls). The MODE pill moved up beside the burger: mode is navigation.
-        footer.add(agentFooterToolbarSlot, BorderLayout.WEST);
+        // Left group: the New-chat icon button (moved down from above the list, icon + tooltip only),
+        // then the agent's footer contributions (phase selector). The MODE pill moved up beside the
+        // burger: mode is navigation.
+        ResearchIconButton newChat = new ResearchIconButton(
+                ChatComposerPanel.createNewChatGlyphIcon(), "New chat");
+        newChat.addActionListener(event -> {
+            openNewChat();
+            if (menuLocked) {
+                refreshChatList();
+            } else {
+                collapseMenuAndSidebar();
+            }
+        });
+        JPanel left = new JPanel();
+        left.setLayout(new javax.swing.BoxLayout(left, javax.swing.BoxLayout.X_AXIS));
+        left.setOpaque(false);
+        left.add(newChat);
+        left.add(javax.swing.Box.createHorizontalStrut(8));
+        left.add(agentFooterToolbarSlot);
+        footer.add(left, BorderLayout.WEST);
 
         // Delete-all: same height/radius family as the language pill; white and quiet at rest,
         // red only on hover/pressed — a rarely used destructive action must not draw attention.

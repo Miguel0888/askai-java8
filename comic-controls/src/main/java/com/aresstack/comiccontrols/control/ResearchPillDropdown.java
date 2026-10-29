@@ -160,6 +160,16 @@ public class ResearchPillDropdown extends JComponent {
         }
     }
 
+    /** Icon-only: the tooltip names the selected item (e.g. "Deutsch"), since the pill shows no label. */
+    @Override
+    public String getToolTipText() {
+        Item item = selectedItem();
+        if (iconOnly && item != null) {
+            return item.text;
+        }
+        return super.getToolTipText();
+    }
+
     private String pillTextOf(Item item) {
         if (iconOnly && item.icon != null) {
             return "";

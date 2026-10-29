@@ -58,6 +58,8 @@ public class ComicMergedFeaturesTest {
         assertTrue("the label is gone and the minimum width dropped", iconOnly < withLabel);
         assertEquals(8 + 8 + 8 + 9 + 16 + 8, iconOnly);
         assertEquals("Deutsch", pill.getAccessibleContext().getAccessibleName());
+        pill.setToolTipText("generic explanation");
+        assertEquals("the flag names its language in the tooltip", "Deutsch", pill.getToolTipText());
     }
 
     @Test

@@ -608,6 +608,11 @@ public final class ChatComposerPanel extends JPanel {
      * The bare gear GLYPH (paints with the owning component's foreground) — for buttons that manage
      * their own surface, e.g. the dark chats-footer settings button.
      */
+    public static Icon createNewChatGlyphIcon() {
+        return new NewChatIcon();
+    }
+
+    /** The bare gear glyph (see {@link #createNewChatGlyphIcon()} for the same contract). */
     public static Icon createGearGlyphIcon() {
         return new GearIcon();
     }
@@ -1051,6 +1056,21 @@ public final class ChatComposerPanel extends JPanel {
             int[] y = {2, 7, 13};
             g2.drawPolygon(x, y, 3);
             g2.drawLine(3, 7, 11, 7);
+        }
+    }
+
+    /**
+     * The NEW-CHAT glyph: the send paper plane (smaller, top-left) with a "+" at the bottom right —
+     * "send something new". Painted with the owning component's foreground like every composer glyph.
+     */
+    private static final class NewChatIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            int[] x = {1, 10, 4};
+            int[] y = {1, 5, 10};
+            g2.drawPolygon(x, y, 3);
+            g2.drawLine(2, 5, 8, 5);
+            g2.drawLine(12, 9, 12, 14);
+            g2.drawLine(9, 12, 14, 12);
         }
     }
 
