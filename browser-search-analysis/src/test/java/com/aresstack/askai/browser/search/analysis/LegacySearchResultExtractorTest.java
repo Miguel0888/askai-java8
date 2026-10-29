@@ -59,6 +59,43 @@ public class LegacySearchResultExtractorTest {
         assertTrue(result.candidates.isEmpty());
     }
 
+    /**
+     * Bing's English header "About 1,230,000 results" ends in the configured marker "0 results". It is a
+     * result COUNT, not a no-results statement: an ununderstood page carrying it stays EXTRACTION_FAILED
+     * (the link harvest / AI repair still get their chance) instead of a false "genuinely empty" verdict
+     * that opens no hit at all.
+     */
+    @Test
+    public void aResultCountEndingInZeroResultsIsNotANoResultsPage() {
+        SerpDocuments serp = SerpDocuments.builder();
+        serp.addNavigationBar(8);
+        serp.addPlainContainer("div", "message", Collections.<String>emptyList(),
+                Collections.<String>emptyList(), new RenderedBox(300, 200, 680, 80),
+                60, 0, 0, 0, 0);
+        SearchResultExtractionResult counted = extractor.extract(
+                withExcerpt(serp.build(), "About 1,230,000 results"));
+        assertEquals(SearchPageAnalysisOutcome.EXTRACTION_FAILED, counted.outcome);
+
+        SearchResultExtractionResult empty = extractor.extract(
+                withExcerpt(serp.build(), "0 results for this search"));
+        assertEquals(SearchPageAnalysisOutcome.NO_ORGANIC_RESULTS, empty.outcome);
+    }
+
+    @Test
+    public void aDigitMarkerOnlyMatchesAsAWholeNumber() {
+        assertFalse(LegacySearchResultExtractor.containsNoResultsMarker("about 1,230,000 results", "0 results"));
+        assertFalse(LegacySearchResultExtractor.containsNoResultsMarker("showing 10 results", "0 results"));
+        assertFalse(LegacySearchResultExtractor.containsNoResultsMarker("1 230 000 results", "0 results"));
+        assertTrue(LegacySearchResultExtractor.containsNoResultsMarker("0 results", "0 results"));
+        assertTrue(LegacySearchResultExtractor.containsNoResultsMarker("found 0 results", "0 results"));
+        // Later occurrence after a rejected one (a count first, the statement afterwards).
+        assertTrue(LegacySearchResultExtractor.containsNoResultsMarker(
+                "20 results overall. 0 results on this page", "0 results"));
+        // Markers without a leading digit keep their plain substring semantics.
+        assertTrue(LegacySearchResultExtractor.containsNoResultsMarker("leider keine treffer.", "keine treffer"));
+        assertFalse(LegacySearchResultExtractor.containsNoResultsMarker("anything", ""));
+    }
+
     @Test
     public void anUnunderstoodLayoutIsAnExtractionFailureNotAnEmptyEngine() {
         SerpDocuments serp = SerpDocuments.builder();

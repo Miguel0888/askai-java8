@@ -2,6 +2,7 @@ package com.aresstack.askai.research.runtime.loop;
 
 import org.noear.solon.ai.chat.tool.ToolResult;
 import org.noear.solon.ai.mcp.client.McpClientProvider;
+import org.noear.solon.net.http.HttpTimeout;
 
 import java.time.Duration;
 import java.util.Map;
@@ -15,6 +16,8 @@ public final class SolonToolInvoker implements ToolInvoker, AutoCloseable {
 
     /** Fallback request timeout for quick control channels when the caller names none. */
     public static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 30;
+    /** The MCP initialize handshake and the TCP connect (loopback) — never the per-call budget. */
+    static final int INITIALIZATION_TIMEOUT_SECONDS = 15;
 
     private final McpClientProvider client;
 
@@ -28,15 +31,26 @@ public final class SolonToolInvoker implements ToolInvoker, AutoCloseable {
      * timeout here was misread as "sidecar dead" and ended every search as a technical failure.
      */
     public SolonToolInvoker(String url, String transport, int requestTimeoutSeconds) {
+        int seconds = requestTimeoutSeconds > 0 ? requestTimeoutSeconds : DEFAULT_REQUEST_TIMEOUT_SECONDS;
         this.client = McpClientProvider.builder()
                 .apiUrl(url)
                 .channel(transport == null || transport.isEmpty() ? "streamable" : transport)
                 .cacheSeconds(0)
-                .initializationTimeout(Duration.ofSeconds(15))
-                .requestTimeout(Duration.ofSeconds(
-                        requestTimeoutSeconds > 0 ? requestTimeoutSeconds
-                                : DEFAULT_REQUEST_TIMEOUT_SECONDS))
+                .initializationTimeout(Duration.ofSeconds(INITIALIZATION_TIMEOUT_SECONDS))
+                .requestTimeout(Duration.ofSeconds(seconds))
+                .httpTimeout(httpTimeout(seconds))
                 .build();
+    }
+
+    /**
+     * The HTTP socket timeouts of the streamable transport. Solon's {@code requestTimeout} only bounds the
+     * MCP request; the underlying HTTP read timeout stays at Solon's 30 s default unless it is set here, and
+     * a blocking tool call (a web_search_prepare over three result pages) then died with
+     * "SocketTimeoutException: Read timed out" after 30 s regardless of the configured request timeout.
+     * Connect is bounded like the initialize handshake; write and read cover the whole call.
+     */
+    static HttpTimeout httpTimeout(int requestTimeoutSeconds) {
+        return HttpTimeout.of(INITIALIZATION_TIMEOUT_SECONDS, requestTimeoutSeconds, requestTimeoutSeconds);
     }
 
     @Override
