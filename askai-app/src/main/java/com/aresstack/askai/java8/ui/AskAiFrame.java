@@ -279,11 +279,32 @@ public final class AskAiFrame extends JFrame {
         menuBar.add(createConfigurationMenu());
         menuBar.add(createHelpMenu());
         menuBar.add(Box.createHorizontalGlue());
+        // The settings gear, right-aligned directly left of the connection widget: opens the
+        // active chat's settings dialog (moved here from the chat drawer's footer).
+        menuBar.add(createSettingsGear());
         // ONE fused connection widget: status dot (hover → comic refresh glyph, click refreshes
         // connection/models/audio profiles) + address (click opens the connection settings). No
         // separate always-visible refresh button eating menu-bar space anymore.
         menuBar.add(connectionStatusView);
         return menuBar;
+    }
+
+    /** The flat menu-bar gear (glyph only, ink like the menus); opens the active chat's settings. */
+    private javax.swing.JComponent createSettingsGear() {
+        com.aresstack.comiccontrols.control.ComicButton gear = new com.aresstack.comiccontrols.control.ComicButton(
+                com.aresstack.askai.java8.ui.ChatComposerPanel.createGearGlyphIcon());
+        gear.setContentAreaFilled(false); // flat: just the glyph in the menu bar
+        gear.setFocusable(false);
+        gear.setMargin(new java.awt.Insets(0, 6, 0, 6));
+        gear.setToolTipText("Settings");
+        gear.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        gear.addActionListener(event -> {
+            if (chatWorkspace != null) {
+                chatWorkspace.openActiveChatSettings();
+            }
+        });
+        gear.setMaximumSize(gear.getPreferredSize()); // never stretched by the menu-bar layout
+        return gear;
     }
 
     /** Far-left "Datei" menu with an explicit "Beenden" that runs the same logged shutdown as the window X. */

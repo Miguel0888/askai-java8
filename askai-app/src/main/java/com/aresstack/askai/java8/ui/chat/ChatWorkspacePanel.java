@@ -9,7 +9,6 @@ import com.aresstack.askai.java8.ui.sidebar.ChatSidebarPanel;
 import com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab;
 import com.aresstack.comiccontrols.control.ComicScrollPane;
 import com.aresstack.comiccontrols.control.ComicSplitPane;
-import com.aresstack.comiccontrols.control.ResearchIconButton;
 import com.aresstack.comiccontrols.control.ResearchPillButton;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
@@ -46,8 +45,8 @@ import java.util.Map;
  * sessions with the saved history, so one list is both the tab bar replacement and the history. The
  * drawer spans the workspace's full height on the left, opens on hamburger hover/click, closes when
  * the mouse leaves it (unless pinned), and the top bar carries the hamburger (top-left) plus the
- * agent toolbar slots; New chat and the settings gear live INSIDE the drawer's Chats pane (button on
- * top, gear in the footer). Each chat keeps a stable {@link ChatSessionId}; sessions are addressed
+ * agent toolbar slots; New chat lives INSIDE the drawer's Chats pane (button on top); the settings
+ * gear sits in the application menu bar (see {@link #openActiveChatSettings()}). Each chat keeps a stable {@link ChatSessionId}; sessions are addressed
  * by id, never by index. At least one chat stays open.
  */
 public final class ChatWorkspacePanel extends JPanel {
@@ -763,11 +762,11 @@ public final class ChatWorkspacePanel extends JPanel {
     }
 
     /**
-     * The Chats-pane FOOTER: [language slot] [Delete all chats…] [gear] in ONE row, pinned to the
+     * The Chats-pane FOOTER: [language slot] [Delete all chats…] in ONE row, pinned to the
      * bottom of the pane (it never scrolls with the list). The language control is the active
      * agent's SIDEBAR_FOOTER toolbar contribution; delete-all lost its own full-width row — it is a
-     * small quiet control now that only turns red on hover (the confirmation logic is unchanged);
-     * the gear opens the active chat's settings dialog.
+     * small quiet control now that only turns red on hover (the confirmation logic is unchanged).
+     * The settings gear moved to the application menu bar ({@link #openActiveChatSettings()}).
      */
     private JComponent buildChatsFooter() {
         JPanel footer = new JPanel(new BorderLayout(8, 0));
@@ -801,20 +800,15 @@ public final class ChatWorkspacePanel extends JPanel {
         deleteWrap.setOpaque(false);
         deleteWrap.add(deleteAll);
         footer.add(deleteWrap, BorderLayout.CENTER);
-
-        ResearchIconButton gear = new ResearchIconButton(
-                ChatComposerPanel.createGearGlyphIcon(), "Chat settings");
-        gear.addActionListener(event -> {
-            ChatSessionComponent active = activeSession();
-            if (active instanceof OllamaChatPanel) {
-                ((OllamaChatPanel) active).openSettingsDialog();
-            }
-        });
-        JPanel gearWrap = new JPanel(new java.awt.GridBagLayout());
-        gearWrap.setOpaque(false);
-        gearWrap.add(gear);
-        footer.add(gearWrap, BorderLayout.EAST);
         return footer;
+    }
+
+    /** Opens the ACTIVE chat's settings dialog (the menu-bar gear); no-op without an active chat panel. */
+    public void openActiveChatSettings() {
+        ChatSessionComponent active = activeSession();
+        if (active instanceof OllamaChatPanel) {
+            ((OllamaChatPanel) active).openSettingsDialog();
+        }
     }
 
     /** One chat-list entry: an open session ({@code openId != null}) and/or its persisted record. */
