@@ -447,4 +447,5 @@ Nur Dinge, die der User NICHT gefordert hat:
 - T6a also pins `ResearchSkyHostGeometryTest` to the classic theme: its paint-chain proofs assert classic colors
   ("white wash", "cool blue bar"), which the T3 arcane default (sunset sky) legitimately changed; the plugin tests
   of the changed classes ran for the first time in T6a.
+  - T6b (`OllamaChatPanel`, 58 sites): no hardcoded color was set on a converted control; nothing removed or kept.
 
