@@ -933,8 +933,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
     /** The category names shown in the Outlook-style navigation list, in display order. */
     private static final String[] SETTINGS_CATEGORIES = {
-            "General", "Appearance", "Audio & Dictation", "Notifications", "Party: Identity & Room",
-            "Party: Network", "Party: Bot", "Party: History", "Technical Details"};
+            "General", "Appearance", "Audio & Dictation", "Notifications", "Party", "Technical Details"};
 
     /**
      * The chat settings dialog content, Outlook-style: a category list on the left selects one
@@ -1041,12 +1040,16 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         cards.add(settingsCard(buildAppearanceCard()), SETTINGS_CATEGORIES[1]);
         cards.add(settingsCard(buildAudioCard()), SETTINGS_CATEGORIES[2]);
         cards.add(settingsCard(buildNotificationsCard()), SETTINGS_CATEGORIES[3]);
-        cards.add(settingsCard(partyCards[0]), SETTINGS_CATEGORIES[4]);
-        cards.add(settingsCard(partyCards[1]), SETTINGS_CATEGORIES[5]);
-        cards.add(settingsCard(partyCards[2]), SETTINGS_CATEGORIES[6]);
-        cards.add(settingsCard(partyCards[3]), SETTINGS_CATEGORIES[7]);
+        // Party: ONE category with its sub-pages as tabs (like the Research Agent page); every tab
+        // scrolls on its own, so the tabbed pane itself is not wrapped in another scroll pane.
+        javax.swing.JTabbedPane party = ComicControls.tabbedPane();
+        party.addTab("Identity & Room", settingsCard(partyCards[0]));
+        party.addTab("Network", settingsCard(partyCards[1]));
+        party.addTab("Bot", settingsCard(partyCards[2]));
+        party.addTab("History", settingsCard(partyCards[3]));
+        cards.add(party, SETTINGS_CATEGORIES[4]);
         // The technical log is already scrollable — no settingsCard wrapper (no double scroll pane).
-        cards.add(buildTechnicalDetails(), SETTINGS_CATEGORIES[8]);
+        cards.add(buildTechnicalDetails(), SETTINGS_CATEGORIES[5]);
 
         java.util.List<String> categories =
                 new java.util.ArrayList<String>(java.util.Arrays.asList(SETTINGS_CATEGORIES));
@@ -1113,6 +1116,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         });
         row.add(themes);
         column.add(row);
+        // The chat bubble colors belong to the look, too (moved here from General).
+        JComponent colors = buildColorSettings();
+        colors.setAlignmentX(Component.LEFT_ALIGNMENT);
+        column.add(colors);
         return column;
     }
 
@@ -1152,9 +1159,6 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         system.setMaximumSize(new Dimension(Integer.MAX_VALUE, 170));
         card.add(system);
 
-        JComponent colors = (JComponent) buildColorSettings();
-        colors.setAlignmentX(Component.LEFT_ALIGNMENT);
-        card.add(colors);
         return card;
     }
 
