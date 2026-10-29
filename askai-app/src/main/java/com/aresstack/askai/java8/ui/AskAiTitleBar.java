@@ -68,24 +68,15 @@ public final class AskAiTitleBar extends JPanel {
 
         searchSlot.setOpaque(false);
         searchSlot.setVisible(false);
-        // CENTER: the navigation (Chat, Batch) centered in the space between title and search, then the
-        // search, then a filler of the same weight, so the search stays near the middle of the window.
-        JPanel middle = new JPanel(new GridBagLayout());
+        // CENTER: the search centered on the WHOLE bar (not just the free space between title and controls);
+        // the navigation centered in the space left of the search.
+        final JPanel middle = new JPanel();
         middle.setOpaque(false);
         navigationSlot.setOpaque(false);
         navigationSlot.setLayout(new BoxLayout(navigationSlot, BoxLayout.X_AXIS));
-        java.awt.GridBagConstraints c = new java.awt.GridBagConstraints();
-        c.gridy = 0;
-        c.gridx = 0;
-        c.weightx = 1;
-        c.anchor = java.awt.GridBagConstraints.CENTER;
-        middle.add(navigationSlot, c);
-        c.gridx = 1;
-        c.weightx = 0;
-        middle.add(searchSlot, c);
-        c.gridx = 2;
-        c.weightx = 1;
-        middle.add(Box.createHorizontalStrut(1), c);
+        middle.setLayout(new CenteredSearchLayout());
+        middle.add(navigationSlot);
+        middle.add(searchSlot);
         add(middle, BorderLayout.CENTER);
 
         right.setLayout(new BoxLayout(right, BoxLayout.X_AXIS));
@@ -165,5 +156,44 @@ public final class AskAiTitleBar extends JPanel {
     /** The visible search field, or {@code null} while no agent search is bound (tests). */
     JComponent searchField() {
         return searchSlot.isVisible() ? searchField : null;
+    }
+
+    /** Lays out the middle: the search centered on the title bar, the navigation centered left of it. */
+    private final class CenteredSearchLayout implements java.awt.LayoutManager {
+        public void addLayoutComponent(String name, java.awt.Component comp) {
+        }
+
+        public void removeLayoutComponent(java.awt.Component comp) {
+        }
+
+        public Dimension preferredLayoutSize(java.awt.Container parent) {
+            Dimension nav = navigationSlot.getPreferredSize();
+            Dimension search = searchSlot.isVisible() ? searchSlot.getPreferredSize() : new Dimension();
+            return new Dimension(nav.width + search.width, Math.max(nav.height, search.height));
+        }
+
+        public Dimension minimumLayoutSize(java.awt.Container parent) {
+            return new Dimension(0, 0);
+        }
+
+        public void layoutContainer(java.awt.Container parent) {
+            int width = parent.getWidth();
+            int height = parent.getHeight();
+            int searchLeft = width;
+            if (searchSlot.isVisible()) {
+                Dimension pref = searchSlot.getPreferredSize();
+                int w = Math.min(pref.width, width);
+                // the bar's center, in the middle panel's coordinates, clamped into the middle panel
+                int x = AskAiTitleBar.this.getWidth() / 2 - parent.getX() - w / 2;
+                x = Math.max(0, Math.min(x, width - w));
+                int h = Math.min(pref.height, height);
+                searchSlot.setBounds(x, (height - h) / 2, w, h);
+                searchLeft = x;
+            }
+            Dimension nav = navigationSlot.getPreferredSize();
+            int w = Math.min(nav.width, searchLeft);
+            int h = Math.min(nav.height, height);
+            navigationSlot.setBounds((searchLeft - w) / 2, (height - h) / 2, w, h);
+        }
     }
 }

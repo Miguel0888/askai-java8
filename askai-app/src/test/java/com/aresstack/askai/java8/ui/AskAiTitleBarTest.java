@@ -91,4 +91,47 @@ public class AskAiTitleBarTest {
         bar.bindSearch(null, sessions);
         assertNull("no active agent search: hidden", bar.searchField());
     }
+
+    @Test
+    public void theSearchIsCenteredOnTheWholeBarNotOnTheFreeSpace() {
+        final AgentSession session = (AgentSession) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[]{AgentSession.class}, (proxy, method, args) -> null);
+        AgentSearchContribution search = new AgentSearchContribution() {
+            public boolean supports(AgentSession s) {
+                return true;
+            }
+
+            public String getPlaceholder() {
+                return "Search";
+            }
+
+            public String getTooltip() {
+                return "Search";
+            }
+
+            public void search(AgentSession s, String query) {
+            }
+        };
+        AskAiTitleBar bar = new AskAiTitleBar("AskAI", NOTHING, NOTHING);
+        // many controls on the right: the free space is far left of the bar's center
+        for (int i = 0; i < 6; i++) {
+            javax.swing.JButton control = new javax.swing.JButton("control " + i);
+            bar.addTrailingControl(control);
+        }
+        bar.bindSearch(search, () -> session);
+        bar.setSize(1400, AskAiTitleBar.HEIGHT);
+        layoutAll(bar);
+        java.awt.Component field = bar.searchField();
+        java.awt.Rectangle r = javax.swing.SwingUtilities.convertRectangle(field.getParent(), field.getBounds(), bar);
+        assertEquals("centered on the bar", 700, r.x + r.width / 2, 2);
+    }
+
+    private static void layoutAll(java.awt.Container c) {
+        c.doLayout();
+        for (java.awt.Component child : c.getComponents()) {
+            if (child instanceof java.awt.Container) {
+                layoutAll((java.awt.Container) child);
+            }
+        }
+    }
 }
