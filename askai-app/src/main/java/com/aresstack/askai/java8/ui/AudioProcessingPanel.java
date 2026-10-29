@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.audio.AudioProfileRepository;
 import com.aresstack.askai.java8.audio.transfer.AudioProfileExportService;
 import com.aresstack.askai.java8.audio.transfer.AudioProfileImportPreview;
@@ -53,16 +55,16 @@ public final class AudioProcessingPanel extends JPanel {
 
     private final AudioProfileRepository repository;
     private final ApplicationStateService applicationState;
-    private final JComboBox<AudioProcessingProfile> profileCombo = new JComboBox<AudioProcessingProfile>();
-    private final JButton saveButton = new JButton("Save");
-    private final JButton saveAsButton = new JButton("Save as…");
-    private final JButton deleteButton = new JButton("Delete");
-    private final JButton resetButton = new JButton("Reset changes");
-    private final JButton importButton = new JButton("Import profiles…");
-    private final JButton exportSelectedButton = new JButton("Export selected profile…");
-    private final JButton exportAllButton = new JButton("Export all user profiles…");
-    private final JButton addButton = new JButton("Add block");
-    private final JButton removeButton = new JButton("Remove block");
+    private final JComboBox<AudioProcessingProfile> profileCombo = ComicControls.<AudioProcessingProfile>comboBox();
+    private final JButton saveButton = new ComicButton("Save");
+    private final JButton saveAsButton = new ComicButton("Save as…");
+    private final JButton deleteButton = new ComicButton("Delete");
+    private final JButton resetButton = new ComicButton("Reset changes");
+    private final JButton importButton = new ComicButton("Import profiles…");
+    private final JButton exportSelectedButton = new ComicButton("Export selected profile…");
+    private final JButton exportAllButton = new ComicButton("Export all user profiles…");
+    private final JButton addButton = new ComicButton("Add block");
+    private final JButton removeButton = new ComicButton("Remove block");
     private final AudioProfileExportService exportService = new AudioProfileExportService();
     private final AudioProfileImportService importService;
     private final AudioProfileValidator validator = new AudioProfileValidator();
@@ -70,7 +72,7 @@ public final class AudioProcessingPanel extends JPanel {
     private final DefaultListModel<AudioProfileValidationIssue> issueModel =
             new DefaultListModel<AudioProfileValidationIssue>();
     private final JList<AudioProfileValidationIssue> issueList =
-            new JList<AudioProfileValidationIssue>(issueModel);
+            ComicControls.<AudioProfileValidationIssue>list(issueModel);
     private AudioProfileValidationResult validation =
             new AudioProfileValidationResult(Collections.<AudioProfileValidationIssue>emptyList());
     private boolean updatingIssueSelection;
@@ -171,7 +173,7 @@ public final class AudioProcessingPanel extends JPanel {
 
     private JPanel buildValidationStrip() {
         JPanel strip = new JPanel(new BorderLayout(0, 2));
-        strip.setBorder(BorderFactory.createTitledBorder("Validation"));
+        strip.setBorder(ComicControls.titledBorder("Validation"));
         validationSummary.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
         strip.add(validationSummary, BorderLayout.NORTH);
 

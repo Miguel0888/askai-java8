@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.audio.pipeline.AudioBlockRegistry;
 import com.aresstack.audio.pipeline.AudioParameterChoice;
 import com.aresstack.audio.pipeline.AudioParameterDescriptor;
@@ -48,12 +50,12 @@ public final class AudioBlockInspectorPanel extends JPanel {
     }
 
     private final AudioBlockRegistry registry = AudioBlockRegistry.getInstance();
-    private final JComboBox<AudioBlockType> functionCombo = new JComboBox<AudioBlockType>(AudioBlockType.values());
-    private final JCheckBox enabledCheck = new JCheckBox("Enabled");
+    private final JComboBox<AudioBlockType> functionCombo = ComicControls.<AudioBlockType>comboBox(AudioBlockType.values());
+    private final JCheckBox enabledCheck = ComicControls.checkBox("Enabled");
     private final JPanel parametersPanel = new JPanel();
     private final Map<String, JComponent> parameterEditors = new LinkedHashMap<String, JComponent>();
     private final Map<String, String> parameterHelpTexts = new HashMap<String, String>();
-    private final JButton applyButton = new JButton("Apply block");
+    private final JButton applyButton = new ComicButton("Apply block");
     private final Map<String, Border> defaultBorders = new HashMap<String, Border>();
 
     private AudioBlockDefinition block;
@@ -208,24 +210,24 @@ public final class AudioBlockInspectorPanel extends JPanel {
         JComponent editor;
         switch (parameter.getType()) {
             case INTEGER:
-                editor = new JSpinner(new SpinnerNumberModel(
+                editor = ComicControls.spinner(new SpinnerNumberModel(
                         selected.getIntParameter(parameter.getKey(), (int) parseDefault(parameter)),
                         (int) parameter.getMinimum(), (int) parameter.getMaximum(), 1));
                 break;
             case DECIMAL:
-                editor = new JSpinner(new SpinnerNumberModel(
+                editor = ComicControls.spinner(new SpinnerNumberModel(
                         selected.getDoubleParameter(parameter.getKey(), parseDefault(parameter)),
                         parameter.getMinimum(), parameter.getMaximum(), parameter.getStep()));
                 break;
             case BOOLEAN:
-                JCheckBox checkBox = new JCheckBox();
+                JCheckBox checkBox = ComicControls.checkBox();
                 checkBox.setOpaque(false);
                 checkBox.setSelected(selected.getBooleanParameter(parameter.getKey(),
                         Boolean.parseBoolean(parameter.getDefaultValue())));
                 editor = checkBox;
                 break;
             case TEXT:
-                editor = new JTextField(selected.getParameter(parameter.getKey(),
+                editor = ComicControls.textField(selected.getParameter(parameter.getKey(),
                         parameter.getDefaultValue()));
                 break;
             case CHOICE:
@@ -240,7 +242,7 @@ public final class AudioBlockInspectorPanel extends JPanel {
     private JComboBox<AudioParameterChoice> buildChoice(AudioParameterDescriptor parameter,
                                                         AudioBlockDefinition selected) {
         List<AudioParameterChoice> choices = parameter.getChoices();
-        JComboBox<AudioParameterChoice> combo = new JComboBox<AudioParameterChoice>();
+        JComboBox<AudioParameterChoice> combo = ComicControls.<AudioParameterChoice>comboBox();
         String current = selected.getParameter(parameter.getKey(), parameter.getDefaultValue());
         for (int i = 0; i < choices.size(); i++) {
             combo.addItem(choices.get(i));

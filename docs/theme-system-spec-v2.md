@@ -448,4 +448,6 @@ Nur Dinge, die der User NICHT gefordert hat:
   ("white wash", "cool blue bar"), which the T3 arcane default (sunset sky) legitimately changed; the plugin tests
   of the changed classes ran for the first time in T6a.
   - T6b (`OllamaChatPanel`, 58 sites): no hardcoded color was set on a converted control; nothing removed or kept.
+  - T6c (video/record dialogs, audio panels, batch transcription; 105 sites): no hardcoded color on a converted
+    control; nothing removed or kept.
 
