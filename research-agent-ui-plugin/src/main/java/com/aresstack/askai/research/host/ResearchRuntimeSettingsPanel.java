@@ -124,7 +124,8 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     private final JTextField agentJar = ComicControls.textField(38);
     private final JTextField sidecarJava = ComicControls.textField(38);
     private final JTextField sidecarJar = ComicControls.textField(38);
-    private final JComboBox<String> browserChannel = ComicControls.<String>comboBox(new String[]{"chrome", "msedge"});
+    private final JComboBox<String> browserChannel = ComicControls.<String>comboBox(
+            new String[]{ResearchRuntimeSettings.CAMOUFOX_CHANNEL, "chrome", "msedge"});
     // The reranker model is chosen centrally in AskAI (Configuration → AI models), NOT here. Any previously
     // persisted plugin-side selection is carried through unchanged so it is never lost on save.
     private String carriedRerankerModel = "";

@@ -20,6 +20,10 @@ public final class ResearchRuntimeSettings {
     static final String KEY_SIDECAR_JAVA = "research.runtime.sidecarJava";
     static final String KEY_SIDECAR_JAR = "research.runtime.sidecarJar";
     static final String KEY_BROWSER_CHANNEL = "research.runtime.browserChannel";
+    /** Set once the stored channel went through the Camoufox switch (see {@link #load}). */
+    static final String KEY_BROWSER_CHANNEL_CAMOUFOX_SWITCH = "research.runtime.browserChannel.camoufoxSwitch";
+    /** The managed Camoufox browser (downloaded once by the sidecar) — the default channel. */
+    public static final String CAMOUFOX_CHANNEL = "camoufox";
     static final String KEY_HEADLESS = "research.runtime.headless";
     /** Conversation-policy thresholds (documented defaults; adjustable WITHOUT a rebuild via
      *  the env hand-off — the same mechanism as the concept loop budgets; a settings-UI row
@@ -587,14 +591,14 @@ public final class ResearchRuntimeSettings {
         this.agentJar = nullToEmpty(agentJar);
         this.sidecarJavaExecutable = nullToEmpty(sidecarJavaExecutable);
         this.sidecarJar = nullToEmpty(sidecarJar);
-        this.browserChannel = browserChannel == null || browserChannel.isEmpty() ? "chrome" : browserChannel;
+        this.browserChannel = browserChannel == null || browserChannel.isEmpty() ? CAMOUFOX_CHANNEL : browserChannel;
         this.headless = headless;
         this.allowPrivateNetworks = allowPrivateNetworks;
         this.selectedRerankerModel = nullToEmpty(selectedRerankerModel);
     }
 
     public static ResearchRuntimeSettings defaults() {
-        return new ResearchRuntimeSettings(ResearchBackendMode.FAKE, "", "", "", "", "chrome", true);
+        return new ResearchRuntimeSettings(ResearchBackendMode.FAKE, "", "", "", "", CAMOUFOX_CHANNEL, true);
     }
 
     /** True when a mode value was ever persisted (the FAKE developer override requires an explicit one). */
@@ -617,10 +621,27 @@ public final class ResearchRuntimeSettings {
                 store.get(KEY_AGENT_JAR, ""),
                 store.get(KEY_SIDECAR_JAVA, ""),
                 store.get(KEY_SIDECAR_JAR, ""),
-                store.get(KEY_BROWSER_CHANNEL, "chrome"),
+                browserChannel(store),
                 store.getBoolean(KEY_HEADLESS, true),
                 store.getBoolean(KEY_ALLOW_PRIVATE, false),
                 store.get(KEY_RERANKER_MODEL, ""));
+    }
+
+    /**
+     * Camoufox became the default browser. "chrome" was the old default and every settings save wrote it,
+     * so a stored "chrome" is switched to Camoufox ONCE; an explicit choice made after that switch (or a
+     * stored "msedge") stays.
+     */
+    private static String browserChannel(WorkspaceStateStore store) {
+        String stored = store.get(KEY_BROWSER_CHANNEL, CAMOUFOX_CHANNEL);
+        if (store.get(KEY_BROWSER_CHANNEL_CAMOUFOX_SWITCH, null) == null) {
+            store.put(KEY_BROWSER_CHANNEL_CAMOUFOX_SWITCH, "done");
+            if ("chrome".equals(stored)) {
+                store.put(KEY_BROWSER_CHANNEL, CAMOUFOX_CHANNEL);
+                return CAMOUFOX_CHANNEL;
+            }
+        }
+        return stored;
     }
 
     /**

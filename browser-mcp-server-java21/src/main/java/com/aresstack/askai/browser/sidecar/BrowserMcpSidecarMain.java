@@ -18,14 +18,14 @@ import java.util.Map;
  * 127.0.0.1 with a caller-provided port and session token (both passed by the spawning host) and exposes the
  * exact flat tool set {@code web_search, web_open, web_read, web_links, web_follow, web_back} over a
  * {@link BrowserSession}. Args: {@code --port=<port> --token=<token>} plus optional
- * {@code --browser-channel=chrome|msedge} (default chrome), {@code --headless=true|false} (default true),
+ * {@code --browser-channel=camoufox|chrome|msedge} (default camoufox), {@code --headless=true|false} (default true),
  * {@code --allow-private=true|false} (default false; true only for local test servers) and
  * {@code --search-url=<template with {query}>}. Logs go to STDERR only; the token never appears in them.
  *
  * <p>The Playwright-backed session ({@link PlaywrightSessionFactory}) runs a structured capability probe;
  * when the runtime is unavailable every tool reports the SPECIFIC status as a readable error. A missing
- * driver or browser never breaks packaging or the host build, and nothing is downloaded. See problems.md
- * MCP-P005.</p>
+ * driver or browser never breaks packaging or the host build. The only download is the managed Camoufox
+ * (once, verified; also standalone via {@code --install-camoufox}). See problems.md MCP-P005.</p>
  */
 public final class BrowserMcpSidecarMain {
 
@@ -33,6 +33,12 @@ public final class BrowserMcpSidecarMain {
     }
 
     public static void main(String[] args) {
+        if (java.util.Arrays.asList(args).contains("--install-camoufox")) {
+            // One-time download/verification of the managed Camoufox (the host's background prefetch);
+            // dies with the host like the server mode.
+            ParentDeathWatchdog.install("camoufox-install");
+            System.exit(CamoufoxProvisioning.installOnly());
+        }
         int port = intArg(args, "--port=", 0);
         String token = stringArg(args, "--token=");
         if (port <= 0 || token == null || token.isEmpty()) {
@@ -63,7 +69,7 @@ public final class BrowserMcpSidecarMain {
                 new java.util.function.Supplier<BrowserSession>() {
                     public BrowserSession get() {
                         return PlaywrightSessionFactory.create(
-                                channel == null ? "chrome" : channel, headless, allowPrivate,
+                                channel, headless, allowPrivate,
                                 searchUrl, com.aresstack.askai.browser.BrowserLimits.defaults(),
                                 searchSettings);
                     }

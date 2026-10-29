@@ -14,9 +14,10 @@ import java.util.Map;
  * (1) the effective {@code com.microsoft.playwright.impl.driver.Driver} is playwright4j's replacement (its
  * child command runs {@code GraalDriverMain} — the upstream one would try to install/spawn Node),
  * (2) the Playwright Core JS driver package is on the classpath (embedded in the playwright4j jar),
- * (3) an executable for the configured browser channel exists locally.
+ * (3) an executable for the configured browser channel exists locally — except for the managed Camoufox,
+ * which the launch installs and verifies itself ({@link CamoufoxProvisioning}).
  * Launchability itself is verified by the actual launch at session start ({@code BROWSER_START_FAILED}).
- * The probe NEVER downloads or installs anything.
+ * The probe itself NEVER downloads or installs anything.
  */
 final class PlaywrightCapabilityProbe {
 
@@ -66,6 +67,11 @@ final class PlaywrightCapabilityProbe {
         if (!checks.driverBundlePresent()) {
             return new PlaywrightReadiness(PlaywrightReadiness.Status.DRIVER_BUNDLE_NOT_FOUND,
                     "Playwright Core driver package (embedded in com.aresstack:playwright4j) is not on the classpath.");
+        }
+        if (CamoufoxProvisioning.CHANNEL.equals(channel)) {
+            // Managed: not looked up on the machine — the launch installs (once) and verifies it.
+            return new PlaywrightReadiness(PlaywrightReadiness.Status.READY,
+                    "channel=camoufox executable=managed under " + CamoufoxProvisioning.browserRoot());
         }
         String executable = checks.browserExecutable(channel);
         if (executable == null) {

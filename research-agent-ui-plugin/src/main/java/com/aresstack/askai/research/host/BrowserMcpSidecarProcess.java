@@ -28,6 +28,9 @@ public final class BrowserMcpSidecarProcess {
     /** How many trailing stderr lines to retain for post-mortem diagnostics (a dead sidecar's last words). */
     private static final int STDERR_RING_CAPACITY = 60;
 
+    /** Prefix of the sidecar's Camoufox install progress lines ({@code CamoufoxProvisioning}). */
+    static final String CAMOUFOX_INSTALL_MARKER = "camoufox install:";
+
     private final Process process;
     private final int port;
     private final String token;
@@ -86,6 +89,10 @@ public final class BrowserMcpSidecarProcess {
         final Process process = new ProcessBuilder(command).start();
 
         final CountDownLatch ready = new CountDownLatch(1);
+        // Last Camoufox install progress line (nanoTime): the first start downloads the browser, which
+        // takes longer than the readiness timeout. Each progress line restarts the timeout.
+        final java.util.concurrent.atomic.AtomicLong installProgressNanos =
+                new java.util.concurrent.atomic.AtomicLong();
         final StringBuilder readiness = new StringBuilder();
         final Deque<String> recentStderr = new ArrayDeque<String>();
         Thread drain = new Thread(new Runnable() {
@@ -110,6 +117,10 @@ public final class BrowserMcpSidecarProcess {
                                         line.indexOf("playwright readiness:") + 21).trim());
                             }
                         }
+                        if (line.contains(CAMOUFOX_INSTALL_MARKER)) {
+                            installProgressNanos.set(System.nanoTime());
+                            System.err.println("[browser] " + line.trim());
+                        }
                         if (line.contains("ready on 127.0.0.1:")) {
                             ready.countDown();
                         }
@@ -122,13 +133,7 @@ public final class BrowserMcpSidecarProcess {
         drain.setDaemon(true);
         drain.start();
 
-        boolean up;
-        try {
-            up = ready.await(readyTimeoutSeconds, TimeUnit.SECONDS);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            up = false;
-        }
+        boolean up = awaitReady(ready, installProgressNanos, readyTimeoutSeconds);
         String readinessLine;
         synchronized (readiness) {
             readinessLine = readiness.toString();
@@ -211,6 +216,32 @@ public final class BrowserMcpSidecarProcess {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
+        }
+    }
+
+    /**
+     * Waits for the readiness line; the timeout counts from the start or from the latest Camoufox install
+     * progress line, whichever is later — a running download keeps the start alive, a stalled one does not.
+     */
+    static boolean awaitReady(CountDownLatch ready, java.util.concurrent.atomic.AtomicLong installProgressNanos,
+                              long readyTimeoutSeconds) {
+        long timeoutNanos = TimeUnit.SECONDS.toNanos(readyTimeoutSeconds);
+        long start = System.nanoTime();
+        try {
+            while (true) {
+                long progress = installProgressNanos.get();
+                long from = progress != 0 && progress - start > 0 ? progress : start;
+                long remaining = from + timeoutNanos - System.nanoTime();
+                if (remaining <= 0) {
+                    return ready.getCount() == 0;
+                }
+                if (ready.await(Math.min(remaining, TimeUnit.SECONDS.toNanos(1)), TimeUnit.NANOSECONDS)) {
+                    return true;
+                }
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

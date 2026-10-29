@@ -18,7 +18,8 @@ import java.util.function.Predicate;
  * first ({@link PlaywrightCapabilityProbe}); anything but READY yields an {@link UnavailableSession} whose
  * tool errors carry the SPECIFIC status (INCOMPATIBLE_DRIVER / DRIVER_BUNDLE_NOT_FOUND / BROWSER_NOT_INSTALLED
  * / BROWSER_START_FAILED) — never a blanket NOT_INSTALLED and never a silent STATIC_HTTP fallback. A launch
- * failure after a READY probe is reported as BROWSER_START_FAILED. Nothing is ever downloaded or installed.
+ * failure after a READY probe is reported as BROWSER_START_FAILED. The only download is the managed Camoufox
+ * (channel {@code camoufox}, the default), installed once by {@link CamoufoxProvisioning} during the launch.
  */
 final class PlaywrightSessionFactory {
 
@@ -28,7 +29,7 @@ final class PlaywrightSessionFactory {
     static BrowserSession create(String channel, boolean headless, boolean allowPrivateNetworks,
                                  String searchUrlTemplate, BrowserLimits limits,
                                  com.aresstack.askai.browser.search.LegacyBrowserSearchSettings settings) {
-        String normalizedChannel = "msedge".equalsIgnoreCase(channel) ? "msedge" : "chrome";
+        String normalizedChannel = normalizeChannel(channel);
         PlaywrightReadiness readiness = new PlaywrightCapabilityProbe().probe(normalizedChannel);
         System.err.println("[browser-mcp] playwright readiness: " + readiness.render());
         if (!readiness.isReady()) {
@@ -50,6 +51,17 @@ final class PlaywrightSessionFactory {
             System.err.println("[browser-mcp] playwright readiness: " + failed.render());
             return new UnavailableSession(failed.render());
         }
+    }
+
+    /** camoufox (the default, also for a missing value), chrome or msedge. */
+    static String normalizeChannel(String channel) {
+        if ("msedge".equalsIgnoreCase(channel)) {
+            return "msedge";
+        }
+        if ("chrome".equalsIgnoreCase(channel)) {
+            return "chrome";
+        }
+        return CamoufoxProvisioning.CHANNEL;
     }
 
     /**

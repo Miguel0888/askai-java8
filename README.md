@@ -53,8 +53,8 @@ tab). A **Revisions** view shows how the project got there.
 - **Semantic scope fence:** exclusions go on a blacklist, and that blacklist acts as a hard filter on
   what research collects. A scope probe tells you whether candidate terms are in scope, out of scope,
   or on the boundary.
-- **Web research:** a browser sidecar drives a locally installed Chrome or Edge through Playwright4J.
-  It handles search result pages, link following, consent and captcha handling, and content-readiness
+- **Web research:** a browser sidecar drives Camoufox (a hardened Firefox with a fingerprint profile)
+  through Playwright4J over WebDriver BiDi; Chrome or Edge remain selectable. It handles search result pages, link following, consent and captcha handling, and content-readiness
   checks.
 - **Sources:**
   - Each page moves through a lifecycle (visited → candidate → accepted) and is deduplicated by
@@ -117,8 +117,12 @@ tab). A **Revisions** view shows how the project got there.
   `local-model-runtime-sidecar-java21` (win-directml-java). Gradle finds Java 21 as a toolchain. If no
   Java 21 toolchain is available, `run` starts without the local model runtime.
 - **An Ollama server** for chat, dictation and model management.
-- **Chrome or Edge** installed locally for browser research. The sidecar uses the browser channel
-  mechanism (`chrome` / `msedge`) and never downloads a browser
+- **Nothing to install for browser research** (Windows x86_64 and Linux x86_64): the default browser
+  channel `camoufox` downloads Camoufox once (about 1.3 GB) to `%APPDATA%/.askai-java8/browser`. It is
+  the patched build of the [Argos](https://github.com/aresstack/argos) distribution, which carries the
+  WebDriver BiDi fixes of daijro/camoufox#952 that no Camoufox release contains yet. AskAI checks the
+  archive's pinned SHA-256 at download and both fixes at every browser start. The download starts in the background when a research
+  session starts. The channels `chrome` / `msedge` use a locally installed browser instead
   (see [docs/browser-mcp.md](docs/browser-mcp.md)).
 
 ## Build and run
