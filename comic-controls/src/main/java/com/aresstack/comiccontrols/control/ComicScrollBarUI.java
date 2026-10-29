@@ -1,10 +1,12 @@
 package com.aresstack.comiccontrols.control;
 
+import com.aresstack.comiccontrols.theme.AskAiTheme;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JScrollBar;
+import javax.swing.plaf.ComponentUI;
 import javax.swing.plaf.basic.BasicScrollBarUI;
 import java.awt.Dimension;
 import java.awt.Graphics;
@@ -31,6 +33,11 @@ public final class ComicScrollBarUI extends BasicScrollBarUI {
             throw new IllegalArgumentException("palette must not be null");
         }
         this.palette = palette;
+    }
+
+    /** Global delegate factory ({@code UIManager "ScrollBarUI"}): the active theme's palette. */
+    public static ComponentUI createUI(JComponent c) {
+        return new ComicScrollBarUI(AskAiTheme.active().comicPalette());
     }
 
     /** Apply the shared look to a bar: this UI, transparent, slim preferred size. */

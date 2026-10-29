@@ -61,6 +61,8 @@ public class ComicButton extends JButton {
         setRolloverEnabled(true);
         setForeground(palette.getInk());
         setBorder(BorderFactory.createEmptyBorder(5, 14, 5, 14));
+        // This button paints its own plate — the global ComicButtonUI must not paint a second one.
+        putClientProperty(ComicButtonUI.PLAIN_BUTTON_PROPERTY, Boolean.TRUE);
     }
 
     /** The button's color role (e.g. for tests and role-dependent wiring). */
@@ -89,15 +91,8 @@ public class ComicButton extends JButton {
 
     private Color plateFill() {
         ButtonModel model = getModel();
-        if (!isEnabled()) {
-            return palette.getSurface();
-        }
-        if (model.isArmed() && model.isPressed()) {
-            return accent == Accent.CRITICAL ? palette.getAccentRed() : palette.getAccentOrange();
-        }
-        if (model.isRollover()) {
-            return accent == Accent.CRITICAL ? palette.getAccentRed() : palette.getAccentYellow();
-        }
-        return AskAiTheme.active().buttonPlate(); // calm resting plate, slightly lifted off the neutral surface
+        return ComicButtonUI.plateFill(palette, AskAiTheme.active().buttonPlate(), isEnabled(),
+                model.isArmed() && model.isPressed(), model.isRollover(),
+                accent == Accent.CRITICAL);
     }
 }
