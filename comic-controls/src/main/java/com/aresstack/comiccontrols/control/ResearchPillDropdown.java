@@ -146,7 +146,24 @@ public class ResearchPillDropdown extends JComponent {
         }
     }
 
+    private boolean iconOnly;
+
+    /**
+     * ICON-ONLY mode: the pill shows just the selected item's icon and the chevron (e.g. a flag), no
+     * label; the POPUP keeps the full texts, and assistive technology still reads the item text.
+     */
+    public void setIconOnly(boolean iconOnly) {
+        if (this.iconOnly != iconOnly) {
+            this.iconOnly = iconOnly;
+            revalidate();
+            repaint();
+        }
+    }
+
     private String pillTextOf(Item item) {
+        if (iconOnly && item.icon != null) {
+            return "";
+        }
         return compact && item.shortText != null && !item.shortText.isEmpty()
                 ? item.shortText : item.text;
     }
@@ -332,8 +349,8 @@ public class ResearchPillDropdown extends JComponent {
             }
             width += metrics.stringWidth(pillTextOf(item));
         }
-        // Compact drops the minimum width too — the whole point is to stop dominating.
-        return new Dimension(compact ? width : Math.max(minWidth, width), fixedHeight);
+        // Compact (and icon-only) drop the minimum width too — the whole point is to stop dominating.
+        return new Dimension(compact || iconOnly ? width : Math.max(minWidth, width), fixedHeight);
     }
 
     @Override

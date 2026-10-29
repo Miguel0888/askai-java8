@@ -93,15 +93,15 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
     @Override
     public List<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>
             getToolbarContributions() {
-        // Language switch → CHATS FOOTER; phase selector → LEADING (after the flask-branded
-        // burger); the comic overlay ICON BUTTONS (mindmap, more to come) hold the CENTER; the
-        // "Websuche" tag trails at the far right.
+        // Phase selector → chats footer; the "Websuche" tag holds the CENTER; the comic overlay
+        // ICON BUTTONS (visualize) trail at the far right, followed by the icon-only language switch
+        // (same placement → laid out in list order).
         return java.util.Arrays
                 .<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>asList(
-                        new com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution(),
                         new com.aresstack.askai.research.agent.ResearchPhaseToolbarContribution(),
                         new com.aresstack.askai.research.agent
                                 .ResearchOverlayButtonsToolbarContribution(),
+                        new com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution(),
                         new com.aresstack.askai.research.agent.ResearchWebSearchToolbarContribution());
     }
 }

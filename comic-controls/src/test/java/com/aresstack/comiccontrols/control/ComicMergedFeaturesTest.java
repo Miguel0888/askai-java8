@@ -45,6 +45,21 @@ public class ComicMergedFeaturesTest {
     }
 
     @Test
+    public void iconOnlyPillDropsTheLabelButKeepsTheNameForAssistiveTech() {
+        ResearchPillDropdown pill = new ResearchPillDropdown(26, 10, 100, 8, 8);
+        javax.swing.Icon flag = new javax.swing.ImageIcon(new java.awt.image.BufferedImage(16, 11,
+                java.awt.image.BufferedImage.TYPE_INT_ARGB));
+        pill.setItems(Arrays.asList(new ResearchPillDropdown.Item("Deutsch", flag, true, null)));
+        pill.setSelectedIndex(0);
+        int withLabel = pill.getPreferredSize().width;
+        pill.setIconOnly(true);
+        int iconOnly = pill.getPreferredSize().width;
+        assertTrue("the label is gone and the minimum width dropped", iconOnly < withLabel);
+        assertEquals(8 + 8 + 8 + 9 + 16 + 8, iconOnly);
+        assertEquals("Deutsch", pill.getAccessibleContext().getAccessibleName());
+    }
+
+    @Test
     public void pillDropdownStepsOverDisabledItemsAndActsAsComboForAssistiveTech() {
         ResearchPillDropdown pill = new ResearchPillDropdown(30, 10, 100, 10, 10);
         pill.setItems(Arrays.asList(

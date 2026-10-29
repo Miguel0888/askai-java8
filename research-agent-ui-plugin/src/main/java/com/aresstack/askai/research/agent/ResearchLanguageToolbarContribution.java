@@ -16,8 +16,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The live SESSION language switch — {@code [flag Language ▾]} — in the CHATS FOOTER of the drawer
- * (design study), no longer in the top bar. Selecting a language calls
+ * The live SESSION language switch — {@code [flag ▾]}, icon only (the popup names the languages) —
+ * TRAILING in the top bar, right of the visualize buttons. Selecting a language calls
  * {@link ResearchAgentSession#changeLanguage} — host state first, then the best-effort
  * {@code set_language} service command. It is NEVER a chat turn and never a state-machine command;
  * it DOES persist as the default for NEW chats (same key as the gear settings), so the next
@@ -33,7 +33,7 @@ public final class ResearchLanguageToolbarContribution implements AgentToolbarCo
 
     @Override
     public Placement getPlacement() {
-        return Placement.SIDEBAR_FOOTER;
+        return Placement.TRAILING;
     }
 
     @Override
@@ -45,10 +45,10 @@ public final class ResearchLanguageToolbarContribution implements AgentToolbarCo
     public JComponent createComponent(AgentToolbarContext context) {
         final ResearchAgentSession session = (ResearchAgentSession) context.getSession();
         final ResearchLanguage[] languages = ResearchLanguage.values();
+        // Same height as the visualize buttons beside it (26px); just the flag and the chevron.
         final ResearchPillDropdown pill = new ResearchPillDropdown(
-                ResearchUiMetrics.FOOTER_CONTROL_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL,
-                0, ResearchUiMetrics.FOOTER_PILL_PADDING_H,
-                ResearchUiMetrics.FOOTER_PILL_PADDING_H);
+                TOP_BAR_CONTROL_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL, 0, 8, 8);
+        pill.setIconOnly(true);
         pill.setFont(ResearchUiTypography.regular(13f));
         pill.setToolTipText("Language of this research session (new content only) — "
                 + "also the default for new chats");
@@ -71,6 +71,9 @@ public final class ResearchLanguageToolbarContribution implements AgentToolbarCo
         });
         return pill;
     }
+
+    /** The height of the top-bar icon buttons (the visualize buttons are 26×26). */
+    private static final int TOP_BAR_CONTROL_HEIGHT = 26;
 
     private static int indexOf(ResearchLanguage[] languages, ResearchLanguage current) {
         for (int index = 0; index < languages.length; index++) {
