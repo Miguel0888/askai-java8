@@ -9,21 +9,16 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * The AskAI application icon (the "A" with the shadow wizard), replacing the Java default cup on every
- * window. Two variants of the same artwork: the ice "A" reads best on a DARK taskbar, the obsidian "A"
- * on a LIGHT one. Windows shows the same window icon in the title bar and the taskbar, so the taskbar
- * theme decides ({@link WindowsTaskbarTheme}); unknown falls back to the obsidian variant, which still
- * reads on dark. Override with {@code -Daskai.icon.variant=dark|light}.
- *
- * <p>Loaded ONCE and offered in multiple sizes so the title bar, taskbar and Alt-Tab each pick a crisp
- * variant instead of scaling one blurry image. A missing/broken resource logs loudly and yields an empty
- * list — a window without an icon is cosmetic, a crash at startup is not.</p>
+ * The AskAI application icon (the gold-rimmed navy "A" with the hooded wizard), replacing the Java
+ * default cup on every window. ONE icon for every taskbar theme: the gold rim carries the contrast on
+ * dark and light alike. Loaded ONCE from the bundled resource and offered in multiple sizes so the
+ * title bar, taskbar and Alt-Tab each pick a crisp variant instead of scaling one blurry image.
+ * A missing/broken resource logs loudly and yields an empty list — a window without an icon is
+ * cosmetic, a crash at startup is not.
  */
 public final class AppIcon {
 
-    static final String DARK_TASKBAR_RESOURCE = "/icons/askai-dark.png";
-    static final String LIGHT_TASKBAR_RESOURCE = "/icons/askai-light.png";
-    static final String VARIANT_PROPERTY = "askai.icon.variant";
+    static final String RESOURCE = "/icons/askai.png";
     private static final int[] SIZES = {16, 20, 24, 32, 40, 48, 64, 128, 256};
 
     private static volatile List<Image> cached;
@@ -59,25 +54,12 @@ public final class AppIcon {
             synchronized (AppIcon.class) {
                 images = cached;
                 if (images == null) {
-                    images = load(resourceFor(System.getProperty(VARIANT_PROPERTY, "auto")));
+                    images = load(RESOURCE);
                     cached = images;
                 }
             }
         }
         return images;
-    }
-
-    /** {@code dark}/{@code light} force a variant; anything else follows the Windows taskbar theme. */
-    static String resourceFor(String variant) {
-        String normalized = variant == null ? "" : variant.trim().toLowerCase();
-        if ("dark".equals(normalized)) {
-            return DARK_TASKBAR_RESOURCE;
-        }
-        if ("light".equals(normalized)) {
-            return LIGHT_TASKBAR_RESOURCE;
-        }
-        return WindowsTaskbarTheme.detect() == WindowsTaskbarTheme.Mode.DARK
-                ? DARK_TASKBAR_RESOURCE : LIGHT_TASKBAR_RESOURCE;
     }
 
     static List<Image> load(String resource) {
