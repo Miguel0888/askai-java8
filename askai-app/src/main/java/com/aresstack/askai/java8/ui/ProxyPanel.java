@@ -262,17 +262,8 @@ public final class ProxyPanel extends JPanel {
 
     private void writeConfiguration() {
         AppConfiguration current = configurationRepository.load();
-        configurationRepository.save(new AppConfiguration(
-                current.getOllamaBaseUrl(),
-                current.getKeepAlive(),
-                buildConfiguration(),
-                buildTrustConfiguration(),
-                buildHttpClientConfiguration(),
-                current.getDefaultQuantization(),
-                current.getHuggingFaceToken(),
-                current.getModelDownloadDirectory())
-                .withSpeechToTextConfiguration(current.getSpeechToTextConfiguration())
-                .withHuggingFaceSearchSuggestions(current.getHuggingFaceSearchSuggestionsRaw()));
+        configurationRepository.save(current.withNetworkConfiguration(
+                buildConfiguration(), buildTrustConfiguration(), buildHttpClientConfiguration()));
     }
 
     private CertificateTrustConfiguration buildTrustConfiguration() {

@@ -76,6 +76,18 @@ public final class ComicScrollBarUI extends BasicScrollBarUI {
                 ? new Dimension(BAR_THICKNESS, 0) : new Dimension(0, BAR_THICKNESS));
     }
 
+    /**
+     * The delegate itself makes the bar slim and transparent, so a bar styled through the GLOBAL
+     * {@code ScrollBarUI} default looks exactly like one styled via {@link #install(JScrollBar)} —
+     * otherwise it stayed opaque (Metal's grey track) and Metal-wide (16 px).
+     */
+    @Override
+    protected void installDefaults() {
+        super.installDefaults();
+        scrollBarWidth = BAR_THICKNESS;
+        javax.swing.LookAndFeel.installProperty(scrollbar, "opaque", Boolean.FALSE);
+    }
+
     @Override
     protected void paintTrack(Graphics g, JComponent c, Rectangle bounds) {
         // transparent — the surrounding surface stays calm

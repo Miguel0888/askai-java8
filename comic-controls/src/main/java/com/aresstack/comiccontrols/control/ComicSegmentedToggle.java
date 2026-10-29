@@ -102,8 +102,19 @@ public class ComicSegmentedToggle extends JComponent {
 
     private Font font() {
         Font font = getFont();
-        return (font != null ? font : new Font(Font.SANS_SERIF, Font.PLAIN, 12)).deriveFont(Font.BOLD, 12.5f);
+        return (font != null ? font : new Font(Font.SANS_SERIF, Font.PLAIN, 12)).deriveFont(Font.BOLD, fontSize());
     }
+
+    /**
+     * 12.5 pt at the default height; a slim toggle scales the label down with its height so the text
+     * is never clipped (a 12 px title-bar toggle cut the 12.5 pt label at top and bottom).
+     */
+    float fontSize() {
+        return Math.min(12.5f, toggleHeight * FONT_TO_HEIGHT);
+    }
+
+    /** Bold label size relative to the toggle height: line height ~1.2 x size stays inside the plate. */
+    private static final float FONT_TO_HEIGHT = 0.78f;
 
     private int segmentWidth(FontMetrics metrics, int index) {
         return metrics.stringWidth(labels[index]) + 2 * SEGMENT_PADDING;

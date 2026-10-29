@@ -257,8 +257,21 @@ public final class OllamaInstallPanel extends JPanel {
         installOptions.add(deleteAfterInstallCheckbox);
         installOptions.add(installLocallyCheckbox);
         progressRow.add(installOptions, BorderLayout.WEST);
-        progressRow.add(progressBar, BorderLayout.CENTER);
-        progressRow.add(cancelInstallButton, BorderLayout.EAST);
+        // Bar and cancel button share one vertically centered cell at their natural height: hung
+        // straight into the BorderLayout they were stretched to the height of the check box column
+        // (a fat pill and a clipped, tall, narrow cancel capsule).
+        JPanel progressCell = new JPanel(new java.awt.GridBagLayout());
+        progressCell.setOpaque(false);
+        java.awt.GridBagConstraints cell = new java.awt.GridBagConstraints();
+        cell.gridy = 0;
+        cell.fill = java.awt.GridBagConstraints.HORIZONTAL;
+        cell.weightx = 1;
+        progressCell.add(progressBar, cell);
+        cell.fill = java.awt.GridBagConstraints.NONE;
+        cell.weightx = 0;
+        cell.insets = new Insets(0, 6, 0, 0);
+        progressCell.add(cancelInstallButton, cell);
+        progressRow.add(progressCell, BorderLayout.CENTER);
         add(progressRow, BorderLayout.SOUTH);
         loadTokenFromConfiguration();
     }
@@ -704,7 +717,7 @@ public final class OllamaInstallPanel extends JPanel {
         if (openSpeechOutputFor(suggestion.getTerm())) {
             return; // 🔊 discovery entry: navigation to Speech Output, not a search term
         }
-        String key = suggestion.getTerm() + " " + suggestion.getTarget().name();
+        String key = suggestion.getTerm() + "\u0000" + suggestion.getTarget().name();
         if (!key.equals(lastHandledSuggestionKey)) {
             lastHandledSuggestionKey = key;
             localInstallTouchedByUser = false; // a new selection is fresh intent
@@ -2661,12 +2674,16 @@ public final class OllamaInstallPanel extends JPanel {
         }
     }
 
+    /** Smallest square size of the cancel button next to the progress bar (icon 11 px + plate). */
+    private static final int CANCEL_BUTTON_MIN_SIZE = 22;
+
     private void buildCancelButton() {
         cancelInstallButton.setToolTipText("Cancel installation");
         cancelInstallButton.setFocusPainted(false);
         cancelInstallButton.setMargin(new Insets(0, 0, 0, 0));
-        int size = progressBar.getPreferredSize().height;
+        int size = Math.max(CANCEL_BUTTON_MIN_SIZE, progressBar.getPreferredSize().height);
         cancelInstallButton.setPreferredSize(new java.awt.Dimension(size, size));
+        progressBar.setPreferredSize(new java.awt.Dimension(progressBar.getPreferredSize().width, size));
         cancelInstallButton.setEnabled(false);
         cancelInstallButton.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent event) {
@@ -2732,17 +2749,7 @@ public final class OllamaInstallPanel extends JPanel {
 
     private void saveTokenToConfiguration() {
         AppConfiguration current = configurationRepository.load();
-        configurationRepository.save(new AppConfiguration(
-                current.getOllamaBaseUrl(),
-                current.getKeepAlive(),
-                current.getProxyConfiguration(),
-                current.getCertificateTrustConfiguration(),
-                current.getHttpClientConfiguration(),
-                current.getDefaultQuantization(),
-                new String(tokenField.getPassword()),
-                current.getModelDownloadDirectory())
-                .withSpeechToTextConfiguration(current.getSpeechToTextConfiguration())
-                .withHuggingFaceSearchSuggestions(current.getHuggingFaceSearchSuggestionsRaw()));
+        configurationRepository.save(current.withHuggingFaceToken(new String(tokenField.getPassword())));
     }
 
     private String suggestInstallName(String repoId) {

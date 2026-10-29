@@ -277,6 +277,27 @@ public final class AppConfiguration {
                 huggingFaceSearchSuggestions, huggingFaceSearchFilters, chatColors, selections, uiTheme);
     }
 
+    /**
+     * @return a copy of this configuration with the given network settings (proxy, TLS trust, HTTP
+     *         client). Every other setting is carried over — the network panel must never reset the
+     *         chat colors, model selections or search filters.
+     */
+    public AppConfiguration withNetworkConfiguration(ProxyConfiguration proxy,
+                                                     CertificateTrustConfiguration trust,
+                                                     HttpClientConfiguration httpClient) {
+        return new AppConfiguration(ollamaBaseUrl, keepAlive, proxy, trust, httpClient, defaultQuantization,
+                huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
+                huggingFaceSearchSuggestions, huggingFaceSearchFilters, chatColors, aiModelSelections, uiTheme);
+    }
+
+    /** @return a copy of this configuration with the given Hugging Face token; everything else is kept. */
+    public AppConfiguration withHuggingFaceToken(String token) {
+        return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
+                certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
+                token, modelDownloadDirectory, speechToTextConfiguration,
+                huggingFaceSearchSuggestions, huggingFaceSearchFilters, chatColors, aiModelSelections, uiTheme);
+    }
+
     /** @return a copy of this configuration with the given UI theme id ({@code arcane}/{@code classic}). */
     public AppConfiguration withUiTheme(String theme) {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
