@@ -31,6 +31,7 @@ public class ComicSegmentedToggle extends JComponent {
 
     private final String[] labels;
     private final ComicPalette palette = ComicPalette.defaultPalette();
+    private int toggleHeight = HEIGHT;
     private int selected;
     private int hovered = -1;
     private IntConsumer listener;
@@ -86,6 +87,15 @@ public class ComicSegmentedToggle extends JComponent {
         }
     }
 
+    /** The toggle's height in pixels (default 24); a slim title-bar toggle uses less. */
+    public void setToggleHeight(int height) {
+        if (height > 0 && height != toggleHeight) {
+            toggleHeight = height;
+            revalidate();
+            repaint();
+        }
+    }
+
     public int getSelectedIndex() {
         return selected;
     }
@@ -119,7 +129,7 @@ public class ComicSegmentedToggle extends JComponent {
         for (int i = 0; i < labels.length; i++) {
             width += segmentWidth(metrics, i);
         }
-        return new Dimension(width + 1, HEIGHT);
+        return new Dimension(width + 1, toggleHeight);
     }
 
     @Override
@@ -135,7 +145,7 @@ public class ComicSegmentedToggle extends JComponent {
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             g2.setFont(font());
             FontMetrics metrics = g2.getFontMetrics();
-            int h = Math.min(getHeight(), HEIGHT) - 2;
+            int h = Math.min(getHeight(), toggleHeight) - 2;
             int top = (getHeight() - h) / 2;
             RoundRectangle2D pill = new RoundRectangle2D.Float(1f, top, getWidth() - 2f, h, h, h);
             g2.setColor(ThemeColor.of("comic.buttonPlate"));

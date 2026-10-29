@@ -312,9 +312,12 @@ public final class AskAiFrame extends JFrame {
 
     /** The title bar's main switch: Text (the chat) | Audio (batch transcription, audio processing). */
     private com.aresstack.comiccontrols.control.ComicSegmentedToggle modeToggle;
+    private static final int SLIM_TOGGLE_HEIGHT = 12;
 
     private javax.swing.JComponent createModeToggle() {
         modeToggle = new com.aresstack.comiccontrols.control.ComicSegmentedToggle("Text", "Audio");
+        // slim, as it looked in the old navigation slot (squeezed to 12 px there)
+        modeToggle.setToggleHeight(SLIM_TOGGLE_HEIGHT);
         modeToggle.setToolTipText("Text: the chat · Audio: batch transcription and audio processing");
         modeToggle.setSelectionListener(index -> showScreen(index == 0 ? CHAT_VIEW : AUDIO_SCREEN));
         return modeToggle;

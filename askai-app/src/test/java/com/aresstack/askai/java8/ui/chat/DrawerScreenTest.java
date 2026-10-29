@@ -55,5 +55,8 @@ public class DrawerScreenTest {
         assertEquals(1, picked[0]);
         toggle.setSelectedIndex(0);
         assertEquals("programmatic selection does not notify", 1, picked[0]);
+        int width = toggle.getPreferredSize().width;
+        toggle.setToggleHeight(12);
+        assertEquals("slim: only the height shrinks", new java.awt.Dimension(width, 12), toggle.getPreferredSize());
     }
 }
