@@ -203,6 +203,18 @@ public final class ComposerIcons {
         };
     }
 
+    /** The floppy-disk SAVE glyph: a disk with a clipped corner, the metal shutter and the label. */
+    public static StrokeIcon floppyDisk() {
+        return new StrokeIcon() {
+            @Override
+            protected void paint(Graphics2D g2) {
+                g2.drawPolygon(new int[]{2, 11, 13, 13, 2}, new int[]{2, 2, 4, 13, 13}, 5);
+                g2.drawRect(5, 2, 5, 3);
+                g2.drawRect(4, 8, 7, 5);
+            }
+        };
+    }
+
     /** The small ✕ glyph (discard). */
     public static StrokeIcon close() {
         return new StrokeIcon() {

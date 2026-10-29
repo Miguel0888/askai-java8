@@ -23,12 +23,11 @@ import java.awt.event.ActionListener;
 
 /**
  * The "Websuche" tag in the workspace top bar: the {@link ComicSearchTag} (calm surface with the
- * amber rim), CENTERED in the top bar (it swapped places with the visualize buttons, which now
- * trail at the far right). Firing runs {@link ResearchAgentSession#requestManualWebSearch}
+ * amber rim), CENTERED in the top bar. Firing runs {@link ResearchAgentSession#requestManualWebSearch}
  * — the SAME phase-independent /search path as a suggestion click, so the captured sources flow
  * into the corpus and the bot can review them afterwards. Never a chat turn, never a state command.
- * (The mindmap buttons live in the TRAILING overlay-button strip, see
- * {@link ResearchOverlayButtonsToolbarContribution}.)
+ * (The mindmap buttons live in the Concept/Sources pane footers, see
+ * {@link ResearchVisualizeButtons}; the {@link MindmapIcon} glyph stays here.)
  */
 public final class ResearchWebSearchToolbarContribution implements AgentToolbarContribution {
 

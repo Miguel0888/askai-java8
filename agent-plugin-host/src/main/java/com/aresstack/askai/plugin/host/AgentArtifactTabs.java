@@ -61,9 +61,16 @@ public final class AgentArtifactTabs {
     private final ThemeService themeService;
     private final MarkdownViewFactory markdownViewFactory;
     private final List<Runnable> changeListeners = new ArrayList<Runnable>();
+    /** Lets the artifact views open transcript/diagram overlays; null = overlays are no-ops. */
+    private volatile AgentOverlayHost overlayHost;
 
     private List<Tab> tabs = Collections.emptyList();
     private AgentSession builtFor; // the session the cached tabs belong to (identity)
+
+    /** Gives the artifact views built from now on the host's transcript/diagram overlays. */
+    public void setOverlayHost(AgentOverlayHost overlayHost) {
+        this.overlayHost = overlayHost;
+    }
 
     public AgentArtifactTabs(AgentSessionCoordinator coordinator, UiExecutor uiExecutor,
                              ThemeService themeService, MarkdownViewFactory markdownViewFactory) {
@@ -142,7 +149,7 @@ public final class AgentArtifactTabs {
     private JComponent buildView(AgentArtifact artifact, AgentSession session,
                                  List<ArtifactViewContribution> contributions) {
         ArtifactViewContext context = new DefaultArtifactViewContext(
-                artifact, session, uiExecutor, themeService, markdownViewFactory);
+                artifact, session, uiExecutor, themeService, markdownViewFactory, overlayHost);
         if (MARKDOWN_TYPE_ID.equals(artifact.getArtifactTypeId())) {
             return new HostMarkdownArtifactView(context);
         }

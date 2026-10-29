@@ -695,6 +695,16 @@ public final class AskAiFrame extends JFrame {
                 new com.aresstack.askai.plugin.host.AgentArtifactTabs(agentCoordinator, uiExecutor,
                         new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
                         new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory());
+        // The artifact views (e.g. Concept/Sources) open the same overlays as the toolbar does.
+        artifactTabs.setOverlayHost(new com.aresstack.askai.plugin.host.AgentOverlayHost() {
+            public void showTranscriptOverlay(javax.swing.JComponent content, String title) {
+                showOverlayOnActiveChat(content, title);
+            }
+
+            public void showDiagramOverlay(String mermaidSource, String title) {
+                showDiagramOverlayOnActiveChat(mermaidSource, title);
+            }
+        });
         chatTabs.setSidebarTabContributions(
                 new java.util.function.Supplier<java.util.List<com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab>>() {
                     public java.util.List<com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab> get() {

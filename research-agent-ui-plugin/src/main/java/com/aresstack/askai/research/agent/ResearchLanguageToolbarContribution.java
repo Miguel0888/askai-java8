@@ -17,7 +17,7 @@ import java.util.List;
 
 /**
  * The live SESSION language switch — {@code [flag ▾]}, icon only (the popup names the languages) —
- * TRAILING in the top bar, right of the visualize buttons. Selecting a language calls
+ * TRAILING at the far right of the top bar. Selecting a language calls
  * {@link ResearchAgentSession#changeLanguage} — host state first, then the best-effort
  * {@code set_language} service command. It is NEVER a chat turn and never a state-machine command;
  * it DOES persist as the default for NEW chats (same key as the gear settings), so the next

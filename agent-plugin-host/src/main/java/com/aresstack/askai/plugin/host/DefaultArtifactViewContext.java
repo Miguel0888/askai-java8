@@ -16,9 +16,17 @@ final class DefaultArtifactViewContext implements ArtifactViewContext {
     private final UiExecutor uiExecutor;
     private final ThemeService themeService;
     private final MarkdownViewFactory markdownViewFactory;
+    private final AgentOverlayHost overlayHost;
 
     DefaultArtifactViewContext(AgentArtifact artifact, AgentSession session, UiExecutor uiExecutor,
                                ThemeService themeService, MarkdownViewFactory markdownViewFactory) {
+        this(artifact, session, uiExecutor, themeService, markdownViewFactory, null);
+    }
+
+    DefaultArtifactViewContext(AgentArtifact artifact, AgentSession session, UiExecutor uiExecutor,
+                               ThemeService themeService, MarkdownViewFactory markdownViewFactory,
+                               AgentOverlayHost overlayHost) {
+        this.overlayHost = overlayHost;
         this.artifact = artifact;
         this.session = session;
         this.uiExecutor = uiExecutor;
@@ -48,5 +56,19 @@ final class DefaultArtifactViewContext implements ArtifactViewContext {
 
     public AgentArtifactStore getArtifactStore() {
         return session == null ? null : session.getArtifactStore();
+    }
+
+    @Override
+    public void showTranscriptOverlay(javax.swing.JComponent content, String title) {
+        if (overlayHost != null) {
+            overlayHost.showTranscriptOverlay(content, title);
+        }
+    }
+
+    @Override
+    public void showDiagramOverlay(String mermaidSource, String title) {
+        if (overlayHost != null) {
+            overlayHost.showDiagramOverlay(mermaidSource, title);
+        }
     }
 }

@@ -267,10 +267,16 @@ public final class ResearchSourcesView extends JPanel {
                 + "source (read-only; empty = not processed yet)");
         texts.setToolTipTextAt(2, "Eigener Kommentar (editierbar)");
 
+        // Save: a floppy-disk icon (tooltip only); reload: the same ⟳ button as the Concept view.
         com.aresstack.comiccontrols.control.ComicButton save =
-                new com.aresstack.comiccontrols.control.ComicButton("Speichern");
+                new com.aresstack.comiccontrols.control.ComicButton(
+                        com.aresstack.comiccontrols.paint.ComposerIcons.floppyDisk());
+        save.setToolTipText("Save");
+        save.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
         com.aresstack.comiccontrols.control.ComicButton reload =
-                new com.aresstack.comiccontrols.control.ComicButton("Neu laden");
+                new com.aresstack.comiccontrols.control.ComicButton("⟳");
+        reload.setToolTipText("Reload source");
+        reload.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
         com.aresstack.comiccontrols.control.ComicButton exclude =
                 new com.aresstack.comiccontrols.control.ComicButton("Ausschließen",
                         com.aresstack.comiccontrols.control.ComicButton.Accent.CRITICAL);
@@ -306,7 +312,13 @@ public final class ResearchSourcesView extends JPanel {
         detail.setPreferredSize(new java.awt.Dimension(10, 360));
         detail.add(plates, BorderLayout.NORTH);
         detail.add(texts, BorderLayout.CENTER);
-        detail.add(actions, BorderLayout.SOUTH);
+        // "Visualize sources" sits right-aligned in the same row.
+        visualizeSlot.setOpaque(false);
+        JPanel actionRow = new JPanel(new BorderLayout());
+        actionRow.setOpaque(false);
+        actionRow.add(actions, BorderLayout.CENTER);
+        actionRow.add(visualizeSlot, BorderLayout.EAST);
+        detail.add(actionRow, BorderLayout.SOUTH);
         return detail;
     }
 
@@ -914,5 +926,18 @@ public final class ResearchSourcesView extends JPanel {
     /** Default known outline sections used for orphan detection in the clickdummy. */
     public static Set<String> demoKnownSections() {
         return new java.util.LinkedHashSet<String>(Arrays.asList("s1", "s2", "s2a", "s3", "s4"));
+    }
+
+    /** Holds the "Visualize sources" button, right-aligned in the action row (set by the contribution). */
+    private final JPanel visualizeSlot = new JPanel(new BorderLayout());
+
+    /** Places the "Visualize sources" button at the right end of the action row. */
+    public void setVisualizeButton(javax.swing.JComponent button) {
+        visualizeSlot.removeAll();
+        if (button != null) {
+            visualizeSlot.add(button, BorderLayout.CENTER);
+        }
+        visualizeSlot.revalidate();
+        visualizeSlot.repaint();
     }
 }

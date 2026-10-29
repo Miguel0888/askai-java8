@@ -272,9 +272,10 @@ public final class ConceptPaperView extends JPanel {
                 ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H,
                 ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H));
 
-        // Layout ruling: the history arrows sit LEFT in both modes, Save/Discard CENTERED.
-        JPanel arrows = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        arrows.setOpaque(false);
+        // Layout ruling: reload LEFT, the history arrows CENTERED with Save/Discard, the status and the
+        // "Visualize concept" button RIGHT (where reload used to be).
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        left.setOpaque(false);
         JPanel saveActions = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 0));
         saveActions.setOpaque(false);
         for (ComicButton button : new ComicButton[] {olderButton, newerButton,
@@ -282,8 +283,8 @@ public final class ConceptPaperView extends JPanel {
             button.setFocusable(false);
             button.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
         }
-        arrows.add(olderButton);
-        arrows.add(newerButton);
+        saveActions.add(olderButton);
+        saveActions.add(newerButton);
         saveActions.add(saveButton);
         saveActions.add(discardButton);
         saveButton.setToolTipText("Save: apply the edit (JSON) or restore the previewed "
@@ -291,19 +292,37 @@ public final class ConceptPaperView extends JPanel {
         discardButton.setToolTipText("Discard the edits / leave the revision preview");
         olderButton.setToolTipText("Preview the previous working revision");
         newerButton.setToolTipText("Preview the next working revision");
-        footer.add(arrows, BorderLayout.WEST);
+        refreshButton.setFocusable(false);
+        refreshButton.setToolTipText("Reload view");
+        refreshButton.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
+        left.add(refreshButton);
+        footer.add(left, BorderLayout.WEST);
         footer.add(saveActions, BorderLayout.CENTER);
 
         JPanel status = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         status.setOpaque(false);
         statusLabel.setFont(ResearchUiTypography.regular(11.5f));
         status.add(statusLabel);
-        refreshButton.setFocusable(false);
-        refreshButton.setToolTipText("Reload view");
-        refreshButton.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
-        status.add(refreshButton);
+        status.add(visualizeSlot);
         footer.add(status, BorderLayout.EAST);
         return footer;
+    }
+
+    /** Holds the "Visualize concept" button (right of the status), set by the view contribution. */
+    private final JPanel visualizeSlot = new JPanel(new BorderLayout());
+
+    {
+        visualizeSlot.setOpaque(false);
+    }
+
+    /** Places the "Visualize concept" button at the right end of the footer. */
+    public void setVisualizeButton(javax.swing.JComponent button) {
+        visualizeSlot.removeAll();
+        if (button != null) {
+            visualizeSlot.add(button, BorderLayout.CENTER);
+        }
+        visualizeSlot.revalidate();
+        visualizeSlot.repaint();
     }
 
     private void wireActions() {

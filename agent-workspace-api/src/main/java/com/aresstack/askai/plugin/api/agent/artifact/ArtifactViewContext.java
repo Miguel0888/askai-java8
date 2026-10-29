@@ -22,4 +22,18 @@ public interface ArtifactViewContext {
 
     /** The store to read/write artifact content through, or {@code null} if the session has none. */
     AgentArtifactStore getArtifactStore();
+
+    /**
+     * Show content as a closable OVERLAY over the active chat's transcript (same as
+     * {@code AgentToolbarContext#showTranscriptOverlay}). Default: no-op.
+     */
+    default void showTranscriptOverlay(javax.swing.JComponent content, String title) {
+    }
+
+    /**
+     * Show a MERMAID diagram (source) as a transcript overlay in the host's viewer (same as
+     * {@code AgentToolbarContext#showDiagramOverlay}). Default: no-op.
+     */
+    default void showDiagramOverlay(String mermaidSource, String title) {
+    }
 }

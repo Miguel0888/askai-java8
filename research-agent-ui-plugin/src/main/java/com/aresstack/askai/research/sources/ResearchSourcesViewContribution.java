@@ -32,6 +32,8 @@ public final class ResearchSourcesViewContribution implements ArtifactViewContri
             ResearchSourceRepository repository = research.getSourceRepository();
             final ResearchSourcesView view =
                     new ResearchSourcesView(repository, ResearchSourcesView.demoKnownSections());
+            view.setVisualizeButton(
+                    com.aresstack.askai.research.agent.ResearchVisualizeButtons.sources(research, context));
             // Keep the table live: every session state change (run finished, approval, continuation)
             // re-reads the repository, so freshly accepted sources appear without manual filtering.
             research.addStateListener(new Runnable() {

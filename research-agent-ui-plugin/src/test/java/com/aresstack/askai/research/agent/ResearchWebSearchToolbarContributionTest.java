@@ -15,13 +15,11 @@ import static org.junit.Assert.assertTrue;
 public class ResearchWebSearchToolbarContributionTest {
 
     @Test
-    public void theWebSearchTagSitsCenteredAndTheVisualizeButtonsTrail() {
+    public void theWebSearchTagSitsCentered() {
         ResearchWebSearchToolbarContribution contribution =
                 new ResearchWebSearchToolbarContribution();
         assertEquals("research-web-search", contribution.getId());
         assertEquals(AgentToolbarContribution.Placement.CENTER, contribution.getPlacement());
-        assertEquals(AgentToolbarContribution.Placement.TRAILING,
-                new ResearchOverlayButtonsToolbarContribution().getPlacement());
         assertFalse("only research sessions get the tag", contribution.supports(null));
     }
 
@@ -44,21 +42,17 @@ public class ResearchWebSearchToolbarContributionTest {
     }
 
     @Test
-    public void theLanguageSwitchTrailsRightOfTheVisualizeButtons() {
+    public void theLanguageSwitchIsTheOnlyTrailingControl() {
         assertEquals(AgentToolbarContribution.Placement.TRAILING,
                 new ResearchLanguageToolbarContribution().getPlacement());
-        java.util.List<AgentToolbarContribution> all =
-                new com.aresstack.askai.research.plugin.ResearchAgentPluginExtension().getToolbarContributions();
-        int visualize = -1;
-        int language = -1;
-        for (int i = 0; i < all.size(); i++) {
-            if (all.get(i) instanceof ResearchOverlayButtonsToolbarContribution) {
-                visualize = i;
-            } else if (all.get(i) instanceof ResearchLanguageToolbarContribution) {
-                language = i;
+        int trailing = 0;
+        for (AgentToolbarContribution registered
+                : new com.aresstack.askai.research.plugin.ResearchAgentPluginExtension().getToolbarContributions()) {
+            if (registered.getPlacement() == AgentToolbarContribution.Placement.TRAILING) {
+                trailing++;
+                assertTrue(registered instanceof ResearchLanguageToolbarContribution);
             }
         }
-        assertTrue("same TRAILING slot, laid out in list order: language right of visualize",
-                visualize >= 0 && language == visualize + 1);
+        assertEquals("the visualize buttons moved into the Concept/Sources pane footers", 1, trailing);
     }
 }

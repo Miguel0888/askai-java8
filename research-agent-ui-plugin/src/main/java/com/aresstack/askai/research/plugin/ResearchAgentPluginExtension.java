@@ -93,13 +93,11 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
     @Override
     public List<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>
             getToolbarContributions() {
-        // The "Websuche" tag holds the CENTER; the comic overlay ICON BUTTONS (visualize) trail at
-        // the far right, followed by the icon-only language switch (same placement → list order).
-        // The phase selector lives in the footer of the State pane (ResearchStateViewContribution).
+        // The "Websuche" tag holds the CENTER; the icon-only language switch trails at the far right.
+        // The phase selector lives in the State pane footer, the Visualize buttons in the Concept and
+        // Sources pane footers (ResearchVisualizeButtons).
         return java.util.Arrays
                 .<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>asList(
-                        new com.aresstack.askai.research.agent
-                                .ResearchOverlayButtonsToolbarContribution(),
                         new com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution(),
                         new com.aresstack.askai.research.agent.ResearchWebSearchToolbarContribution());
     }
