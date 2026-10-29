@@ -2,6 +2,7 @@ package com.aresstack.askai.research.agent;
 
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.JComponent;
 import javax.swing.Scrollable;
@@ -74,7 +75,7 @@ final class OutlineTreeView extends JComponent implements Scrollable {
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
                     RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             Color ink = ResearchUiPalette.TEXT_PRIMARY;
-            Color muted = new Color(ink.getRed(), ink.getGreen(), ink.getBlue(), 150);
+            Color muted = ThemeColor.withAlpha(ink, 150);
             for (int index = 0; index < rows.size(); index++) {
                 OutlineTreeModel.Row row = rows.get(index);
                 int x = MARGIN + row.depth * INDENT;
@@ -101,7 +102,7 @@ final class OutlineTreeView extends JComponent implements Scrollable {
                 }
                 FontMetrics fm = getFontMetrics(ResearchUiTypography.semiBold(13f));
                 int plateWidth = Math.max(48, fm.stringWidth(label(row)) + 2 * PLATE_PAD_H);
-                g2.setColor(Color.WHITE);
+                g2.setColor(ThemeColor.of("comic.buttonPlate"));
                 g2.fillRoundRect(x, y, plateWidth, PLATE_HEIGHT, PLATE_ARC, PLATE_ARC);
                 g2.setColor(ink);
                 g2.setStroke(new BasicStroke(row.depth == 0 ? 2f : 1.5f));
@@ -110,7 +111,7 @@ final class OutlineTreeView extends JComponent implements Scrollable {
                 g2.setFont(ResearchUiTypography.semiBold(13f));
                 FontMetrics pm = g2.getFontMetrics();
                 int baseline = y + (PLATE_HEIGHT + pm.getAscent() - pm.getDescent()) / 2;
-                g2.setColor(new Color(0xB0, 0x52, 0x18));
+                g2.setColor(ThemeColor.of("research.documentAccent"));
                 g2.drawString(row.number, x + PLATE_PAD_H, baseline);
                 g2.setColor(ink);
                 g2.drawString(row.title,

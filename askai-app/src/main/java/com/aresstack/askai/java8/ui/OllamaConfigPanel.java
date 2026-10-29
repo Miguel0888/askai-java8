@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.service.OllamaService;
 import com.aresstack.askai.java8.settings.AskAiPaths;
@@ -49,22 +51,22 @@ public final class OllamaConfigPanel extends JPanel {
     public OllamaConfigPanel(AskAiModel model, OllamaService ollamaService) {
         this.model = model;
         this.ollamaService = ollamaService;
-        this.baseUrlField = new JTextField(model.getOllamaBaseUrl(), 42);
-        this.modelRootField = new JTextField(model.getModelRoot().toString(), 42);
-        this.quantizationField = new JTextField(model.getDefaultQuantization(), 20);
-        this.keepAliveField = new JTextField(model.getDefaultKeepAlive(), 20);
+        this.baseUrlField = ComicControls.textField(model.getOllamaBaseUrl(), 42);
+        this.modelRootField = ComicControls.textField(model.getModelRoot().toString(), 42);
+        this.quantizationField = ComicControls.textField(model.getDefaultQuantization(), 20);
+        this.keepAliveField = ComicControls.textField(model.getDefaultKeepAlive(), 20);
         SpeechToTextConfiguration stt = model.getSpeechToTextConfiguration();
-        this.sttEnabledBox = new JCheckBox("Enabled", stt.isEnabled());
-        this.sttBackendCombo = new JComboBox<String>(new String[]{SpeechToTextConfiguration.Backend.OLLAMA.name()});
+        this.sttEnabledBox = ComicControls.checkBox("Enabled", stt.isEnabled());
+        this.sttBackendCombo = ComicControls.<String>comboBox(new String[]{SpeechToTextConfiguration.Backend.OLLAMA.name()});
         this.sttBackendCombo.setSelectedItem(stt.getBackend().name());
-        this.sttModelField = new JTextField(stt.getModelName(), 30);
-        this.sttLanguageField = new JTextField(stt.getLanguage(), 8);
-        this.sttPromptField = new JTextField(stt.getPrompt(), 42);
-        this.sttMaxFileSizeField = new JTextField(String.valueOf(stt.getMaxFileSizeMb()), 8);
-        this.sttTimeoutField = new JTextField(String.valueOf(stt.getTimeoutSeconds()), 8);
-        this.mainModelTimeoutField = new JTextField(
+        this.sttModelField = ComicControls.textField(stt.getModelName(), 30);
+        this.sttLanguageField = ComicControls.textField(stt.getLanguage(), 8);
+        this.sttPromptField = ComicControls.textField(stt.getPrompt(), 42);
+        this.sttMaxFileSizeField = ComicControls.textField(String.valueOf(stt.getMaxFileSizeMb()), 8);
+        this.sttTimeoutField = ComicControls.textField(String.valueOf(stt.getTimeoutSeconds()), 8);
+        this.mainModelTimeoutField = ComicControls.textField(
                 String.valueOf(model.getAiModelSelections().getMainModelTimeoutSeconds()), 8);
-        this.logArea = new JTextArea(16, 70);
+        this.logArea = ComicControls.textArea(16, 70);
         buildUserInterface();
         append("Config loaded.");
         append("Settings file: " + AskAiPaths.settingsFile());
@@ -75,7 +77,7 @@ public final class OllamaConfigPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         JPanel form = new JPanel(new GridBagLayout());
-        form.setBorder(BorderFactory.createTitledBorder("Ollama endpoint"));
+        form.setBorder(ComicControls.titledBorder("Ollama endpoint"));
         GridBagConstraints constraints = new GridBagConstraints();
         constraints.insets = new Insets(4, 4, 4, 4);
         constraints.anchor = GridBagConstraints.WEST;
@@ -91,7 +93,7 @@ public final class OllamaConfigPanel extends JPanel {
         addRow(form, constraints, 4, "Main model timeout (seconds)", mainModelTimeoutField);
 
         JPanel sttForm = new JPanel(new GridBagLayout());
-        sttForm.setBorder(BorderFactory.createTitledBorder("Speech-to-Text"));
+        sttForm.setBorder(ComicControls.titledBorder("Speech-to-Text"));
         GridBagConstraints sttConstraints = new GridBagConstraints();
         sttConstraints.insets = new Insets(4, 4, 4, 4);
         sttConstraints.anchor = GridBagConstraints.WEST;
@@ -110,9 +112,9 @@ public final class OllamaConfigPanel extends JPanel {
         forms.add(sttForm);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton saveButton = new JButton("Save");
+        JButton saveButton = new ComicButton("Save");
         saveButton.addActionListener(event -> save());
-        JButton testButton = new JButton("Test Connection");
+        JButton testButton = new ComicButton("Test Connection");
         testButton.addActionListener(event -> testConnection());
         buttons.add(saveButton);
         buttons.add(testButton);

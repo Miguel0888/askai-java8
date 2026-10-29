@@ -33,6 +33,20 @@ final class ResearchStateGraph {
 
     private static final Map<String, Edge> EDGES = new LinkedHashMap<String, Edge>();
     private static final Set<String> KNOWN_COMBOS = new LinkedHashSet<String>();
+    /**
+     * The way BACK: from every state of a later phase (incl. approval gates, interruptions, completed and
+     * cancelled) to an earlier phase, landing in its RUNNING state. Kept apart from {@link #EDGES} so the
+     * persisted-state validation ({@link #isKnownCombo}) is untouched. Nothing is deleted on the way back:
+     * concept, sources and outline stay as they are and are simply worked on again.
+     */
+    private static final Map<String, Edge> BACK_EDGES = new LinkedHashMap<String, Edge>();
+    private static final String[] PHASE_ORDER = {SCOPING, RESEARCH, OUTLINE, DRAFT};
+    private static final ResearchCommandType[] REOPEN_INTO = {ResearchCommandType.REOPEN_CONCEPT,
+            ResearchCommandType.REOPEN_SOURCES, ResearchCommandType.REOPEN_OUTLINE};
+    private static final String[] ALL_STATES = {ResearchStateIds.NEW, ResearchStateIds.RUNNING,
+            ResearchStateIds.WAITING, ResearchStateIds.WAITING_APPROVAL, ResearchStateIds.PAUSED,
+            ResearchStateIds.BLOCKED, ResearchStateIds.FAILED, ResearchStateIds.COMPLETED,
+            ResearchStateIds.CANCELLED};
 
     static {
         // #43: the ratified 4-phase product model — Concept (id "scoping") → Sources (id
@@ -68,6 +82,15 @@ final class ResearchStateGraph {
                 DRAFT, ResearchStateIds.RUNNING);
         edge(DRAFT, ResearchStateIds.WAITING_APPROVAL, ResearchCommandType.APPROVE_FINAL,
                 DRAFT, ResearchStateIds.COMPLETED);
+        // THE WAY BACK — always possible: every later phase can reopen every earlier one.
+        for (int from = 1; from < PHASE_ORDER.length; from++) {
+            for (int to = 0; to < from; to++) {
+                for (String stateId : ALL_STATES) {
+                    BACK_EDGES.put(key(PHASE_ORDER[from], stateId, REOPEN_INTO[to]),
+                            new Edge(PHASE_ORDER[to], ResearchStateIds.RUNNING));
+                }
+            }
+        }
     }
 
     private ResearchStateGraph() {
@@ -91,16 +114,19 @@ final class ResearchStateGraph {
 
     /** @return the forward edge for this (phase, state, command), or {@code null} if none. */
     static Edge forward(String phaseId, String stateId, ResearchCommandType command) {
-        return EDGES.get(key(phaseId, stateId, command));
+        Edge edge = EDGES.get(key(phaseId, stateId, command));
+        return edge != null ? edge : BACK_EDGES.get(key(phaseId, stateId, command));
     }
 
     /** @return the set of forward commands available from this (phase, state). */
     static Set<ResearchCommandType> forwardCommands(String phaseId, String stateId) {
         Set<ResearchCommandType> commands = new LinkedHashSet<ResearchCommandType>();
         String prefix = phaseId + "|" + stateId + "|";
-        for (Map.Entry<String, Edge> entry : EDGES.entrySet()) {
-            if (entry.getKey().startsWith(prefix)) {
-                commands.add(ResearchCommandType.valueOf(entry.getKey().substring(prefix.length())));
+        for (Map<String, Edge> edges : java.util.Arrays.asList(EDGES, BACK_EDGES)) {
+            for (Map.Entry<String, Edge> entry : edges.entrySet()) {
+                if (entry.getKey().startsWith(prefix)) {
+                    commands.add(ResearchCommandType.valueOf(entry.getKey().substring(prefix.length())));
+                }
             }
         }
         return Collections.unmodifiableSet(commands);

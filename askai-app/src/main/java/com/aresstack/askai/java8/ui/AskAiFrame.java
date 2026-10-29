@@ -32,7 +32,7 @@ import com.aresstack.askai.java8.ui.chat.ChatSessionId;
 import com.aresstack.askai.java8.ui.chat.ChatWorkspacePanel;
 import com.aresstack.audio.profile.AudioProcessingProfile;
 import com.aresstack.audio.application.DefaultAudioProcessingPreviewService;
-import com.aresstack.comiccontrols.control.ComicHoverMenu;
+import com.aresstack.comiccontrols.theme.AskAiTheme;
 import com.aresstack.comiccontrols.theme.ComicTheme;
 
 import java.util.ArrayList;
@@ -44,8 +44,6 @@ import java.util.function.Supplier;
 import javax.swing.Box;
 import javax.swing.JButton;
 import javax.swing.JFrame;
-import javax.swing.JMenu;
-import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
@@ -136,7 +134,13 @@ public final class AskAiFrame extends JFrame {
 
     public AskAiFrame(AppConfigurationRepository configurationRepository, final AskAiService askAiService) {
         super("AskAI");
-        AppIcon.apply(this); // the AskAI robot everywhere the Java cup used to be
+        // Frameless: AskAI draws its own title bar (icon + title left like Windows, the active agent's
+        // search in the middle, the comic window control right) — see buildUserInterface.
+        setUndecorated(true);
+        AppIcon.apply(this); // the AskAI robot everywhere the Java cup used to be (taskbar, Alt-Tab)
+        // The theme FIRST: every component built from here on (models panel, connection widget, ...)
+        // picks up the comic delegates and colors — not Metal's.
+        ComicTheme.install(AskAiTheme.active());
         this.configurationRepository = configurationRepository;
         this.askAiService = askAiService;
         this.model = new AskAiModel(configurationRepository);
@@ -260,43 +264,216 @@ public final class AskAiFrame extends JFrame {
     }
 
     private void buildUserInterface() {
-        // The comic design language's global part: ink contour + yellow/ink selection for ALL
-        // dropdowns and context popups, ink baseline under the menu bar (issue #36).
-        ComicTheme.installMenuDefaults();
-        setJMenuBar(createMenuBar());
-        getContentPane().setLayout(new BorderLayout());
-        getContentPane().add(createContentPanel(), BorderLayout.CENTER);
+        // The comic design language's global part: the active theme's tokens for all standard
+        // Swing components (surfaces, fields, tables, tabs, …), the comic button/scrollbar
+        // delegates, and the menu/popup contours (issue #36).
+        this.titleBar = new AskAiTitleBar(getTitle(),
+                () -> setState(java.awt.Frame.ICONIFIED),
+                () -> dispatchEvent(new java.awt.event.WindowEvent(this, java.awt.event.WindowEvent.WINDOW_CLOSING)));
+        // Title bar ABOVE the menu bar, both inside the frameless window's ink contour.
+        JPanel header = new JPanel();
+        header.setLayout(new javax.swing.BoxLayout(header, javax.swing.BoxLayout.Y_AXIS));
+        header.setOpaque(false);
+        titleBar.setAlignmentX(LEFT_ALIGNMENT);
+        // Right-aligned in the title bar, left of the close chip: the Text | Audio toggle, the connection dot
+        // (address, status and version in its hover popup; click refreshes), models, gear and help.
+        connectionStatusView.setCompact(true);
+        titleBar.addTrailingControl(createModeToggle());
+        titleBar.addTrailingControl(connectionStatusView);
+        titleBar.addTrailingControl(createModelsButton());
+        titleBar.addTrailingControl(createSettingsGear());
+        titleBar.addTrailingControl(createHelpButton());
+        header.add(titleBar);
+        JPanel windowSurface = new JPanel(new BorderLayout());
+        windowSurface.add(header, BorderLayout.NORTH);
+        windowSurface.add(createContentPanel(), BorderLayout.CENTER);
+        setContentPane(windowSurface);
+        com.aresstack.comiccontrols.control.ComicWindowShape.install(this, windowSurface,
+                com.aresstack.comiccontrols.theme.ComicPalette.defaultPalette(), WINDOW_PADDING,
+                com.aresstack.comiccontrols.theme.ResearchUiMetrics.RADIUS_WINDOW);
+        com.aresstack.comiccontrols.control.ComicWindowResizer.install(windowSurface, RESIZE_GRIP);
+        com.aresstack.comiccontrols.control.ComicWindowDragger.install(titleBar);
     }
 
-    private JMenuBar createMenuBar() {
-        JMenuBar menuBar = new JMenuBar();
-        menuBar.add(createFileMenu());
-        menuBar.add(createTopLevelMenu("Chat", CHAT_VIEW));
-        menuBar.add(createTopLevelMenu("Batch", BATCH_VIEW));
-        menuBar.add(createModelsMenu());
-        menuBar.add(createConfigurationMenu());
-        menuBar.add(createHelpMenu());
-        menuBar.add(Box.createHorizontalGlue());
-        // ONE fused connection widget: status dot (hover → comic refresh glyph, click refreshes
-        // connection/models/audio profiles) + address (click opens the connection settings). No
-        // separate always-visible refresh button eating menu-bar space anymore.
-        menuBar.add(connectionStatusView);
-        return menuBar;
+    /** The frameless window's ink-contour padding (doubles as the resize grip zone). */
+    private static final int WINDOW_PADDING = 4;
+    private static final int RESIZE_GRIP = 6;
+
+    /** AskAI's own title bar (the window is frameless). */
+    private AskAiTitleBar titleBar;
+
+    @Override
+    public void setTitle(String title) {
+        super.setTitle(title);
+        if (titleBar != null) {
+            titleBar.setTitle(title);
+        }
     }
 
-    /** Far-left "Datei" menu with an explicit "Beenden" that runs the same logged shutdown as the window X. */
-    private JMenu createFileMenu() {
-        JMenu menu = new ComicHoverMenu("Datei");
-        javax.swing.JMenuItem quit = new javax.swing.JMenuItem("Beenden");
-        quit.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent event) {
-                shutdownLog("quit requested via File > Beenden");
-                performShutdown();
-                dispose();
+    /** The title bar's main switch: Text (the chat) | Audio (batch transcription, audio processing). */
+    private com.aresstack.comiccontrols.control.ComicSegmentedToggle modeToggle;
+    private static final int SLIM_TOGGLE_HEIGHT = 12;
+
+    private javax.swing.JComponent createModeToggle() {
+        modeToggle = new com.aresstack.comiccontrols.control.ComicSegmentedToggle("Text", "Audio");
+        // slim, as it looked in the old navigation slot (squeezed to 12 px there)
+        modeToggle.setToggleHeight(SLIM_TOGGLE_HEIGHT);
+        modeToggle.setToolTipText("Text: the chat · Audio: batch transcription and audio processing");
+        modeToggle.setSelectionListener(index -> showScreen(index == 0 ? CHAT_VIEW : AUDIO_SCREEN));
+        return modeToggle;
+    }
+
+    private void markNavigation(String screenName) {
+        if (modeToggle == null) {
+            return;
+        }
+        if (CHAT_VIEW.equals(screenName)) {
+            modeToggle.setSelectedIndex(0);
+        } else if (AUDIO_SCREEN.equals(screenName)) {
+            modeToggle.setSelectedIndex(1);
+        }
+    }
+
+    // ------------------------------------------------------------------ drawer screens (Audio, Models)
+
+    /** The Audio screen: drawer with Batch transcription and Audio processing. */
+    private static final String AUDIO_SCREEN = "audio-screen";
+    /** The Models screen: drawer with Setup, Installed and Running Models, "Back" in the footer. */
+    private static final String MODELS_SCREEN = "models-screen";
+    private static final String PAGE_BATCH = "Batch transcription";
+    private static final String PAGE_AUDIO_PROCESSING = "Audio processing";
+    private static final String PAGE_SETUP = "Setup";
+    private static final String PAGE_INSTALLED = "Installed";
+    private static final String PAGE_RUNNING = "Running Models";
+    private com.aresstack.askai.java8.ui.chat.DrawerScreen audioScreen;
+    private com.aresstack.askai.java8.ui.chat.DrawerScreen modelsScreen;
+    /** The last Text/Audio screen — where the Models drawer's "Back" returns to. */
+    private String lastMainScreen = CHAT_VIEW;
+
+    private com.aresstack.askai.java8.ui.chat.DrawerScreen audioScreen() {
+        if (audioScreen == null) {
+            audioScreen = new com.aresstack.askai.java8.ui.chat.DrawerScreen("AUDIO");
+            audioScreen.addPage(PAGE_BATCH, new JPanel(), null); // placeholder: fixes the page order
+            contentPanel.add(audioScreen, AUDIO_SCREEN);
+        }
+        return audioScreen;
+    }
+
+    private com.aresstack.askai.java8.ui.chat.DrawerScreen modelsScreen() {
+        if (modelsScreen == null) {
+            modelsScreen = new com.aresstack.askai.java8.ui.chat.DrawerScreen("MODELS");
+            modelsScreen.addPage(PAGE_SETUP, new JPanel(), null); // placeholder: fixes the page order
+            modelsScreen.setBackAction("Back", () -> showScreen(lastMainScreen));
+            contentPanel.add(modelsScreen, MODELS_SCREEN);
+        }
+        return modelsScreen;
+    }
+
+    /** The round blue "?" (MainframeMate's help button): the help entries as a menu. */
+    private javax.swing.JComponent createHelpButton() {
+        final com.aresstack.comiccontrols.control.ComicHelpButton help =
+                new com.aresstack.comiccontrols.control.ComicHelpButton(24, "Help");
+        help.addActionListener(event -> {
+            javax.swing.JPopupMenu menu = createHelpPopup();
+            menu.show(help, help.getWidth() - menu.getPreferredSize().width, help.getHeight());
+        });
+        return help;
+    }
+
+    private javax.swing.JPopupMenu createHelpPopup() {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        menu.add(createScreenItem("Actions", ACTIONS_VIEW));
+        JMenuItem recordVideo = new JMenuItem("Record Video...");
+        recordVideo.addActionListener(event -> openRecordVideoDialog());
+        menu.add(recordVideo);
+        menu.addSeparator();
+        menu.add(createScreenItem("About", ABOUT_VIEW));
+        return menu;
+    }
+
+    /** The models button (cube glyph, the gear's size): Setup / Installed / Running Models as a menu. */
+    private javax.swing.JComponent createModelsButton() {
+        final com.aresstack.comiccontrols.control.ComicButton models = new com.aresstack.comiccontrols.control.ComicButton(
+                new ScaledIcon(com.aresstack.askai.java8.ui.ChatComposerPanel.createModelsGlyphIcon(), 20));
+        models.setContentAreaFilled(false);
+        models.setFocusable(false);
+        models.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        models.setPreferredSize(new Dimension(24, 24));
+        models.setToolTipText("Models: setup, installed, running");
+        models.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        models.addActionListener(event -> showScreen(MODELS_SCREEN)); // the Models drawer
+        models.setMaximumSize(models.getPreferredSize());
+        return models;
+    }
+
+    /** The gear's menu: chat settings first, then the configuration screens. */
+    private javax.swing.JPopupMenu createSettingsMenu() {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        JMenuItem chatSettings = new JMenuItem("Chat settings…");
+        chatSettings.addActionListener(event -> {
+            if (chatWorkspace != null) {
+                showScreen(CHAT_VIEW); // the settings live in the chat workspace (drawer + main area)
+                chatWorkspace.openActiveChatSettings();
             }
         });
-        menu.add(quit);
+        menu.add(chatSettings);
+        menu.addSeparator();
+        menu.add(createScreenItem("Connections", CONNECTIONS_VIEW));
+        menu.add(createScreenItem("AI models", AI_MODELS_VIEW));
+        menu.add(createScreenItem("Network", NETWORK_VIEW));
+        menu.add(createScreenItem("Plugins", PLUGINS_VIEW));
         return menu;
+    }
+
+    /** An icon drawn scaled to {@code size} pixels (the 15px stroke glyphs at title-bar size). */
+    private static final class ScaledIcon implements javax.swing.Icon {
+        private final javax.swing.Icon icon;
+        private final int size;
+
+        ScaledIcon(javax.swing.Icon icon, int size) {
+            this.icon = icon;
+            this.size = size;
+        }
+
+        public int getIconWidth() {
+            return size;
+        }
+
+        public int getIconHeight() {
+            return size;
+        }
+
+        public void paintIcon(java.awt.Component c, java.awt.Graphics g, int x, int y) {
+            java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+            try {
+                g2.translate(x, y);
+                g2.scale(size / (double) icon.getIconWidth(), size / (double) icon.getIconHeight());
+                icon.paintIcon(c, g2, 0, 0);
+            } finally {
+                g2.dispose();
+            }
+        }
+    }
+
+    /** The flat title-bar gear (glyph only, ink, the close chip's size); opens the settings menu. */
+    private javax.swing.JComponent createSettingsGear() {
+        com.aresstack.comiccontrols.control.ComicButton gear = new com.aresstack.comiccontrols.control.ComicButton(
+                com.aresstack.askai.java8.ui.ChatComposerPanel.createGearGlyphIcon());
+        gear.setContentAreaFilled(false); // flat: just the glyph in the menu bar
+        gear.setFocusable(false);
+        gear.setIcon(new ScaledIcon(com.aresstack.askai.java8.ui.ChatComposerPanel.createGearGlyphIcon(), 20));
+        gear.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        gear.setPreferredSize(new Dimension(24, 24)); // the size of the close chip beside it
+        gear.setToolTipText("Settings and configuration");
+        gear.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        // The gear is THE settings menu: the chat settings dialog plus the configuration screens
+        // (formerly the "Configuration" menu). Built per click, so it always wears the current theme.
+        gear.addActionListener(event -> {
+            javax.swing.JPopupMenu menu = createSettingsMenu();
+            menu.show(gear, gear.getWidth() - menu.getPreferredSize().width, gear.getHeight());
+        });
+        gear.setMaximumSize(gear.getPreferredSize()); // never stretched by the menu-bar layout
+        return gear;
     }
 
     /** Load installed model names for the chat model list (blocking; runs off the EDT in the refresh service). */
@@ -410,55 +587,6 @@ public final class AskAiFrame extends JFrame {
         } else {
             javax.swing.SwingUtilities.invokeLater(runnable);
         }
-    }
-
-    private JMenu createTopLevelMenu(String title, String screenName) {
-        final JMenu menu = new ComicHoverMenu(title);
-        menu.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent event) {
-                showScreen(screenName);
-                menu.setSelected(false);
-            }
-        });
-        return menu;
-    }
-
-    private JMenu createModelsMenu() {
-        JMenu modelsMenu = new ComicHoverMenu("Models");
-        JMenuItem installedItem = new JMenuItem("Installed");
-        installedItem.addActionListener(event -> showModels(true));
-        JMenuItem runningItem = new JMenuItem("Running Models");
-        runningItem.addActionListener(event -> showModels(false));
-        modelsMenu.add(createScreenItem("Setup", INSTALL_VIEW));
-        modelsMenu.add(installedItem);
-        modelsMenu.add(runningItem);
-        return modelsMenu;
-    }
-
-    private JMenu createConfigurationMenu() {
-        JMenu configurationMenu = new ComicHoverMenu("Configuration");
-        configurationMenu.add(createScreenItem("Connections", CONNECTIONS_VIEW));
-        configurationMenu.add(createScreenItem("AI models", AI_MODELS_VIEW));
-        configurationMenu.add(createScreenItem("Network", NETWORK_VIEW));
-        configurationMenu.add(createScreenItem("Audio processing", AUDIO_PROCESSING_VIEW));
-        configurationMenu.add(createScreenItem("Plugins", PLUGINS_VIEW));
-        return configurationMenu;
-    }
-
-    private JMenu createHelpMenu() {
-        JMenu helpMenu = new ComicHoverMenu("Help");
-        helpMenu.add(createScreenItem("Actions", ACTIONS_VIEW));
-        JMenuItem recordVideo = new JMenuItem("Record Video...");
-        recordVideo.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent event) {
-                openRecordVideoDialog();
-            }
-        });
-        helpMenu.add(recordVideo);
-        helpMenu.addSeparator();
-        helpMenu.add(createScreenItem("About", ABOUT_VIEW));
-        return helpMenu;
     }
 
     /** The general-purpose video recorder (first entry point: Help). Works over the abstract recording layer. */
@@ -672,6 +800,21 @@ public final class AskAiFrame extends JFrame {
                 new com.aresstack.askai.plugin.host.AgentArtifactTabs(agentCoordinator, uiExecutor,
                         new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
                         new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory());
+        // The artifact views (e.g. Concept/Sources) open the same overlays as the toolbar does.
+        artifactTabs.setOverlayHost(new com.aresstack.askai.plugin.host.AgentOverlayHost() {
+            public void showTranscriptOverlay(javax.swing.JComponent content, String title) {
+                showOverlayOnActiveChat(content, title);
+            }
+
+            public void showDiagramOverlay(String mermaidSource, String title) {
+                showDiagramOverlayOnActiveChat(mermaidSource, title);
+            }
+
+            @Override
+            public void setMainContent(String ownerTabTitle, javax.swing.JComponent content) {
+                chatTabs.setMainContent(ownerTabTitle, content);
+            }
+        });
         chatTabs.setSidebarTabContributions(
                 new java.util.function.Supplier<java.util.List<com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab>>() {
                     public java.util.List<com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab> get() {
@@ -845,6 +988,11 @@ public final class AskAiFrame extends JFrame {
         agentCoordinator.addChangeListener(() -> uiExecutor.execute(() ->
                 chatTabs.setMenuOverrideIcon(brandingCoordinator.getActiveMenuIcon())));
         chatTabs.setMenuOverrideIcon(agentCoordinator.getActiveMenuIcon());
+        // The title-bar search follows the active agent: its contribution defines the search, no agent = hidden.
+        final Runnable bindTitleSearch = () -> titleBar.bindSearch(
+                brandingCoordinator.getActiveSearchContribution(), brandingCoordinator::getActiveSession);
+        agentCoordinator.addChangeListener(() -> uiExecutor.execute(bindTitleSearch));
+        bindTitleSearch.run();
         chatTabs.setWorkspaceModeController(host); // the host panel IS the mode controller
         return host;
     }
@@ -1092,8 +1240,9 @@ public final class AskAiFrame extends JFrame {
                 useModelInChat(modelName);
             }
         });
-        contentPanel.add(modelsPanel, MODELS_VIEW);
-        contentPanel.add(new OllamaActionsPanel(featureActionService, ollamaService), ACTIONS_VIEW);
+        modelsScreen().addPage(PAGE_INSTALLED, modelsPanel, () -> showModelsPage(true));
+        modelsScreen().addPage(PAGE_RUNNING, modelsPanel, () -> showModelsPage(false));
+        contentPanel.add(withFooter(new OllamaActionsPanel(featureActionService, ollamaService)), ACTIONS_VIEW);
         // Java 8 port: model search with two sources in tabs — HuggingFace (search/analyze/import)
         // and the Ollama Library (scrape ollama.com, pull a tag on the remote server).
         // The curated OpenNLP sentence-detection models live in their own store; the Model Browser gets an NLP
@@ -1121,7 +1270,7 @@ public final class AskAiFrame extends JFrame {
                 }
             }
         });
-        contentPanel.add(modelSearchPanel, INSTALL_VIEW);
+        modelsScreen().addPage(PAGE_SETUP, modelSearchPanel, null);
         // "Add-ons on Hugging Face" from an installed model card: switch to Setup and enter add-on mode so
         // the chosen encoder is attached to this model (from/adapters), not installed as a new model.
         modelsPanel.setFindAddOnsHandler(new OllamaModelsPanel.FindAddOnsHandler() {
@@ -1143,27 +1292,34 @@ public final class AskAiFrame extends JFrame {
         });
         this.installSearchPanel = modelSearchPanel;
         this.configPanel = new OllamaConfigPanel(model, ollamaService);
-        contentPanel.add(configPanel, CONNECTIONS_VIEW);
+        contentPanel.add(withFooter(configPanel), CONNECTIONS_VIEW);
         // Central AI-model selection (reranker + embeddings) owned by AskAI for all plugins. The reranker
         // catalog needs the local runtime; when there is none, the panel simply offers no rerank models.
-        contentPanel.add(new AiModelsPanel(model,
+        contentPanel.add(withFooter(new AiModelsPanel(model,
                 askAiService.localRuntimeManager() == null ? null
                         : new com.aresstack.askai.java8.localmodels.LocalRerankerModelCatalog(
                                 askAiService.localRuntimeManager()),
                 nlpModelCatalog,
-                (VirtualOllamaContainerService) ollamaService), AI_MODELS_VIEW);
+                (VirtualOllamaContainerService) ollamaService)), AI_MODELS_VIEW);
         // Java 8 port: the extended proxy panel (WScript discovery, TLS trust, HTTP client, IPv6).
-        contentPanel.add(new ProxyPanel(configurationRepository), NETWORK_VIEW);
-        contentPanel.add(new OllamaAboutPanel(), ABOUT_VIEW);
+        contentPanel.add(withFooter(new ProxyPanel(configurationRepository)), NETWORK_VIEW);
+        contentPanel.add(withFooter(new OllamaAboutPanel())
+                .withCenter(OllamaAboutPanel.createCopyDiagnosticsButton())
+                .withTrailing(new com.aresstack.askai.java8.ui.about.CopyrightFooter()), ABOUT_VIEW);
         // Java2D pipeline editor for audio-processing profiles (shared repository instance).
         this.audioProcessingPanel = new AudioProcessingPanel(audioProfileRepository, applicationState);
-        contentPanel.add(audioProcessingPanel, AUDIO_PROCESSING_VIEW);
+        audioScreen().addPage(PAGE_AUDIO_PROCESSING, audioProcessingPanel, null);
         // Configuration → Plugins: the real PF4J catalog (enable/disable, details), built after the host so
         // pluginService/enablement exist.
-        contentPanel.add(new com.aresstack.askai.plugin.host.PluginManagementPanel(
-                pluginService, pluginEnablement, pluginsDirectory), PLUGINS_VIEW);
+        contentPanel.add(withFooter(new com.aresstack.askai.plugin.host.PluginManagementPanel(
+                pluginService, pluginEnablement, pluginsDirectory)), PLUGINS_VIEW);
         wireBatchComponent();
         return contentPanel;
+    }
+
+    /** The uniform screen container: the content, below it the footer with "Back" to the last Text/Audio screen. */
+    private FooterScreen withFooter(javax.swing.JComponent content) {
+        return new FooterScreen(content, () -> showScreen(lastMainScreen));
     }
 
     /**
@@ -1202,7 +1358,7 @@ public final class AskAiFrame extends JFrame {
                 Collections.<String>emptyList(),
                 audioProfileRepository.findAll(),
                 profileRefresher);
-        contentPanel.add(batchPanel, BATCH_VIEW);
+        audioScreen().addPage(PAGE_BATCH, batchPanel, null);
     }
 
     /** Switches to the Chat view and selects the given model in the active chat, keeping its conversation. */
@@ -1229,7 +1385,24 @@ public final class AskAiFrame extends JFrame {
         if (!INSTALL_VIEW.equals(screenName) && installSearchPanel != null) {
             installSearchPanel.leaveAddOnMode();
         }
+        // The former screens live as pages in the drawer screens now.
+        if (BATCH_VIEW.equals(screenName)) {
+            audioScreen().select(PAGE_BATCH);
+            screenName = AUDIO_SCREEN;
+        } else if (AUDIO_PROCESSING_VIEW.equals(screenName)) {
+            audioScreen().select(PAGE_AUDIO_PROCESSING);
+            screenName = AUDIO_SCREEN;
+        } else if (INSTALL_VIEW.equals(screenName)) {
+            modelsScreen().select(PAGE_SETUP);
+            screenName = MODELS_SCREEN;
+        } else if (MODELS_VIEW.equals(screenName)) {
+            screenName = MODELS_SCREEN;
+        }
+        if (CHAT_VIEW.equals(screenName) || AUDIO_SCREEN.equals(screenName)) {
+            lastMainScreen = screenName;
+        }
         contentLayout.show(contentPanel, screenName);
+        markNavigation(screenName); // the title bar's Text | Audio toggle follows the shown screen
         refreshConnectionStatus();
         // Re-check speech-to-text readiness when returning to the chat (server/model may have changed).
         if (CHAT_VIEW.equals(screenName)) {
@@ -1240,12 +1413,17 @@ public final class AskAiFrame extends JFrame {
         }
     }
 
-    /** Show the Models view and select the Installed or Running Models sub-view. */
+    /** Show the Models drawer on the Installed or Running Models page. */
     private void showModels(boolean installed) {
+        showScreen(MODELS_SCREEN);
+        modelsScreen().select(installed ? PAGE_INSTALLED : PAGE_RUNNING);
+    }
+
+    /** The Installed / Running Models page of the Models drawer was chosen. */
+    private void showModelsPage(boolean installed) {
         if (installSearchPanel != null) {
             installSearchPanel.leaveAddOnMode(); // leaving Setup drops any transient add-on target
         }
-        contentLayout.show(contentPanel, MODELS_VIEW);
         if (installed) {
             modelsPanel.showInstalled();
         } else {

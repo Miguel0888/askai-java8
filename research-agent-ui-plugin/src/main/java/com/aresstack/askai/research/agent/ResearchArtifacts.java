@@ -40,16 +40,17 @@ public final class ResearchArtifacts {
         // Sources sit BEFORE the outline: the concept already yields the first sources, and the outline is
         // (going to be) GENERATED FROM the sources — the tab order mirrors that logical flow.
         list.add(new Artifact("sources", "Sources", TYPE_SOURCES, ""));
-        // Issue #29: the outline is a DERIVED projection with its own view (persisted result + stale marker
-        // + explicit "Inhaltsverzeichnis erzeugen" action) — no longer a live-updating markdown tab.
-        list.add(new Artifact("outline", "Outline", TYPE_OUTLINE, "outline.md"));
+        // Outline + Document are ONE tab: the outline (issue #29: persisted derived projection, stale marker,
+        // explicit generate action) is the Document tab's DRAWER, the document itself shows in the main area.
+        // The "outline" artifact slot in the store (outline.md, outline_save) is unchanged — it just has no
+        // tab of its own anymore.
         // ONE canonical working document (issue #32): DRAFT and FINALIZATION both work on it. The legacy
         // concept/research-notes/findings/draft/final artifacts are deliberately NOT listed anymore — old
         // files stay untouched on disk, but they get no tabs and no active-workflow writes.
         // #43 slice 9: the document gets its own page view (chapter hierarchy + clickable
         // [n] source badges); the plain editor stays one toggle away inside that view.
         list.add(new Artifact("document", "Document", TYPE_DOCUMENT, "document.md"));
-        list.add(new Artifact("state", "State", TYPE_STATE, ""));
+        list.add(new Artifact("state", "Revisions", TYPE_STATE, "")); // id stays "state" (persisted tab selection, /open)
         // Runtime + search settings are deliberately NOT artifacts anymore: they live as the plugin's
         // settings pages in the host's gear menu (session-based), the artifact area holds work products.
         return Collections.unmodifiableList(list);

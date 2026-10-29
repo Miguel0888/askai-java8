@@ -1,5 +1,8 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.ollamalib.OllamaLibraryModel;
 import com.aresstack.askai.java8.ollamalib.OllamaModelVariant;
 import com.aresstack.askai.java8.service.AskAiService;
@@ -34,15 +37,15 @@ import java.util.List;
 public final class OllamaLibraryPanel extends JPanel {
 
     private final AskAiService askAiService;
-    private final JTextField searchField = new JTextField(28);
-    private final JButton searchButton = new JButton("Search Ollama Library");
+    private final JTextField searchField = ComicControls.textField(28);
+    private final JButton searchButton = new ComicButton("Search Ollama Library");
     private final DefaultListModel<OllamaLibraryModel> resultsModel = new DefaultListModel<OllamaLibraryModel>();
-    private final JList<OllamaLibraryModel> resultsList = new JList<OllamaLibraryModel>(resultsModel);
+    private final JList<OllamaLibraryModel> resultsList = ComicControls.<OllamaLibraryModel>list(resultsModel);
     private final DefaultListModel<OllamaModelVariant> variantsModel = new DefaultListModel<OllamaModelVariant>();
-    private final JList<OllamaModelVariant> variantsList = new JList<OllamaModelVariant>(variantsModel);
-    private final JButton installButton = new JButton("Install (pull) selected tag");
-    private final JProgressBar progressBar = new JProgressBar(0, 100);
-    private final JTextArea logArea = new JTextArea(10, 80);
+    private final JList<OllamaModelVariant> variantsList = ComicControls.<OllamaModelVariant>list(variantsModel);
+    private final JButton installButton = new ComicButton("Install (pull) selected tag");
+    private final JProgressBar progressBar = ComicControls.progressBar(0, 100);
+    private final JTextArea logArea = ComicControls.textArea(10, 80);
 
     public OllamaLibraryPanel(AskAiService askAiService) {
         this.askAiService = askAiService;
@@ -83,7 +86,7 @@ public final class OllamaLibraryPanel extends JPanel {
         searchButton.addActionListener(event -> search());
         searchField.addActionListener(event -> search());
         JLabel hint = new JLabel("Models from ollama.com — installed directly via ollama pull on the remote server.");
-        hint.setForeground(new Color(0x75, 0x75, 0x75));
+        hint.setForeground(ThemeColor.of("models.secondaryText"));
         bar.add(hint);
         return bar;
     }
@@ -97,7 +100,7 @@ public final class OllamaLibraryPanel extends JPanel {
             }
         });
         JScrollPane scroll = new JScrollPane(resultsList);
-        scroll.setBorder(BorderFactory.createTitledBorder("Ollama models"));
+        scroll.setBorder(ComicControls.titledBorder("Ollama models"));
         return scroll;
     }
 
@@ -110,7 +113,7 @@ public final class OllamaLibraryPanel extends JPanel {
             }
         });
         JScrollPane scroll = new JScrollPane(variantsList);
-        scroll.setBorder(BorderFactory.createTitledBorder("Tags / variants"));
+        scroll.setBorder(ComicControls.titledBorder("Tags / variants"));
         return scroll;
     }
 
@@ -284,7 +287,7 @@ public final class OllamaLibraryPanel extends JPanel {
         ModelRenderer() {
             super(new BorderLayout(8, 1));
             setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0xE3, 0xE6, 0xEB)),
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, ThemeColor.of("models.resultRowDivider")),
                     BorderFactory.createEmptyBorder(5, 8, 5, 8)));
             setOpaque(true);
             add(nameLabel, BorderLayout.NORTH);
@@ -303,7 +306,8 @@ public final class OllamaLibraryPanel extends JPanel {
             // strip on the right (same visual language as the HuggingFace search).
             StringBuilder html = new StringBuilder("<html><b>").append(escape(model.getBaseName())).append("</b>");
             for (String param : model.getParameterSizes()) {
-                html.append(badge(param, "#EDEDED", "#555555"));
+                html.append(badge(param, ThemeColor.toHtmlHex(ThemeColor.of("models.parameterBadgeBackground")),
+                        ThemeColor.toHtmlHex(ThemeColor.of("models.parameterBadgeText"))));
             }
             html.append("</html>");
             nameLabel.setText(html.toString());
@@ -318,8 +322,8 @@ public final class OllamaLibraryPanel extends JPanel {
             setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
             Color fg = isSelected ? list.getSelectionForeground() : list.getForeground();
             nameLabel.setForeground(fg);
-            descLabel.setForeground(isSelected ? fg : new Color(0x50, 0x50, 0x50));
-            statsLabel.setForeground(isSelected ? fg : new Color(0x80, 0x80, 0x80));
+            descLabel.setForeground(isSelected ? fg : ThemeColor.of("models.descriptionText"));
+            statsLabel.setForeground(isSelected ? fg : ThemeColor.of("models.mutedText"));
             return this;
         }
 
@@ -340,7 +344,7 @@ public final class OllamaLibraryPanel extends JPanel {
         VariantRenderer() {
             super(new BorderLayout(0, 1));
             setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0xE3, 0xE6, 0xEB)),
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, ThemeColor.of("models.resultRowDivider")),
                     BorderFactory.createEmptyBorder(5, 8, 5, 8)));
             setOpaque(true);
             add(tagLabel, BorderLayout.NORTH);
@@ -365,7 +369,7 @@ public final class OllamaLibraryPanel extends JPanel {
             setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
             Color fg = isSelected ? list.getSelectionForeground() : list.getForeground();
             tagLabel.setForeground(fg);
-            detailLabel.setForeground(isSelected ? fg : new Color(0x70, 0x70, 0x70));
+            detailLabel.setForeground(isSelected ? fg : ThemeColor.of("models.variantDetailText"));
             return this;
         }
 

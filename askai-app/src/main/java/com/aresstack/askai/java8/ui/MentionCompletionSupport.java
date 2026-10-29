@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.askai.java8.party.MentionCompletion;
 
 import javax.swing.DefaultListModel;
@@ -35,11 +36,13 @@ public final class MentionCompletionSupport {
 
     private final JTextArea editor;
     private final DefaultListModel<String> model = new DefaultListModel<String>();
-    private final JList<String> list = new JList<String>(model);
+    private final JList<String> list = ComicControls.<String>list(model);
 
     /** Background for handles of currently loaded (fast-answering) Ollama models. */
-    private static final java.awt.Color HIGHLIGHT_BACKGROUND = new java.awt.Color(0xDFF3DF);
-    private static final java.awt.Color HIGHLIGHT_SELECTED = new java.awt.Color(0x8FCF8F);
+    private static final java.awt.Color HIGHLIGHT_BACKGROUND =
+            com.aresstack.comiccontrols.theme.ThemeColor.of("chat.mentionLoadedBackground");
+    private static final java.awt.Color HIGHLIGHT_SELECTED =
+            com.aresstack.comiccontrols.theme.ThemeColor.of("chat.mentionLoadedSelected");
 
     private JWindow popup;
     private List<String> handles = Collections.emptyList();

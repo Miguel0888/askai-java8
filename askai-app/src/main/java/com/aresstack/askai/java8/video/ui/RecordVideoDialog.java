@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.video.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.video.MediaRecorderProvider;
 import com.aresstack.askai.java8.video.RecordingProfile;
 import com.aresstack.askai.java8.video.RecordingSource;
@@ -43,14 +45,14 @@ public final class RecordVideoDialog extends JDialog {
     private final VideoRecordingController controller;
     private final Rectangle ownerWindowBounds;
 
-    private final JComboBox<String> sourceCombo = new JComboBox<String>();
-    private final JComboBox<String> backendCombo = new JComboBox<String>();
-    private final JTextField outputField = new JTextField(28);
-    private final JButton chooseOutput = new JButton("Choose…");
-    private final JButton startButton = new JButton("Start Recording");
-    private final JButton stopButton = new JButton("Stop Recording");
-    private final JButton openFolder = new JButton("Open Folder");
-    private final JButton settingsButton = new JButton("Settings…");
+    private final JComboBox<String> sourceCombo = ComicControls.<String>comboBox();
+    private final JComboBox<String> backendCombo = ComicControls.<String>comboBox();
+    private final JTextField outputField = ComicControls.textField(28);
+    private final JButton chooseOutput = new ComicButton("Choose…");
+    private final JButton startButton = new ComicButton("Start Recording");
+    private final JButton stopButton = new ComicButton("Stop Recording");
+    private final JButton openFolder = new ComicButton("Open Folder");
+    private final JButton settingsButton = new ComicButton("Settings…");
     private final JLabel status = new JLabel(" ");
 
     private final VideoSettingsStore settingsStore = VideoSettingsStore.shared();

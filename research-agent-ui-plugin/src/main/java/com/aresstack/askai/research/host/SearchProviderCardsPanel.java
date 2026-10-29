@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.host;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.askai.plugin.api.service.WorkspaceStateStore;
 import com.aresstack.askai.research.search.config.DataForSeoSettingsDraft;
 
@@ -33,7 +34,7 @@ public final class SearchProviderCardsPanel extends JPanel {
             {"Browser (SERP)", "Brave Search API", "Bright Data", "DataForSEO"};
 
     private final WorkspaceStateStore store;
-    private final JComboBox<String> source = new JComboBox<String>(PROVIDER_LABELS);
+    private final JComboBox<String> source = ComicControls.<String>comboBox(PROVIDER_LABELS);
     private final CardLayout cards = new CardLayout();
     private final JPanel cardHost = new JPanel(cards);
 

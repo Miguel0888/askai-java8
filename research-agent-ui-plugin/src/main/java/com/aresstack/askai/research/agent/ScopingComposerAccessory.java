@@ -61,7 +61,7 @@ final class ScopingComposerAccessory implements ComposerAccessory {
                 uiExecutor.execute(new Runnable() {
                     public void run() {
                         // Back to demand-driven visibility: the free-search field moved to the
-                        // workspace TOP BAR (ResearchWebSearchToolbarContribution), so this
+                        // host's TITLE BAR (ResearchWebSearchContribution), so this
                         // surface only appears while it has tags to show.
                         view.setVisible(scoping || !actions.isEmpty());
                         view.apply(projection, actions);

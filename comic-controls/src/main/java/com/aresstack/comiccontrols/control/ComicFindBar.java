@@ -1,5 +1,6 @@
 package com.aresstack.comiccontrols.control;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
 import javax.swing.AbstractAction;
@@ -12,7 +13,6 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JTextField;
 import javax.swing.KeyStroke;
-import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Font;
 import java.awt.Insets;
@@ -35,8 +35,6 @@ import java.util.List;
  * right-click context menu and can be persisted through {@link StepSearchModeListener}.</p>
  */
 public class ComicFindBar extends ComicSearchBar {
-
-    private static final Color WARM_FOCUS_BACKGROUND = new Color(0xFFF8E1); // warm cream
 
     private final JButton enterButton; // ↵  (initial state)
     private final JButton prevButton;  // ◀  (after first search, step-search mode)
@@ -79,9 +77,9 @@ public class ComicFindBar extends ComicSearchBar {
 
     public ComicFindBar(String placeholder, String tooltip, ComicPalette palette) {
         super(placeholder, tooltip,
-                new Color(0xFAFAFA), WARM_FOCUS_BACKGROUND,
-                new Color(0xCCCCCC), palette.getAccentOrange(),
-                new Color(0x888888), new Color(0xAAAAAA), 10, 1f);
+                ThemeColor.of("comic.fieldBgQuiet"), ThemeColor.of("comic.warmFocus"),
+                ThemeColor.of("comic.fieldBorder"), palette.getAccentOrange(),
+                ThemeColor.of("comic.hintText"), ThemeColor.of("comic.hintTextSoft"), 10, 1f);
 
         // The inherited go button becomes the always-visible clear (✕) button.
         clearButton = getGoButton();

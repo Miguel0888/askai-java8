@@ -1,5 +1,9 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.theme.ResearchUiPainter;
+import com.aresstack.comiccontrols.theme.ResearchUiPalette;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -51,22 +55,22 @@ public final class ChatComposerPanel extends JPanel {
 
     private static final int ARC = 18;
     private static final int MIN_EDITOR_HEIGHT = 62;
-    private static final Color BORDER_NORMAL = new Color(0xB8BDC5);
+    private static final Color BORDER_NORMAL = ThemeColor.of("chat.composerBorder");
     // The accent/danger tokens are single-sourced in ResearchUiPalette so the phase selector and
     // the drawer controls use EXACTLY the navigation blue — never a second palette.
     private static final Color BORDER_FOCUSED =
             com.aresstack.comiccontrols.theme.ResearchUiPalette.ACCENT_BLUE;
-    private static final Color BORDER_DICTATION = new Color(0xF57C00);
-    private static final Color BACKGROUND_NORMAL = new Color(0xF5F6F7);
-    private static final Color BACKGROUND_FOCUSED = Color.WHITE;
-    private static final Color BACKGROUND_DICTATION = new Color(0xFFF8E1);
-    private static final Color TEXT_MUTED = new Color(0x777D85);
-    private static final Color PLACEHOLDER = new Color(0x9AA0A6);
+    private static final Color BORDER_DICTATION = ThemeColor.of("chat.composerDictationAccent");
+    private static final Color BACKGROUND_NORMAL = ThemeColor.of("chat.composerRestBackground");
+    private static final Color BACKGROUND_FOCUSED = ThemeColor.of("comic.fieldBg");
+    private static final Color BACKGROUND_DICTATION = ThemeColor.of("comic.warmFocus");
+    private static final Color TEXT_MUTED = ThemeColor.of("chat.composerMutedText");
+    private static final Color PLACEHOLDER = ThemeColor.of("chat.placeholderText");
     private static final Color PRIMARY =
             com.aresstack.comiccontrols.theme.ResearchUiPalette.ACCENT_BLUE;
     private static final Color DANGER =
             com.aresstack.comiccontrols.theme.ResearchUiPalette.DANGER_RED;
-    private static final Color RECORDING = new Color(0xF57C00);
+    private static final Color RECORDING = ThemeColor.of("chat.composerRecordingAccent");
 
     /** Route semantic user actions without exposing the internal buttons. */
     public interface Actions {
@@ -321,7 +325,7 @@ public final class ChatComposerPanel extends JPanel {
     }
 
     private static JProgressBar createLevelBar() {
-        JProgressBar bar = new JProgressBar(0, 100);
+        JProgressBar bar = ComicControls.progressBar(0, 100);
         bar.setOpaque(false);
         bar.setBorderPainted(false);
         bar.setPreferredSize(new Dimension(64, 6));
@@ -604,6 +608,26 @@ public final class ChatComposerPanel extends JPanel {
      * The bare gear GLYPH (paints with the owning component's foreground) — for buttons that manage
      * their own surface, e.g. the dark chats-footer settings button.
      */
+    public static Icon createModelsGlyphIcon() {
+        return new ModelsIcon();
+    }
+
+    /** The back glyph (same contract as {@link #createGearGlyphIcon()}). */
+    public static Icon createBackGlyphIcon() {
+        return new BackIcon();
+    }
+
+    /** The trash glyph (same contract as {@link #createGearGlyphIcon()}). */
+    public static Icon createTrashGlyphIcon() {
+        return new TrashIcon();
+    }
+
+    /** The new-chat glyph (same contract as {@link #createGearGlyphIcon()}). */
+    public static Icon createNewChatGlyphIcon() {
+        return new NewChatIcon();
+    }
+
+    /** The bare gear glyph (see {@link #createNewChatGlyphIcon()} for the same contract). */
     public static Icon createGearGlyphIcon() {
         return new GearIcon();
     }
@@ -897,11 +921,8 @@ public final class ChatComposerPanel extends JPanel {
     }
 
     private static Color blend(Color first, Color second, float secondWeight) {
-        float firstWeight = 1f - secondWeight;
-        return new Color(
-                Math.round(first.getRed() * firstWeight + second.getRed() * secondWeight),
-                Math.round(first.getGreen() * firstWeight + second.getGreen() * secondWeight),
-                Math.round(first.getBlue() * firstWeight + second.getBlue() * secondWeight));
+        // the same rounding blend as ResearchUiPainter.mix; evaluated at paint time, never stored
+        return ResearchUiPainter.mix(first, second, secondWeight);
     }
 
     private static final class PlaceholderTextArea extends JTextArea {
@@ -973,7 +994,8 @@ public final class ChatComposerPanel extends JPanel {
             boolean pressed = getModel().isPressed();
 
             if (primary || emphasized) {
-                Color fill = isEnabled() ? active : new Color(0xB7BBC1);
+                Color fill = isEnabled() ? active
+                        : ThemeColor.of("chat.composerButtonDisabledFill");
                 if (pressed && isEnabled()) {
                     fill = fill.darker();
                 } else if (hovered && isEnabled()) {
@@ -981,11 +1003,11 @@ public final class ChatComposerPanel extends JPanel {
                 }
                 g2.setColor(fill);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
-                setForeground(Color.WHITE);
+                setForeground(ThemeColor.of("bubble.userForeground"));
             } else if (!isEnabled()) {
-                setForeground(new Color(0xA5A9AE));
+                setForeground(ThemeColor.of("chat.composerButtonDisabledText"));
             } else if (hovered) {
-                g2.setColor(new Color(0, 0, 0, 18));
+                g2.setColor(ThemeColor.withAlpha(ThemeColor.of("chat.composerButtonHoverShade"), 18));
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
                 setForeground(resolveButtonForeground());
             } else {
@@ -998,7 +1020,7 @@ public final class ChatComposerPanel extends JPanel {
 
         private static Color resolveButtonForeground() {
             Color foreground = UIManager.getColor("Button.foreground");
-            return foreground == null ? new Color(0x44484D) : foreground;
+            return foreground == null ? ResearchUiPalette.LIGHT_CONTROL_TEXT : foreground;
         }
 
         @Override
@@ -1049,6 +1071,52 @@ public final class ChatComposerPanel extends JPanel {
             int[] y = {2, 7, 13};
             g2.drawPolygon(x, y, 3);
             g2.drawLine(3, 7, 11, 7);
+        }
+    }
+
+    /**
+     * The NEW-CHAT glyph: the send paper plane (smaller, top-left) with a "+" at the bottom right —
+     * "send something new". Painted with the owning component's foreground like every composer glyph.
+     */
+    private static final class NewChatIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            int[] x = {1, 10, 4};
+            int[] y = {1, 5, 10};
+            g2.drawPolygon(x, y, 3);
+            g2.drawLine(2, 5, 8, 5);
+            g2.drawLine(12, 9, 12, 14);
+            g2.drawLine(9, 12, 14, 12);
+        }
+    }
+
+    /** The MODELS glyph: an isometric cube (a packaged model), stroke-drawn like every composer glyph. */
+    private static final class ModelsIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            g2.drawPolygon(new int[]{7, 13, 7, 1}, new int[]{1, 4, 7, 4}, 4); // top face
+            g2.drawLine(1, 4, 1, 10);
+            g2.drawLine(13, 4, 13, 10);
+            g2.drawLine(7, 7, 7, 13);
+            g2.drawLine(1, 10, 7, 13);
+            g2.drawLine(13, 10, 7, 13);
+        }
+    }
+
+    /** The BACK glyph: a left arrow (shaft + head), like the "back to the app" arrow of chat apps. */
+    private static final class BackIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            g2.drawLine(2, 7, 13, 7);
+            g2.drawPolyline(new int[]{7, 2, 7}, new int[]{2, 7, 12}, 3);
+        }
+    }
+
+    /** The TRASH glyph: lid with handle over a tapered bin with two ribs (delete all chats). */
+    private static final class TrashIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            g2.drawLine(2, 4, 13, 4);
+            g2.drawPolyline(new int[]{6, 6, 9, 9}, new int[]{4, 2, 2, 4}, 4);
+            g2.drawPolyline(new int[]{3, 4, 11, 12}, new int[]{4, 13, 13, 4}, 4);
+            g2.drawLine(6, 6, 6, 11);
+            g2.drawLine(9, 6, 9, 11);
         }
     }
 

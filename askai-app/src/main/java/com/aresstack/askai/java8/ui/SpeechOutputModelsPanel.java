@@ -1,5 +1,8 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.tts.PiperInstaller;
 import com.aresstack.askai.java8.tts.PiperTtsStore;
 import com.aresstack.askai.java8.tts.PiperVoice;
@@ -81,7 +84,7 @@ public final class SpeechOutputModelsPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         JPanel rows = new JPanel();
         rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
-        rows.setBorder(BorderFactory.createTitledBorder("Read-aloud voices (Piper)"));
+        rows.setBorder(ComicControls.titledBorder("Read-aloud voices (Piper)"));
         JLabel intro = new JLabel("<html>The default speech output is the Windows voice — it needs"
                 + " no download. These model voices sound far more natural.<br>"
                 + "<b>CPU (recommended)</b> — the GPU stays free for the AI models.&nbsp;&nbsp;·"
@@ -118,7 +121,7 @@ public final class SpeechOutputModelsPanel extends JPanel {
         JLabel status = new JLabel();
         // ONE toggling action per row: Install while absent, Uninstall once installed — decided
         // at CLICK time from the store, so the button and the disk can never disagree.
-        JButton action = new JButton("Install");
+        JButton action = new ComicButton("Install");
         action.addActionListener(event -> {
             if (store.isVoiceInstalled(voice)) {
                 onUninstall(voice);
@@ -144,7 +147,7 @@ public final class SpeechOutputModelsPanel extends JPanel {
         final java.awt.Color original = row.getBackground();
         final boolean wasOpaque = row.isOpaque();
         row.setOpaque(true);
-        row.setBackground(new java.awt.Color(0xDCE9FF)); // calm AskAI-blue tint, not an alarm
+        row.setBackground(ThemeColor.of("models.voiceHighlightBackground")); // calm highlight tint, not an alarm
         row.repaint();
         javax.swing.Timer restore = new javax.swing.Timer(1800, event -> {
             row.setOpaque(wasOpaque);

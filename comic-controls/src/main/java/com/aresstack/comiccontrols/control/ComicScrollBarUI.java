@@ -1,11 +1,14 @@
 package com.aresstack.comiccontrols.control;
 
+import com.aresstack.comiccontrols.theme.AskAiTheme;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JScrollBar;
+import javax.swing.plaf.ComponentUI;
 import javax.swing.plaf.basic.BasicScrollBarUI;
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
@@ -24,13 +27,32 @@ public final class ComicScrollBarUI extends BasicScrollBarUI {
     /** The shared bar thickness (slim, calm). */
     public static final int BAR_THICKNESS = 10;
 
-    private final ComicPalette palette;
+    private final Color thumb;
+    private final Color activeThumb;
 
     public ComicScrollBarUI(ComicPalette palette) {
         if (palette == null) {
             throw new IllegalArgumentException("palette must not be null");
         }
-        this.palette = palette;
+        this.thumb = palette.getInk();
+        this.activeThumb = palette.getAccentOrange();
+    }
+
+    /**
+     * A bar for a colored surface (e.g. a table inside a speech bubble), where the palette's dark
+     * ink would vanish: the thumb takes {@code thumb} and warms up to {@code activeThumb}.
+     */
+    public ComicScrollBarUI(Color thumb, Color activeThumb) {
+        if (thumb == null || activeThumb == null) {
+            throw new IllegalArgumentException("thumb and activeThumb must not be null");
+        }
+        this.thumb = thumb;
+        this.activeThumb = activeThumb;
+    }
+
+    /** Global delegate factory ({@code UIManager "ScrollBarUI"}): the active theme's palette. */
+    public static ComponentUI createUI(JComponent c) {
+        return new ComicScrollBarUI(AskAiTheme.active().comicPalette());
     }
 
     /** Apply the shared look to a bar: this UI, transparent, slim preferred size. */
@@ -39,10 +61,31 @@ public final class ComicScrollBarUI extends BasicScrollBarUI {
     }
 
     public static void install(JScrollBar bar, ComicPalette palette) {
-        bar.setUI(new ComicScrollBarUI(palette));
+        install(bar, new ComicScrollBarUI(palette));
+    }
+
+    /** Apply the shared look with surface-specific thumb colors (see {@link #ComicScrollBarUI(Color, Color)}). */
+    public static void install(JScrollBar bar, Color thumb, Color activeThumb) {
+        install(bar, new ComicScrollBarUI(thumb, activeThumb));
+    }
+
+    private static void install(JScrollBar bar, ComicScrollBarUI ui) {
+        bar.setUI(ui);
         bar.setOpaque(false);
         bar.setPreferredSize(bar.getOrientation() == JScrollBar.VERTICAL
                 ? new Dimension(BAR_THICKNESS, 0) : new Dimension(0, BAR_THICKNESS));
+    }
+
+    /**
+     * The delegate itself makes the bar slim and transparent, so a bar styled through the GLOBAL
+     * {@code ScrollBarUI} default looks exactly like one styled via {@link #install(JScrollBar)} —
+     * otherwise it stayed opaque (Metal's grey track) and Metal-wide (16 px).
+     */
+    @Override
+    protected void installDefaults() {
+        super.installDefaults();
+        scrollBarWidth = BAR_THICKNESS;
+        javax.swing.LookAndFeel.installProperty(scrollbar, "opaque", Boolean.FALSE);
     }
 
     @Override
@@ -59,8 +102,7 @@ public final class ComicScrollBarUI extends BasicScrollBarUI {
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
                     RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(isDragging || isThumbRollover()
-                    ? palette.getAccentOrange() : palette.getInk());
+            g2.setColor(isDragging || isThumbRollover() ? activeThumb : thumb);
             g2.fillRoundRect(bounds.x + 2, bounds.y + 2,
                     bounds.width - 4, bounds.height - 4, 6, 6);
         } finally {

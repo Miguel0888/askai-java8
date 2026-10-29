@@ -172,20 +172,21 @@ public class ResearchAgentSessionTest {
         FixedContext ctx = new FixedContext(f.session);
         ChatCommandContribution open = command("open");
 
+        // "outline" has no tab of its own since Outline and Document merged (8aff6592) — "document" does.
         CommandCompletionResult completions =
-                open.complete(new CommandCompletionRequest("open", Collections.<String>emptyList(), "out"), ctx);
-        boolean suggestsOutline = false;
+                open.complete(new CommandCompletionRequest("open", Collections.<String>emptyList(), "doc"), ctx);
+        boolean suggestsDocument = false;
         for (com.aresstack.askai.plugin.api.agent.command.CommandCompletion c : completions.getCompletions()) {
-            if ("outline".equals(c.getInsertionText())) {
-                suggestsOutline = true;
+            if ("document".equals(c.getInsertionText())) {
+                suggestsDocument = true;
             }
         }
-        assertTrue("expected 'outline' completion", suggestsOutline);
+        assertTrue("expected 'document' completion", suggestsDocument);
 
         CommandExecutionResult opened = open.execute(
-                new CommandInvocation("open", java.util.Arrays.asList("outline"), "/open outline"), ctx);
+                new CommandInvocation("open", java.util.Arrays.asList("document"), "/open document"), ctx);
         assertEquals(CommandExecutionResult.Status.HANDLED, opened.getStatus());
-        assertEquals("outline", ctx.openedArtifactId);
+        assertEquals("document", ctx.openedArtifactId);
 
         CommandExecutionResult bad = open.execute(
                 new CommandInvocation("open", java.util.Arrays.asList("nope"), "/open nope"), ctx);

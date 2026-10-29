@@ -3,14 +3,8 @@ package com.aresstack.comiccontrols.control;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
 import javax.swing.JSplitPane;
-import javax.swing.plaf.basic.BasicSplitPaneDivider;
-import javax.swing.plaf.basic.BasicSplitPaneUI;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 
@@ -31,7 +25,6 @@ public class ComicSplitPane extends JSplitPane {
         void leftWidthChanged(int width);
     }
 
-    private static final int DIVIDER_THICKNESS = 7;
 
     private final int minLeftWidth;
     private final int maxLeftWidth;
@@ -64,7 +57,7 @@ public class ComicSplitPane extends JSplitPane {
         setResizeWeight(0); // window resizes go to the right (content) side
         setOneTouchExpandable(false);
         installComicDivider();
-        setDividerSize(DIVIDER_THICKNESS);
+        setDividerSize(ComicSplitPaneUI.DIVIDER_THICKNESS);
         setDividerLocation(preferredLeftWidth);
         addPropertyChangeListener(DIVIDER_LOCATION_PROPERTY, new PropertyChangeListener() {
             public void propertyChange(PropertyChangeEvent event) {
@@ -90,7 +83,7 @@ public class ComicSplitPane extends JSplitPane {
         leftCollapsed = false;
         adjusting = true;
         try {
-            setDividerSize(DIVIDER_THICKNESS);
+            setDividerSize(ComicSplitPaneUI.DIVIDER_THICKNESS);
             setDividerLocation(clampLeftWidth(preferredLeftWidth));
         } finally {
             adjusting = false;
@@ -156,55 +149,13 @@ public class ComicSplitPane extends JSplitPane {
     }
 
     private void installComicDivider() {
-        final ComicPalette dividerPalette = palette;
-        BasicSplitPaneUI comicUi = new BasicSplitPaneUI() {
-            @Override
-            public BasicSplitPaneDivider createDefaultDivider() {
-                return new ComicDivider(this, dividerPalette);
-            }
-        };
-        setUI(comicUi);
-        comicUi.getDivider().setBorder(null);
+        setUI(new ComicSplitPaneUI(palette)); // the shared comic divider (both orientations)
     }
 
-    /** The quiet comic divider: neutral fill, ink center line, small yellow grip pill. */
-    private static final class ComicDivider extends BasicSplitPaneDivider {
-
-        private final ComicPalette palette;
-
-        ComicDivider(BasicSplitPaneUI ui, ComicPalette palette) {
-            super(ui);
-            this.palette = palette;
-        }
-
-        @Override
-        public void paint(Graphics g) {
-            int width = getWidth();
-            int height = getHeight();
-            if (width <= 0 || height <= 0) {
-                return;
-            }
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-                        RenderingHints.VALUE_ANTIALIAS_ON);
-                Color base = splitPane != null ? splitPane.getBackground() : getBackground();
-                g2.setColor(base != null ? base : palette.getSurface());
-                g2.fillRect(0, 0, width, height);
-                int centerX = width / 2;
-                g2.setColor(palette.getInk());
-                g2.fillRoundRect(centerX - 1, 8, 2, Math.max(2, height - 16), 2, 2);
-                int gripHeight = Math.min(36, height / 3);
-                if (gripHeight > 10 && width >= 6) {
-                    int gripY = (height - gripHeight) / 2;
-                    g2.setColor(palette.getAccentYellow());
-                    g2.fillRoundRect(centerX - 2, gripY, 5, gripHeight, 5, 5);
-                    g2.setColor(palette.getInk());
-                    g2.drawRoundRect(centerX - 2, gripY, 5, gripHeight, 5, 5);
-                }
-            } finally {
-                g2.dispose();
-            }
-        }
+    /** A theme switch (updateComponentTreeUI) keeps the comic divider with this pane's palette. */
+    @Override
+    public void updateUI() {
+        setUI(new ComicSplitPaneUI(palette)); // palette is null during construction: the theme palette
+        revalidate();
     }
 }

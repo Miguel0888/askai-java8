@@ -457,6 +457,19 @@ public final class AgentSessionCoordinator
     }
 
 
+    /**
+     * The active agent's title-bar search, or {@code null} when no agent is active, the agent offers none,
+     * or it does not support the active session.
+     */
+    public com.aresstack.askai.plugin.api.agent.search.AgentSearchContribution getActiveSearchContribution() {
+        if (activeExtension == null) {
+            return null;
+        }
+        com.aresstack.askai.plugin.api.agent.search.AgentSearchContribution search =
+                activeExtension.getSearchContribution();
+        return search != null && search.supports(getActiveSession()) ? search : null;
+    }
+
     /** The active agent's hamburger-replacement glyph, or {@code null} (keep the hamburger). */
     public javax.swing.Icon getActiveMenuIcon() {
         return activeExtension == null ? null : activeExtension.getMenuIcon();

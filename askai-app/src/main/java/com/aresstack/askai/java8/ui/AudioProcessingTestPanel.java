@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.audio.preview.AudioOutputDevice;
 import com.aresstack.askai.java8.audio.preview.AudioOutputDeviceCatalog;
 import com.aresstack.askai.java8.audio.preview.AudioProcessingTestController;
@@ -61,21 +63,21 @@ public final class AudioProcessingTestPanel extends JPanel {
     private final File tempDir = new File(System.getProperty("java.io.tmpdir"), "askai-audio-tests-temp");
     private final ExecutorService executor;
 
-    private final JComboBox<String> micCombo = new JComboBox<String>();
-    private final JComboBox<AudioOutputDevice> outputCombo = new JComboBox<AudioOutputDevice>();
-    private final JButton testMicButton = new JButton("Test microphone");
-    private final JButton testOutputButton = new JButton("Test output");
-    private final JButton testBeepButton = new JButton("Test beep");
-    private final JTextField vlcPathField = new JTextField(30);
+    private final JComboBox<String> micCombo = ComicControls.<String>comboBox();
+    private final JComboBox<AudioOutputDevice> outputCombo = ComicControls.<AudioOutputDevice>comboBox();
+    private final JButton testMicButton = new ComicButton("Test microphone");
+    private final JButton testOutputButton = new ComicButton("Test output");
+    private final JButton testBeepButton = new ComicButton("Test beep");
+    private final JTextField vlcPathField = ComicControls.textField(30);
     private final VlcInstallation vlcInstallation = new VlcInstallation();
     private final JLabel sourceLabel = new JLabel("No test file selected");
     private final JLabel statusLabel = new JLabel(" ");
-    private final JButton processAndPlayButton = new JButton("Process and play");
-    private final JButton processButton = new JButton("Process");
-    private final JButton playOriginalButton = new JButton("Play original");
-    private final JButton playProcessedButton = new JButton("Play processed");
-    private final JButton stopButton = new JButton("Stop");
-    private final JButton saveButton = new JButton("Save processed WAV…");
+    private final JButton processAndPlayButton = new ComicButton("Process and play");
+    private final JButton processButton = new ComicButton("Process");
+    private final JButton playOriginalButton = new ComicButton("Play original");
+    private final JButton playProcessedButton = new ComicButton("Play processed");
+    private final JButton stopButton = new ComicButton("Stop");
+    private final JButton saveButton = new ComicButton("Save processed WAV…");
 
     private File lastDirectory;
     private File currentSourceFile;
@@ -127,12 +129,12 @@ public final class AudioProcessingTestPanel extends JPanel {
 
     private void buildUserInterface() {
         setLayout(new BorderLayout(6, 4));
-        setBorder(BorderFactory.createTitledBorder("Test & preview"));
+        setBorder(ComicControls.titledBorder("Test & preview"));
 
         JPanel sourceRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-        JButton selectFile = new JButton("Select test file…");
+        JButton selectFile = new ComicButton("Select test file…");
         selectFile.addActionListener(event -> selectTestFile());
-        JButton record = new JButton("Record test wave…");
+        JButton record = new ComicButton("Record test wave…");
         record.addActionListener(event -> recordTestWave());
         sourceRow.add(selectFile);
         sourceRow.add(record);
@@ -155,7 +157,7 @@ public final class AudioProcessingTestPanel extends JPanel {
         deviceRow.add(new JLabel("Microphone:"));
         micCombo.setToolTipText("Capture device used for Record test wave.");
         deviceRow.add(micCombo);
-        JButton micRefresh = new JButton("↻");
+        JButton micRefresh = new ComicButton("↻");
         micRefresh.setToolTipText("Refresh microphone list");
         micRefresh.addActionListener(event -> refreshCaptureDevices());
         deviceRow.add(micRefresh);
@@ -166,7 +168,7 @@ public final class AudioProcessingTestPanel extends JPanel {
                 + "(OpenAL Soft on Windows; Java Sound as legacy).");
         outputCombo.addActionListener(event -> applySelectedOutputDevice());
         deviceRow.add(outputCombo);
-        JButton outRefresh = new JButton("↻");
+        JButton outRefresh = new ComicButton("↻");
         outRefresh.setToolTipText("Refresh output device list");
         outRefresh.addActionListener(event -> refreshPlaybackDevices());
         deviceRow.add(outRefresh);
@@ -182,11 +184,11 @@ public final class AudioProcessingTestPanel extends JPanel {
         vlcPathField.setEditable(false);
         vlcPathField.setToolTipText("The vlc.exe used for the VLC output backend. Empty = automatic detection.");
         vlcRow.add(vlcPathField);
-        JButton vlcBrowse = new JButton("Browse…");
+        JButton vlcBrowse = new ComicButton("Browse…");
         vlcBrowse.setToolTipText("Select vlc.exe (or a VLCPortable.exe) to enable the VLC output backend.");
         vlcBrowse.addActionListener(event -> browseVlcExecutable());
         vlcRow.add(vlcBrowse);
-        JButton vlcClear = new JButton("Clear");
+        JButton vlcClear = new ComicButton("Clear");
         vlcClear.setToolTipText("Remove the manual path and fall back to automatic detection.");
         vlcClear.addActionListener(event -> clearVlcExecutable());
         vlcRow.add(vlcClear);

@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui.markdown;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -37,7 +38,7 @@ final class CodeBlockPanel extends JPanel {
         header.add(languageLabel, BorderLayout.WEST);
         header.add(copyButton, BorderLayout.EAST);
 
-        JTextArea textArea = new JTextArea(code == null ? "" : code);
+        JTextArea textArea = ComicControls.textArea(code == null ? "" : code);
         textArea.setEditable(false);
         textArea.setFont(theme.getCodeFont());
         textArea.setForeground(theme.getForeground());

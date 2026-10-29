@@ -1,12 +1,13 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+import com.aresstack.comiccontrols.control.ComicButton;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Toolkit;
@@ -22,22 +23,32 @@ public final class OllamaAboutPanel extends JPanel {
 
     private static final String PRODUCT = "AskAI";
     private static final int LOGO_SIZE = 256;
+    /** The gap between the logo and the text — also between the license and library columns below. */
+    private static final int HEADER_GAP = 20;
     private static final String DESCRIPTION =
             "Local model management and chat for Ollama, with a Hugging Face import flow.";
     private static final String PROJECT_LINE =
             "Java 8 desktop client · see the project repository for licensing and source.";
 
+    /** The footer (Back, Copy diagnostics, copyright) comes from the {@link FooterScreen} around it. */
     public OllamaAboutPanel() {
         setLayout(new BorderLayout());
-        setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
-        JPanel header = new JPanel(new BorderLayout(20, 0));
+        setBorder(BorderFactory.createEmptyBorder(16, 16, 0, 16));
+        JPanel header = new JPanel(new BorderLayout(HEADER_GAP, 0));
         JComponent logo = buildLogo();
         if (logo != null) {
             header.add(logo, BorderLayout.WEST);
         }
-        header.add(buildContent(), BorderLayout.CENTER);
+        // NORTH-pinned: the info rows keep their natural spacing instead of spreading over the logo's height
+        JPanel contentTop = new JPanel(new BorderLayout());
+        contentTop.add(buildContent(), BorderLayout.NORTH);
+        header.add(contentTop, BorderLayout.CENTER);
         add(header, BorderLayout.NORTH);
-        add(buildActions(), BorderLayout.SOUTH);
+        // The third-party libraries: the license column right under the logo (same width), the library
+        // details in the column of the text above.
+        add(new com.aresstack.askai.java8.ui.about.OpenSourceLibrariesView(
+                new com.aresstack.askai.java8.ui.about.ClasspathOssLicenseRepository(),
+                logo != null ? logo.getPreferredSize().width : LOGO_SIZE, HEADER_GAP), BorderLayout.CENTER);
     }
 
     /** The app icon at full About size — so the user can see what the tiny taskbar version shows. */
@@ -63,7 +74,7 @@ public final class OllamaAboutPanel extends JPanel {
         content.add(title);
 
         JLabel description = new JLabel(DESCRIPTION);
-        description.setForeground(new Color(0x55, 0x55, 0x55));
+        description.setForeground(ThemeColor.of("models.aboutDescriptionText"));
         description.setAlignmentX(LEFT_ALIGNMENT);
         description.setBorder(BorderFactory.createEmptyBorder(4, 0, 12, 0));
         content.add(description);
@@ -77,21 +88,20 @@ public final class OllamaAboutPanel extends JPanel {
         content.add(infoRow("OS", System.getProperty("os.name") + " " + System.getProperty("os.version")));
 
         JLabel project = new JLabel(PROJECT_LINE);
-        project.setForeground(new Color(0x77, 0x77, 0x77));
+        project.setForeground(ThemeColor.of("models.aboutProjectText"));
         project.setAlignmentX(LEFT_ALIGNMENT);
         project.setBorder(BorderFactory.createEmptyBorder(12, 0, 0, 0));
         content.add(project);
         return content;
     }
 
-    private JComponent buildActions() {
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 8));
-        JButton copy = new JButton("Copy diagnostics");
+    /** "Copy diagnostics" — the About footer's centered action. */
+    public static JButton createCopyDiagnosticsButton() {
+        JButton copy = new ComicButton("Copy diagnostics");
         copy.setToolTipText("Copy version and environment details to the clipboard (no secrets included)");
         copy.addActionListener(event -> Toolkit.getDefaultToolkit().getSystemClipboard()
                 .setContents(new StringSelection(diagnostics()), null));
-        actions.add(copy);
-        return actions;
+        return copy;
     }
 
     private JComponent infoRow(String label, String value) {

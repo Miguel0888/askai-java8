@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui.chat;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.askai.java8.history.ChatHistoryStore;
 import com.aresstack.askai.java8.history.ChatRecord;
 import com.aresstack.askai.java8.ui.ChatComposerPanel;
@@ -11,9 +12,9 @@ import com.aresstack.comiccontrols.control.ComicSplitPane;
 import com.aresstack.comiccontrols.control.ResearchIconButton;
 import com.aresstack.comiccontrols.control.ResearchPillButton;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
-import com.aresstack.comiccontrols.theme.ResearchUiPainter;
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -45,8 +46,8 @@ import java.util.Map;
  * sessions with the saved history, so one list is both the tab bar replacement and the history. The
  * drawer spans the workspace's full height on the left, opens on hamburger hover/click, closes when
  * the mouse leaves it (unless pinned), and the top bar carries the hamburger (top-left) plus the
- * agent toolbar slots; New chat and the settings gear live INSIDE the drawer's Chats pane (button on
- * top, gear in the footer). Each chat keeps a stable {@link ChatSessionId}; sessions are addressed
+ * agent toolbar slots; New chat lives INSIDE the drawer's Chats pane (icon button in its footer); the settings
+ * gear sits in the application menu bar (see {@link #openActiveChatSettings()}). Each chat keeps a stable {@link ChatSessionId}; sessions are addressed
  * by id, never by index. At least one chat stays open.
  */
 public final class ChatWorkspacePanel extends JPanel {
@@ -153,7 +154,18 @@ public final class ChatWorkspacePanel extends JPanel {
 
         this.burger = ChatComposerPanel.createSidebarToggleButton();
         this.sidebar = new ChatSidebarPanel("Chats", buildChatsSidebarTab());
-        this.sidebarSplit = new ComicSplitPane(sidebar, cards, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
+        // The MAIN area is a deck (pattern of the enterprise client): the chat cards, or the content the
+        // ACTIVE drawer pane put there (settings page, source full text, ...).
+        mainDeck.add(cards, MAIN_CHAT);
+        mainDeck.add(mainContentSlot, MAIN_CONTENT);
+        mainContentSlot.setOpaque(false);
+        sidebar.setTabListener(title -> {
+            if (SETTINGS_TAB.equals(title) && settingsPane.getComponentCount() == 0) {
+                fillSettingsFromActiveChat(); // the Settings pane picked directly in the ribbon
+            }
+            updateMainArea();
+        });
+        this.sidebarSplit = new ComicSplitPane(sidebar, mainDeck, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
         sidebarSplit.setPreferredLeftWidth(SIDEBAR_DEFAULT_WIDTH);
         sidebarSplit.collapseLeft(); // the drawer starts closed, exactly like before the split pane
         this.sidebarWidthSaveTimer = new javax.swing.Timer(SIDEBAR_WIDTH_SAVE_DELAY_MS,
@@ -203,6 +215,10 @@ public final class ChatWorkspacePanel extends JPanel {
      */
     private ChatSessionComponent addChat(ChatSessionId id, ChatSessionComponent session) {
         sessionsById.put(id, session);
+        if (session instanceof OllamaChatPanel) {
+            final OllamaChatPanel chat = (OllamaChatPanel) session;
+            chat.setSettingsOpener(category -> openSettings(chat, category));
+        }
         cards.add(session.getComponent(), id.toString());
         selectSession(id);
         fireTabSetChanged();
@@ -510,18 +526,17 @@ public final class ChatWorkspacePanel extends JPanel {
         topLeft.setLayout(new javax.swing.BoxLayout(topLeft, javax.swing.BoxLayout.X_AXIS));
         topLeft.setOpaque(false);
         topLeft.add(burger);
-        // The MODE pill (Yapping / agent / Partying) sits right beside the burger: switching the
-        // mode is navigation, and the plugin-branded burger icon reads as its consequence.
+        // The MODE pill (Yapping / agent / Partying) is configured here and placed centered in the
+        // Chats footer (between New chat and the trash).
         modePill.setFont(ResearchUiTypography.regular(12.5f));
-        modePill.setToolTipText("Chat-Modus: Yapping, Questing (Agent) oder Partying");
+        modePill.setToolTipText("Chat mode: Yapping, Questing (agent) or Partying");
         modePill.addActionListener(event -> {
             ChatSessionComponent active = activeSession();
             if (active instanceof OllamaChatPanel) {
                 ((OllamaChatPanel) active).openModePopupAt(modePill);
             }
         });
-        topLeft.add(javax.swing.Box.createHorizontalStrut(6));
-        topLeft.add(modePill);
+        // The MODE pill lives in the Chats footer now (centered between New chat and the trash).
         topLeft.add(javax.swing.Box.createHorizontalStrut(6));
         // The LEADING agent slot stays as generic infrastructure (currently unused by research).
         agentLeadingSlot.setOpaque(false);
@@ -530,15 +545,21 @@ public final class ChatWorkspacePanel extends JPanel {
         topBar.add(topLeft, BorderLayout.WEST);
         agentCenterSlot.setOpaque(false);
         topBar.add(agentCenterSlot, BorderLayout.CENTER);
-        // The agent's TRAILING contributions (e.g. Websuche + Mindmap) sit at the FAR right — the
+        // The agent's TRAILING contributions (e.g. the visualize buttons) sit at the FAR right — the
         // old "+"/gear pair moved into the drawer's Chats pane. The workspace only hosts the slot;
         // components come from the plugin.
         agentToolbarSlot.setOpaque(false);
         topBar.add(agentToolbarSlot, BorderLayout.EAST);
 
         sidebar.setVisible(false);
-        sidebar.setExtraTabsSupplier(() -> sidebarTabsSource == null
-                ? java.util.Collections.<ChatSidebarTab>emptyList() : sidebarTabsSource.get());
+        sidebar.setExtraTabsSupplier(() -> {
+            List<ChatSidebarTab> tabs = new java.util.ArrayList<ChatSidebarTab>();
+            if (sidebarTabsSource != null && sidebarTabsSource.get() != null) {
+                tabs.addAll(sidebarTabsSource.get());
+            }
+            tabs.add(settingsTab); // always last: the general settings beside the agent's panes
+            return tabs;
+        });
         // No pane title in the header — the ribbon's colored entry already names the active pane.
         // The chat SEARCH BAR takes that spot; it filters live on every keystroke, no Enter needed.
         chatFilter.getTextField().getDocument().addDocumentListener(
@@ -565,7 +586,10 @@ public final class ChatWorkspacePanel extends JPanel {
     }
 
     private void refreshRibbonTabs() {
-        ribbon.setTabs(sidebar.tabTitles(), sidebar.activeTab());
+        // The Settings pane is reached through the gear only — it is never a ribbon entry.
+        List<String> titles = new java.util.ArrayList<String>(sidebar.tabTitles());
+        titles.remove(SETTINGS_TAB);
+        ribbon.setTabs(titles, sidebar.activeTab());
     }
 
     private void openMenuAndSidebar() {
@@ -734,39 +758,19 @@ public final class ChatWorkspacePanel extends JPanel {
         scroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         scroll.getVerticalScrollBar().setUnitIncrement(16);
 
-        // "+ Neuer Chat" above the list — the design study's dark pill, only as wide as its text.
-        ResearchPillButton newChat = new ResearchPillButton("+ Neuer Chat",
-                ResearchUiMetrics.NEW_CHAT_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL,
-                ResearchUiMetrics.NEW_CHAT_PADDING_H);
-        newChat.setFont(ResearchUiTypography.semiBold(13f));
-        newChat.setToolTipText("Open a new chat");
-        newChat.addActionListener(event -> {
-            openNewChat();
-            if (menuLocked) {
-                refreshChatList();
-            } else {
-                collapseMenuAndSidebar();
-            }
-        });
-        JPanel north = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
-        north.setOpaque(false);
-        north.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
-        north.add(newChat);
-
         JPanel tab = new JPanel(new BorderLayout());
         tab.setOpaque(false);
-        tab.add(north, BorderLayout.NORTH);
         tab.add(scroll, BorderLayout.CENTER);
         tab.add(buildChatsFooter(), BorderLayout.SOUTH);
         return tab;
     }
 
     /**
-     * The Chats-pane FOOTER: [language slot] [Delete all chats…] [gear] in ONE row, pinned to the
+     * The Chats-pane FOOTER: [new chat] [agent slot] ... [trash = delete all chats] in ONE row, pinned to the
      * bottom of the pane (it never scrolls with the list). The language control is the active
      * agent's SIDEBAR_FOOTER toolbar contribution; delete-all lost its own full-width row — it is a
-     * small quiet control now that only turns red on hover (the confirmation logic is unchanged);
-     * the gear opens the active chat's settings dialog.
+     * small quiet control now that only turns red on hover (the confirmation logic is unchanged).
+     * The settings gear moved to the application menu bar ({@link #openActiveChatSettings()}).
      */
     private JComponent buildChatsFooter() {
         JPanel footer = new JPanel(new BorderLayout(8, 0));
@@ -777,41 +781,227 @@ public final class ChatWorkspacePanel extends JPanel {
         footer.setPreferredSize(new Dimension(10, ResearchUiMetrics.FOOTER_HEIGHT));
 
         agentFooterToolbarSlot.setOpaque(false);
-        // Left group: the agent's footer contributions (language pill + phase selector — the
-        // maintenance controls). The MODE pill moved up beside the burger: mode is navigation.
-        footer.add(agentFooterToolbarSlot, BorderLayout.WEST);
-
-        // Delete-all: same height/radius family as the language pill; white and quiet at rest,
-        // red only on hover/pressed — a rarely used destructive action must not draw attention.
-        ResearchPillButton deleteAll = new ResearchPillButton("Delete all chats…",
-                ResearchUiMetrics.FOOTER_CONTROL_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL, 13);
-        deleteAll.setFont(ResearchUiTypography.regular(12.5f));
-        deleteAll.setToolTipText("Delete every saved chat (asks for confirmation)");
-        deleteAll.setFills(ResearchUiPalette.LIGHT_CONTROL_BG, ResearchUiPalette.DANGER_RED,
-                ResearchUiPainter.mix(ResearchUiPalette.DANGER_RED, java.awt.Color.BLACK, 0.18f));
-        deleteAll.setBorders(ResearchUiPalette.LIGHT_CONTROL_BORDER, ResearchUiPalette.DANGER_RED,
-                ResearchUiPainter.mix(ResearchUiPalette.DANGER_RED, java.awt.Color.BLACK, 0.18f));
-        deleteAll.setForegrounds(ResearchUiPalette.LIGHT_CONTROL_TEXT, java.awt.Color.WHITE,
-                java.awt.Color.WHITE);
-        deleteAll.addActionListener(event -> deleteAllChats());
-        JPanel deleteWrap = new JPanel(new java.awt.GridBagLayout());
-        deleteWrap.setOpaque(false);
-        deleteWrap.add(deleteAll);
-        footer.add(deleteWrap, BorderLayout.CENTER);
-
-        ResearchIconButton gear = new ResearchIconButton(
-                ChatComposerPanel.createGearGlyphIcon(), "Chat settings");
-        gear.addActionListener(event -> {
-            ChatSessionComponent active = activeSession();
-            if (active instanceof OllamaChatPanel) {
-                ((OllamaChatPanel) active).openSettingsDialog();
+        // Left group: the New-chat icon button (moved down from above the list, icon + tooltip only),
+        // then the agent's footer contributions (if any); the MODE pill sits centered in this footer.
+        ResearchIconButton newChat = new ResearchIconButton(
+                ChatComposerPanel.createNewChatGlyphIcon(), "New chat");
+        newChat.addActionListener(event -> {
+            openNewChat();
+            if (menuLocked) {
+                refreshChatList();
+            } else {
+                collapseMenuAndSidebar();
             }
         });
-        JPanel gearWrap = new JPanel(new java.awt.GridBagLayout());
-        gearWrap.setOpaque(false);
-        gearWrap.add(gear);
-        footer.add(gearWrap, BorderLayout.EAST);
+        JPanel left = new JPanel();
+        left.setLayout(new javax.swing.BoxLayout(left, javax.swing.BoxLayout.X_AXIS));
+        left.setOpaque(false);
+        left.add(newChat);
+        left.add(javax.swing.Box.createHorizontalStrut(8));
+        left.add(agentFooterToolbarSlot);
+        footer.add(left, BorderLayout.WEST);
+
+        // Delete-all: just a trash icon, right-aligned; quiet at rest, danger red only on hover — a
+        // rarely used destructive action must not draw attention (the confirmation is unchanged).
+        ResearchIconButton deleteAll = new ResearchIconButton(
+                ChatComposerPanel.createTrashGlyphIcon(), "Delete all chats…");
+        deleteAll.setHoverColors(ResearchUiPalette.DANGER_RED, ThemeColor.of("bubble.assistantForeground"));
+        deleteAll.addActionListener(event -> deleteAllChats());
+        footer.add(deleteAll, BorderLayout.EAST);
+        // The chat MODE pill (Yapping / Research Agent / Partying), centered between New chat and the trash.
+        JPanel modeWrap = new JPanel(new java.awt.GridBagLayout());
+        modeWrap.setOpaque(false);
+        modeWrap.add(modePill);
+        footer.add(modeWrap, BorderLayout.CENTER);
         return footer;
+    }
+
+    /** Opens the ACTIVE chat's settings (drawer pane + main area); no-op without an active chat panel. */
+    public void openActiveChatSettings() {
+        ChatSessionComponent active = activeSession();
+        if (active instanceof OllamaChatPanel) {
+            openSettings((OllamaChatPanel) active, null);
+        }
+    }
+
+    // ------------------------------------------------------------------ main area (deck)
+
+    /** The drawer pane that holds the settings category list; its page shows in the main area. */
+    public static final String SETTINGS_TAB = "Settings";
+    private static final String MAIN_CHAT = "chat";
+    private static final String MAIN_CONTENT = "content";
+    private final CardLayout mainLayout = new CardLayout();
+    private final JPanel mainDeck = new JPanel(mainLayout);
+    private final JPanel mainContentSlot = new JPanel(new BorderLayout());
+    /** The main-area content each drawer pane owns (pane title -> content). */
+    private final Map<String, JComponent> mainContentByTab = new LinkedHashMap<String, JComponent>();
+    private final JPanel settingsPane = new JPanel(new BorderLayout());
+    private final ChatSidebarTab settingsTab = new ChatSidebarTab() {
+        public String getTitle() {
+            return SETTINGS_TAB;
+        }
+
+        public JComponent getComponent() {
+            return settingsPane;
+        }
+    };
+
+    /**
+     * Put {@code content} into the main area while the drawer pane {@code tabTitle} is active ({@code null}
+     * withdraws it). The main area always follows the active pane: its content, or the chat.
+     */
+    public void setMainContent(String tabTitle, JComponent content) {
+        if (tabTitle == null) {
+            return;
+        }
+        if (content == null) {
+            mainContentByTab.remove(tabTitle);
+        } else {
+            mainContentByTab.put(tabTitle, content);
+        }
+        updateMainArea();
+    }
+
+    /** The drawer's pane titles (tests). */
+    List<String> sidebarTabTitlesForTest() {
+        sidebar.rebuildTabs();
+        return sidebar.tabTitles();
+    }
+
+    /** The ribbon's entries (tests). */
+    List<String> ribbonTitlesForTest() {
+        refreshRibbonTabs();
+        return ribbon.titles();
+    }
+
+    /** Whether the main area currently shows a pane's content instead of the chat (tests). */
+    boolean isMainContentShowing() {
+        return mainContentSlot.isVisible() && mainContentSlot.getComponentCount() > 0
+                && mainContentByTab.containsKey(sidebar.activeTab());
+    }
+
+    private void updateMainArea() {
+        JComponent content = mainContentByTab.get(sidebar.activeTab());
+        if (content == null) {
+            mainLayout.show(mainDeck, MAIN_CHAT);
+            return;
+        }
+        if (mainContentSlot.getComponentCount() != 1 || mainContentSlot.getComponent(0) != content) {
+            refreshThemeIfStale(content);
+            mainContentSlot.removeAll();
+            mainContentSlot.add(content, BorderLayout.CENTER);
+            mainContentSlot.revalidate();
+        }
+        mainLayout.show(mainDeck, MAIN_CONTENT);
+        mainContentSlot.repaint();
+    }
+
+    /** Theme switches seen so far; content that was off-screen during one gets its delegates renewed. */
+    private static volatile int themeGeneration;
+
+    static {
+        com.aresstack.comiccontrols.theme.AskAiTheme.addChangeListener(() -> themeGeneration++);
+    }
+
+    private static void refreshThemeIfStale(JComponent content) {
+        Object seen = content.getClientProperty("askai.themeGeneration");
+        if (seen != null && ((Integer) seen).intValue() != themeGeneration) {
+            javax.swing.SwingUtilities.updateComponentTreeUI(content);
+        }
+        content.putClientProperty("askai.themeGeneration", Integer.valueOf(themeGeneration));
+    }
+
+    /**
+     * The settings live in the workspace (no dialog): the category list in the drawer's Settings pane, the
+     * selected page in the main area. {@code category} null keeps the current page.
+     */
+    private void fillSettingsFromActiveChat() {
+        ChatSessionComponent active = activeSession();
+        if (active instanceof OllamaChatPanel) {
+            OllamaChatPanel chat = (OllamaChatPanel) active;
+            renderSettingsRows(chat);
+            mainContentByTab.put(SETTINGS_TAB, chat.settingsPagesComponent());
+        }
+    }
+
+    private void openSettings(OllamaChatPanel chat, String category) {
+        if (category != null) {
+            chat.selectSettingsCategory(category);
+        }
+        renderSettingsRows(chat);
+        setMainContent(SETTINGS_TAB, chat.settingsPagesComponent());
+        refreshSidebarTabs();
+        openSidebarTab(SETTINGS_TAB);
+    }
+
+    /**
+     * The settings categories in the drawer's OWN design — the same rows and group headings as the chat
+     * list (SETTINGS, then the active agent's pages); the selected category is the highlighted row.
+     */
+    private void renderSettingsRows(final OllamaChatPanel chat) {
+        JPanel rows = new JPanel();
+        rows.setLayout(new javax.swing.BoxLayout(rows, javax.swing.BoxLayout.Y_AXIS));
+        rows.setOpaque(false);
+        String selected = chat.selectedSettingsCategory();
+        boolean agentHeading = false;
+        rows.add(alignedLeft(groupHeader("SETTINGS")));
+        for (final String category : chat.settingsCategories()) {
+            if (!agentHeading && !OllamaChatPanel.isGeneralSettingsCategory(category)) {
+                rows.add(alignedLeft(groupHeader("AGENT")));
+                agentHeading = true;
+            }
+            rows.add(alignedLeft(new ChatHistoryRow(category, "", "", false, category.equals(selected), () -> {
+                chat.selectSettingsCategory(category);
+                renderSettingsRows(chat); // move the highlight
+            }, null)));
+        }
+        JScrollPane scroll = new ComicScrollPane(rows,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        settingsPane.removeAll();
+        settingsPane.setOpaque(false);
+        settingsPane.add(scroll, BorderLayout.CENTER);
+        settingsPane.add(buildSettingsFooter(), BorderLayout.SOUTH);
+        settingsPane.revalidate();
+        settingsPane.repaint();
+    }
+
+    /**
+     * The Settings pane's FOOTER — the drawer's usual footer row (same height and padding as the Chats
+     * footer) with the way back: "Back to chat" returns to the Chats pane and the chat.
+     */
+    private JComponent buildSettingsFooter() {
+        JPanel footer = new JPanel(new BorderLayout(8, 0));
+        footer.setOpaque(false);
+        footer.setBorder(BorderFactory.createEmptyBorder(
+                ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H,
+                ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H));
+        footer.setPreferredSize(new Dimension(10, ResearchUiMetrics.FOOTER_HEIGHT));
+        com.aresstack.comiccontrols.control.ComicButton back = new com.aresstack.comiccontrols.control.ComicButton(
+                "Back to chat", ChatComposerPanel.createBackGlyphIcon());
+        back.setIconTextGap(8);
+        back.setFocusable(false);
+        back.setToolTipText("Leave the settings and return to the chat");
+        back.addActionListener(event -> leaveSettings());
+        JPanel backWrap = new JPanel(new java.awt.GridBagLayout());
+        backWrap.setOpaque(false);
+        backWrap.add(back);
+        footer.add(backWrap, BorderLayout.WEST);
+        return footer;
+    }
+
+    /** Back from the settings to the Chats pane (the main area shows the chat again). */
+    void leaveSettings() {
+        sidebar.showTab(sidebar.tabTitles().get(0)); // the default pane: Chats
+        refreshRibbonTabs();
+    }
+
+    private static JComponent alignedLeft(JComponent component) {
+        component.setAlignmentX(LEFT_ALIGNMENT);
+        return component;
     }
 
     /** One chat-list entry: an open session ({@code openId != null}) and/or its persisted record. */
@@ -960,7 +1150,7 @@ public final class ChatWorkspacePanel extends JPanel {
     private JComponent projectHeader(String project) {
         JLabel header = new JLabel("▪ " + project);
         header.setFont(ResearchUiTypography.semiBold(11f));
-        header.setForeground(new java.awt.Color(0x15827A)); // the design language's petrol role
+        header.setForeground(ThemeColor.of("comic.agentPetrol")); // the design language's petrol role
         header.setBorder(BorderFactory.createEmptyBorder(14, 10, 4, 8));
         return header;
     }
@@ -1081,11 +1271,11 @@ public final class ChatWorkspacePanel extends JPanel {
      */
     private JComponent buildRenameRow(final ChatSessionId openId, final ChatRecord record,
                                       String title) {
-        final javax.swing.JTextField field = new javax.swing.JTextField(title);
+        final javax.swing.JTextField field = ComicControls.textField(title);
         field.setFont(ResearchUiTypography.regular(13f));
         field.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(ResearchUiPainter.mix(
-                        ResearchUiPalette.ACCENT_BLUE, java.awt.Color.WHITE, 0.5f)),
+                BorderFactory.createLineBorder(ThemeColor.mix(
+                        ResearchUiPalette.ACCENT_BLUE, ThemeColor.of("comic.fieldBg"), 0.5f)),
                 BorderFactory.createEmptyBorder(4, 8, 4, 8)));
         final Runnable cancel = () -> {
             renamingChatId = null;
@@ -1247,7 +1437,7 @@ public final class ChatWorkspacePanel extends JPanel {
             }
         }
         javax.swing.JComboBox<String> combo =
-                new javax.swing.JComboBox<String>(known.toArray(new String[0]));
+                ComicControls.<String>comboBox(known.toArray(new String[0]));
         combo.setEditable(true); // free naming creates a new project on the spot
         combo.setSelectedItem(record.getProject() == null ? "" : record.getProject());
         int choice = JOptionPane.showConfirmDialog(this, combo, "Assign chat to project",

@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.video.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.video.VideoSettings;
 import com.aresstack.askai.java8.video.VideoSettingsStore;
 
@@ -46,48 +48,48 @@ public final class VideoSettingsDialog extends JDialog {
     private boolean saved;
 
     // General
-    private final JComboBox<String> cbBackend = new JComboBox<String>(new String[] {"jcodec", "vlc", "ffmpeg"});
-    private final JSpinner spFps = new JSpinner(new SpinnerNumberModel(15, 1, 120, 1));
-    private final JTextField tfOutputDir = new JTextField(26);
+    private final JComboBox<String> cbBackend = ComicControls.<String>comboBox(new String[] {"jcodec", "vlc", "ffmpeg"});
+    private final JSpinner spFps = ComicControls.spinner(new SpinnerNumberModel(15, 1, 120, 1));
+    private final JTextField tfOutputDir = ComicControls.textField(26);
 
     // VLC
-    private final JCheckBox cbVlcAutodetect = new JCheckBox("Autodetect (PATH/registry via vlcj discovery)");
-    private final JTextField tfVlcBasePath = new JTextField(26);
-    private final JCheckBox cbVlcLogEnabled = new JCheckBox("Write a VLC log file");
-    private final JTextField tfVlcLogPath = new JTextField(26);
-    private final JSpinner spVlcVerbose = new JSpinner(new SpinnerNumberModel(1, 0, 2, 1));
-    private final JComboBox<String> cbVlcMux = new JComboBox<String>(new String[] {"mp4", "ts", "mkv", "avi"});
-    private final JTextField tfVlcVcodec = new JTextField(10);
-    private final JComboBox<String> cbVlcQuality = new JComboBox<String>(new String[] {"crf", "bitrate"});
-    private final JSpinner spVlcCrf = new JSpinner(new SpinnerNumberModel(23, 0, 51, 1));
-    private final JSpinner spVlcBitrate = new JSpinner(new SpinnerNumberModel(4000, 0, 200000, 100));
-    private final JTextField tfVlcPreset = new JTextField(10);
-    private final JTextField tfVlcTune = new JTextField(10);
-    private final JCheckBox cbVlcDeint = new JCheckBox("Deinterlace");
-    private final JTextField tfVlcDeintMode = new JTextField(10);
-    private final JTextField tfVlcVideoFilter = new JTextField(22);
-    private final JTextField tfVlcSoutExtras = new JTextField(22);
-    private final JCheckBox cbVlcAudio = new JCheckBox("Record audio (mp3 128k stereo)");
-    private final JCheckBox cbVlcFullscreen = new JCheckBox("Full screen (ignore the chosen source bounds)");
-    private final JSpinner spVlcLeft = new JSpinner(new SpinnerNumberModel(0, 0, 20000, 1));
-    private final JSpinner spVlcTop = new JSpinner(new SpinnerNumberModel(0, 0, 20000, 1));
-    private final JSpinner spVlcWidth = new JSpinner(new SpinnerNumberModel(0, 0, 20000, 1));
-    private final JSpinner spVlcHeight = new JSpinner(new SpinnerNumberModel(0, 0, 20000, 1));
+    private final JCheckBox cbVlcAutodetect = ComicControls.checkBox("Autodetect (PATH/registry via vlcj discovery)");
+    private final JTextField tfVlcBasePath = ComicControls.textField(26);
+    private final JCheckBox cbVlcLogEnabled = ComicControls.checkBox("Write a VLC log file");
+    private final JTextField tfVlcLogPath = ComicControls.textField(26);
+    private final JSpinner spVlcVerbose = ComicControls.spinner(new SpinnerNumberModel(1, 0, 2, 1));
+    private final JComboBox<String> cbVlcMux = ComicControls.<String>comboBox(new String[] {"mp4", "ts", "mkv", "avi"});
+    private final JTextField tfVlcVcodec = ComicControls.textField(10);
+    private final JComboBox<String> cbVlcQuality = ComicControls.<String>comboBox(new String[] {"crf", "bitrate"});
+    private final JSpinner spVlcCrf = ComicControls.spinner(new SpinnerNumberModel(23, 0, 51, 1));
+    private final JSpinner spVlcBitrate = ComicControls.spinner(new SpinnerNumberModel(4000, 0, 200000, 100));
+    private final JTextField tfVlcPreset = ComicControls.textField(10);
+    private final JTextField tfVlcTune = ComicControls.textField(10);
+    private final JCheckBox cbVlcDeint = ComicControls.checkBox("Deinterlace");
+    private final JTextField tfVlcDeintMode = ComicControls.textField(10);
+    private final JTextField tfVlcVideoFilter = ComicControls.textField(22);
+    private final JTextField tfVlcSoutExtras = ComicControls.textField(22);
+    private final JCheckBox cbVlcAudio = ComicControls.checkBox("Record audio (mp3 128k stereo)");
+    private final JCheckBox cbVlcFullscreen = ComicControls.checkBox("Full screen (ignore the chosen source bounds)");
+    private final JSpinner spVlcLeft = ComicControls.spinner(new SpinnerNumberModel(0, 0, 20000, 1));
+    private final JSpinner spVlcTop = ComicControls.spinner(new SpinnerNumberModel(0, 0, 20000, 1));
+    private final JSpinner spVlcWidth = ComicControls.spinner(new SpinnerNumberModel(0, 0, 20000, 1));
+    private final JSpinner spVlcHeight = ComicControls.spinner(new SpinnerNumberModel(0, 0, 20000, 1));
 
     // FFmpeg
-    private final JComboBox<String> cbFfContainer = new JComboBox<String>(new String[] {"mp4", "matroska", "avi", "mov", "ts"});
-    private final JTextField tfFfCodec = new JTextField(12);
-    private final JComboBox<String> cbFfPixFmt = new JComboBox<String>(new String[] {"yuv420p", "yuv422p", "yuv444p", "rgb24", "bgr24"});
-    private final JComboBox<String> cbFfQuality = new JComboBox<String>(new String[] {"crf", "qscale", "bitrate"});
-    private final JSpinner spFfCrf = new JSpinner(new SpinnerNumberModel(23, 0, 51, 1));
-    private final JSpinner spFfQscale = new JSpinner(new SpinnerNumberModel(3, 1, 31, 1));
-    private final JSpinner spFfBitrate = new JSpinner(new SpinnerNumberModel(0, 0, 200000, 100));
-    private final JTextField tfFfPreset = new JTextField(10);
-    private final JTextField tfFfTune = new JTextField(10);
-    private final JTextField tfFfProfile = new JTextField(10);
-    private final JTextField tfFfLevel = new JTextField(10);
-    private final JSpinner spFfThreads = new JSpinner(new SpinnerNumberModel(0, 0, 128, 1));
-    private final JTextArea taFfExtra = new JTextArea(4, 26);
+    private final JComboBox<String> cbFfContainer = ComicControls.<String>comboBox(new String[] {"mp4", "matroska", "avi", "mov", "ts"});
+    private final JTextField tfFfCodec = ComicControls.textField(12);
+    private final JComboBox<String> cbFfPixFmt = ComicControls.<String>comboBox(new String[] {"yuv420p", "yuv422p", "yuv444p", "rgb24", "bgr24"});
+    private final JComboBox<String> cbFfQuality = ComicControls.<String>comboBox(new String[] {"crf", "qscale", "bitrate"});
+    private final JSpinner spFfCrf = ComicControls.spinner(new SpinnerNumberModel(23, 0, 51, 1));
+    private final JSpinner spFfQscale = ComicControls.spinner(new SpinnerNumberModel(3, 1, 31, 1));
+    private final JSpinner spFfBitrate = ComicControls.spinner(new SpinnerNumberModel(0, 0, 200000, 100));
+    private final JTextField tfFfPreset = ComicControls.textField(10);
+    private final JTextField tfFfTune = ComicControls.textField(10);
+    private final JTextField tfFfProfile = ComicControls.textField(10);
+    private final JTextField tfFfLevel = ComicControls.textField(10);
+    private final JSpinner spFfThreads = ComicControls.spinner(new SpinnerNumberModel(0, 0, 128, 1));
+    private final JTextArea taFfExtra = ComicControls.textArea(4, 26);
 
     public VideoSettingsDialog(Window owner, VideoSettingsStore store) {
         super(owner, "Video Settings", ModalityType.APPLICATION_MODAL);
@@ -108,18 +110,18 @@ public final class VideoSettingsDialog extends JDialog {
     private void buildUi() {
         JPanel general = new JPanel();
         general.setLayout(new BoxLayout(general, BoxLayout.Y_AXIS));
-        general.setBorder(BorderFactory.createTitledBorder("General"));
+        general.setBorder(ComicControls.titledBorder("General"));
         general.add(row("Default backend:", cbBackend));
         general.add(row("FPS:", spFps));
         general.add(row("Output folder:", withBrowse(tfOutputDir, false)));
 
-        JTabbedPane tabs = new JTabbedPane();
+        JTabbedPane tabs = ComicControls.tabbedPane();
         tabs.addTab("JCodec", buildJcodecTab());
         tabs.addTab("VLC", buildVlcTab());
         tabs.addTab("FFmpeg", buildFfmpegTab());
 
-        JButton save = new JButton("Save");
-        JButton cancel = new JButton("Cancel");
+        JButton save = new ComicButton("Save");
+        JButton cancel = new ComicButton("Cancel");
         save.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 onSave();
@@ -165,7 +167,7 @@ public final class VideoSettingsDialog extends JDialog {
 
         JPanel install = new JPanel();
         install.setLayout(new BoxLayout(install, BoxLayout.Y_AXIS));
-        install.setBorder(BorderFactory.createTitledBorder("Installation / paths"));
+        install.setBorder(ComicControls.titledBorder("Installation / paths"));
         install.add(leftAligned(cbVlcAutodetect));
         install.add(row("VLC base path:", withBrowse(tfVlcBasePath, false)));
         install.add(leftAligned(cbVlcLogEnabled));
@@ -175,7 +177,7 @@ public final class VideoSettingsDialog extends JDialog {
 
         JPanel transcode = new JPanel();
         transcode.setLayout(new BoxLayout(transcode, BoxLayout.Y_AXIS));
-        transcode.setBorder(BorderFactory.createTitledBorder("Transcode / output"));
+        transcode.setBorder(ComicControls.titledBorder("Transcode / output"));
         transcode.add(row("Mux:", cbVlcMux));
         transcode.add(row("vcodec:", tfVlcVcodec));
         transcode.add(row("Quality:", cbVlcQuality));
@@ -191,7 +193,7 @@ public final class VideoSettingsDialog extends JDialog {
 
         JPanel source = new JPanel();
         source.setLayout(new BoxLayout(source, BoxLayout.Y_AXIS));
-        source.setBorder(BorderFactory.createTitledBorder("Source: screen:// region / audio"));
+        source.setBorder(ComicControls.titledBorder("Source: screen:// region / audio"));
         source.add(leftAligned(cbVlcFullscreen));
         source.add(row("Left:", spVlcLeft));
         source.add(row("Top:", spVlcTop));
@@ -211,7 +213,7 @@ public final class VideoSettingsDialog extends JDialog {
 
         JPanel enc = new JPanel();
         enc.setLayout(new BoxLayout(enc, BoxLayout.Y_AXIS));
-        enc.setBorder(BorderFactory.createTitledBorder("Encoding / format"));
+        enc.setBorder(ComicControls.titledBorder("Encoding / format"));
         enc.add(row("Container:", cbFfContainer));
         enc.add(row("Codec:", tfFfCodec));
         enc.add(row("Pixel format:", cbFfPixFmt));
@@ -219,7 +221,7 @@ public final class VideoSettingsDialog extends JDialog {
 
         JPanel quality = new JPanel();
         quality.setLayout(new BoxLayout(quality, BoxLayout.Y_AXIS));
-        quality.setBorder(BorderFactory.createTitledBorder("Quality"));
+        quality.setBorder(ComicControls.titledBorder("Quality"));
         quality.add(row("Mode:", cbFfQuality));
         quality.add(row("CRF (0-51):", spFfCrf));
         quality.add(row("QScale (1-31):", spFfQscale));
@@ -228,7 +230,7 @@ public final class VideoSettingsDialog extends JDialog {
 
         JPanel x264 = new JPanel();
         x264.setLayout(new BoxLayout(x264, BoxLayout.Y_AXIS));
-        x264.setBorder(BorderFactory.createTitledBorder("x264/x265 (optional)"));
+        x264.setBorder(ComicControls.titledBorder("x264/x265 (optional)"));
         x264.add(row("preset:", tfFfPreset));
         x264.add(row("tune:", tfFfTune));
         x264.add(row("profile:", tfFfProfile));
@@ -237,7 +239,7 @@ public final class VideoSettingsDialog extends JDialog {
         p.add(x264);
 
         JPanel extra = new JPanel(new BorderLayout());
-        extra.setBorder(BorderFactory.createTitledBorder("Additional FFmpeg video options (key=value per line)"));
+        extra.setBorder(ComicControls.titledBorder("Additional FFmpeg video options (key=value per line)"));
         extra.add(new JScrollPane(taFfExtra), BorderLayout.CENTER);
         p.add(extra);
 
@@ -357,7 +359,7 @@ public final class VideoSettingsDialog extends JDialog {
 
     private JPanel withBrowse(final JTextField field, final boolean file) {
         JPanel p = new JPanel(new BorderLayout(6, 0));
-        JButton browse = new JButton("…");
+        JButton browse = new ComicButton("…");
         browse.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 JFileChooser chooser = new JFileChooser();

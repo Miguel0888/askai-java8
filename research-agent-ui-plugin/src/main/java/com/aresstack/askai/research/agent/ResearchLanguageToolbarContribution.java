@@ -6,18 +6,18 @@ import com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution;
 import com.aresstack.comiccontrols.control.ResearchPillDropdown;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.Icon;
 import javax.swing.JComponent;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Graphics;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The live SESSION language switch — {@code [flag Language ▾]} — in the CHATS FOOTER of the drawer
- * (design study), no longer in the top bar. Selecting a language calls
+ * The live SESSION language switch — {@code [flag ▾]}, icon only (the popup names the languages) —
+ * TRAILING at the far right of the top bar. Selecting a language calls
  * {@link ResearchAgentSession#changeLanguage} — host state first, then the best-effort
  * {@code set_language} service command. It is NEVER a chat turn and never a state-machine command;
  * it DOES persist as the default for NEW chats (same key as the gear settings), so the next
@@ -33,7 +33,7 @@ public final class ResearchLanguageToolbarContribution implements AgentToolbarCo
 
     @Override
     public Placement getPlacement() {
-        return Placement.SIDEBAR_FOOTER;
+        return Placement.TRAILING;
     }
 
     @Override
@@ -45,10 +45,10 @@ public final class ResearchLanguageToolbarContribution implements AgentToolbarCo
     public JComponent createComponent(AgentToolbarContext context) {
         final ResearchAgentSession session = (ResearchAgentSession) context.getSession();
         final ResearchLanguage[] languages = ResearchLanguage.values();
+        // Same height as the visualize buttons beside it (26px); just the flag and the chevron.
         final ResearchPillDropdown pill = new ResearchPillDropdown(
-                ResearchUiMetrics.FOOTER_CONTROL_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL,
-                0, ResearchUiMetrics.FOOTER_PILL_PADDING_H,
-                ResearchUiMetrics.FOOTER_PILL_PADDING_H);
+                TOP_BAR_CONTROL_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL, 0, 8, 8);
+        pill.setIconOnly(true);
         pill.setFont(ResearchUiTypography.regular(13f));
         pill.setToolTipText("Language of this research session (new content only) — "
                 + "also the default for new chats");
@@ -71,6 +71,9 @@ public final class ResearchLanguageToolbarContribution implements AgentToolbarCo
         });
         return pill;
     }
+
+    /** The height of the top-bar icon buttons (the visualize buttons are 26×26). */
+    private static final int TOP_BAR_CONTROL_HEIGHT = 26;
 
     private static int indexOf(ResearchLanguage[] languages, ResearchLanguage current) {
         for (int index = 0; index < languages.length; index++) {
@@ -103,27 +106,27 @@ public final class ResearchLanguageToolbarContribution implements AgentToolbarCo
 
         public void paintIcon(Component c, Graphics g, int x, int y) {
             if (language == ResearchLanguage.GERMAN) {
-                g.setColor(Color.BLACK);
+                g.setColor(ThemeColor.of("research.flagGermanyTopStripe"));
                 g.fillRect(x, y, W, 4);
-                g.setColor(new Color(0xDD0000));
+                g.setColor(ThemeColor.of("research.flagGermanyMiddleStripe"));
                 g.fillRect(x, y + 4, W, 4);
-                g.setColor(new Color(0xFFCE00));
+                g.setColor(ThemeColor.of("research.flagGermanyBottomStripe"));
                 g.fillRect(x, y + 8, W, 3);
             } else {
-                g.setColor(new Color(0x012169));
+                g.setColor(ThemeColor.of("research.flagUnionField"));
                 g.fillRect(x, y, W, H);
-                g.setColor(Color.WHITE);
+                g.setColor(ThemeColor.of("research.flagUnionCross"));
                 g.drawLine(x, y, x + W - 1, y + H - 1);
                 g.drawLine(x, y + 1, x + W - 2, y + H - 1);
                 g.drawLine(x + W - 1, y, x, y + H - 1);
                 g.drawLine(x + W - 2, y, x, y + H - 2);
                 g.fillRect(x + 6, y, 4, H);
                 g.fillRect(x, y + 4, W, 3);
-                g.setColor(new Color(0xC8102E));
+                g.setColor(ThemeColor.of("research.flagUnionCrossCenter"));
                 g.fillRect(x + 7, y, 2, H);
                 g.fillRect(x, y + 5, W, 1);
             }
-            g.setColor(new Color(0, 0, 0, 60));
+            g.setColor(ThemeColor.withAlpha(ThemeColor.of("research.flagIconFrame"), 60));
             g.drawRect(x, y, W - 1, H - 1);
         }
     }

@@ -2,6 +2,7 @@ package com.aresstack.askai.research.document;
 
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.JComponent;
 import javax.swing.Scrollable;
@@ -148,7 +149,7 @@ public final class DocumentPageView extends JComponent implements Scrollable {
 
             // First pass paints text and collects the height; the paper is drawn beneath by
             // painting it FIRST with last pass's height (stable after one relayout).
-            g2.setColor(java.awt.Color.WHITE);
+            g2.setColor(ThemeColor.of("comic.fieldBg"));
             g2.fillRoundRect(pageX, PAGE_MARGIN, pageWidth,
                     Math.max(120, contentHeight - 2 * PAGE_MARGIN), 14, 14);
             g2.setColor(ResearchUiPalette.TEXT_PRIMARY);
@@ -211,9 +212,9 @@ public final class DocumentPageView extends JComponent implements Scrollable {
                 int badgeTop = baseline - metrics.getAscent() - 1;
                 Rectangle bounds = new Rectangle(cursorX - 3, badgeTop,
                         badgeWidth, metrics.getHeight() + 2);
-                g2.setColor(new Color(0xB0, 0x52, 0x18, 28));
+                g2.setColor(ThemeColor.withAlpha(ThemeColor.of("research.documentAccent"), 28));
                 g2.fillRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, 8, 8);
-                g2.setColor(new Color(0xB0, 0x52, 0x18));
+                g2.setColor(ThemeColor.of("research.documentAccent"));
                 g2.drawRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, 8, 8);
                 g2.drawString(word, cursorX, baseline);
                 badges.add(new Badge(bounds, reference.intValue()));

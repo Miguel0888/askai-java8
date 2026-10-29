@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui.markdown;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -10,7 +12,6 @@ import javax.swing.JScrollPane;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -108,8 +109,8 @@ public final class MarkdownChatTranscript {
         WrappingTextPane body = new WrappingTextPane();
         body.setText(text == null ? "" : text);
         body.setFont(theme.getBodyFont());
-        body.setForeground(Color.WHITE);
-        body.setBackground(new Color(0x1565C0));
+        body.setForeground(ThemeColor.of("bubble.userForeground"));
+        body.setBackground(ThemeColor.of("markdown.userMessageBackground"));
         body.setOpaque(true);
         body.setBorder(BorderFactory.createEmptyBorder(MESSAGE_PADDING, MESSAGE_PADDING,
                 MESSAGE_PADDING, MESSAGE_PADDING));

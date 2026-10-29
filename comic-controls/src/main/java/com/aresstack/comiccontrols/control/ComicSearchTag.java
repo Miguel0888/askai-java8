@@ -1,8 +1,8 @@
 package com.aresstack.comiccontrols.control;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
-import java.awt.Color;
 import java.awt.Dimension;
 
 /**
@@ -19,21 +19,18 @@ public class ComicSearchTag extends ComicSearchBar {
     private static final int TAG_ARC = 10;
     private static final int MIN_WIDTH = 200;
 
-    /** The find bar's warm cream — the shared "amber family" focus surface. */
-    private static final Color WARM_FOCUS_BACKGROUND = new Color(0xFFF8E1);
-
     public ComicSearchTag(String placeholder, String tooltip) {
         this(placeholder, tooltip, ComicPalette.defaultPalette());
     }
 
     public ComicSearchTag(String placeholder, String tooltip, ComicPalette palette) {
         super(placeholder, tooltip,
-                palette.getSurface(), WARM_FOCUS_BACKGROUND,
+                palette.getSurface(), ThemeColor.of("comic.warmFocus"),
                 palette.getInk(), palette.getAccentOrange(),
-                palette.getAccentOrange(), new Color(0xAAAAAA), TAG_ARC, 1.4f);
+                palette.getAccentOrange(), ThemeColor.of("comic.hintTextSoft"), TAG_ARC, 1.4f);
         getTextField().setForeground(palette.getInk());
         getTextField().setCaretColor(palette.getInk());
-        getGoButton().setForeground(new Color(0x888888));
+        getGoButton().setForeground(ThemeColor.of("comic.hintText"));
     }
 
     @Override

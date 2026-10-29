@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.ui.markdown.MarkdownMessageView;
 
 import javax.swing.BorderFactory;
@@ -27,7 +29,7 @@ import java.util.function.Function;
  */
 public final class MarkdownPreviewTabs extends JPanel {
 
-    private final JTabbedPane tabs = new JTabbedPane();
+    private final JTabbedPane tabs = ComicControls.tabbedPane();
     private final Function<String, JComponent> renderer;
     private final Map<String, Component> pinnedByKey = new LinkedHashMap<String, Component>();
 
@@ -114,7 +116,7 @@ public final class MarkdownPreviewTabs extends JPanel {
         JPanel tab = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         tab.setOpaque(false);
         tab.add(new JLabel(title));
-        JButton close = new JButton("×");
+        JButton close = new ComicButton("×");
         close.setToolTipText("Close");
         close.setFocusable(false);
         close.setContentAreaFilled(false);

@@ -1,3 +1,6 @@
+> **ÜBERHOLT (2026-10-29):** Die User-Abnahme von v1 ist gescheitert. Verbindlich ist jetzt
+> `docs/theme-system-spec-v2.md`. Dieses Dokument bleibt als Historie.
+
 # Theme-System „Arcane Knowledge“ — Analyse & Implementierungs-Spezifikation
 
 Stand: 2026-10-29, `main`/`arch` @ `69c343ee`. Autor: Review-Session (Claude, voller Projektkontext).
@@ -261,3 +264,42 @@ Stellen „mitnimmt“, verstößt gegen den Auftrag.
 - [ ] `resolve()` pur und getestet; `active()` cached; Default S2 = arcane, `classic` per Property erreichbar.
 - [ ] Nur gezielte Gradle-Tasks gelaufen; Commits auf arch gepusht; keine App-Starts.
 - [ ] „Implementation notes“ am Dokumentende ergänzt.
+
+## Implementation notes
+
+Implemented on `arch` in three commits (S1a `ef5d43e4`, S1b `a196aee9`, S2 = the commit adding this section).
+Deviations and open points — documented, not decided:
+
+1. **Research tokens as a name-keyed map.** `AskAiTheme` exposes the research group via
+   `research(String constantName)` / `researchTokens()` (keys = exactly the `ResearchUiPalette`
+   constant names) instead of ~33 typed getters. A delegation test checks that every public
+   `Color` constant has a token and vice versa; an unknown name throws.
+2. **`fieldBgQuiet` is a real token** (`fieldBgQuiet()`), as the table row in 3.1 implies:
+   classic `0xFAFAFA`, arcane `0xFAF7F0`; used only by `ComicFindBar` at rest.
+3. **`ComicOverlayPanel` close chip whites → `buttonPlate`.** The spec lists lines 118/124
+   (`Color.WHITE`) as hardcodings but names no token; `buttonPlate` was used (classic `0xFFFFFF`,
+   so classic stays identical). Review may prefer a dedicated token.
+4. **Controls read the extra tokens from `AskAiTheme.active()`**, not from the `ComicPalette`
+   passed to their constructor (the palette has no slots for them). A control built with a custom
+   palette therefore still gets the active theme's greys/creams.
+5. **`ComicButtonUI` border handling.** To avoid a Metal bevel under the rounded ink plate, the
+   delegate replaces a `UIResource` border by insets-equal empty space; for a compound border
+   (Metal: bevel + margin border) only the OUTSIDE part is flattened, the inside margin border
+   stays live, so `setMargin(...)` keeps working (review fix, pinned). Custom borders are untouched.
+   This also applies to buttons that opt out via `askai.plainButton` after installation (the
+   property is evaluated at paint time only). Buttons with `contentAreaFilled == false` get no
+   plate. Rollover is enabled via `LookAndFeel.installProperty` (explicit client settings win).
+   Review fixes beyond the spec: opaque buttons fill the corners outside the plate with the parent
+   background (opaque contract, no repaint garbage), and keyboard focus is shown as a thin
+   navigation-blue inner ring (BasicButtonUI paints none, Metal's ring is gone with the delegate).
+   Plate logic is the shared pure function `ComicButtonUI.plateFill(...)`, also used by `ComicButton`.
+   Raw `JButton`s have no CRITICAL role — the delegate always uses the ACTION accent.
+   GUI-gate watch points: LAF-internal JButtons also get the plate (e.g. `MetalComboBoxButton`,
+   option-pane/file-chooser buttons, toolbar buttons lose Metal's rollover border).
+6. **`ComicScrollBarUI.createUI`** returns the delegate only; it does not apply the opaque/slim
+   preferred-size tweaks of `install(JScrollBar)` (those remain for the explicit call sites).
+7. **`MenuBar.border`** (from the pre-existing `installMenuDefaults`) is still a plain
+   `MatteBorder`, not a `BorderUIResource` — pre-existing code, left untouched.
+8. **Tests live in `comic-controls`** only; the `:askai-app:test` filters from 6.4 match no tests
+   there, so only `:comic-controls:test` + `:askai-app:compileJava` were run.
+9. Open: GUI gates (default = arcane, and `-Daskai.theme=classic`) by the user.

@@ -5,25 +5,36 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /**
- * The design-study top-bar order: the PHASE SELECTOR holds the centered spot (the Websuche's old
- * place), the "Websuche" tag (+ mindmap button) trails at the far right, and the session language
- * switch lives in the drawer's CHATS FOOTER — not in the top bar at all.
+ * Where the research controls live: the web search is the host's TITLE-BAR search contribution, the
+ * icon-only language switch is the only top-bar control (trailing), the phase selector lives in the
+ * State pane footer.
  */
 public class ResearchWebSearchToolbarContributionTest {
 
     @Test
-    public void theWebSearchTagTrailsAtTheFarRight() {
-        ResearchWebSearchToolbarContribution contribution =
-                new ResearchWebSearchToolbarContribution();
-        assertEquals("research-web-search", contribution.getId());
-        assertEquals(AgentToolbarContribution.Placement.TRAILING, contribution.getPlacement());
-        assertFalse("only research sessions get the tag", contribution.supports(null));
+    public void theWebSearchIsTheTitleBarSearchContribution() {
+        com.aresstack.askai.plugin.api.agent.search.AgentSearchContribution search =
+                new com.aresstack.askai.research.plugin.ResearchAgentPluginExtension().getSearchContribution();
+        assertTrue(search instanceof ResearchWebSearchContribution);
+        assertEquals("Web search…", search.getPlaceholder());
+        assertFalse("only research sessions get the web search", search.supports(null));
+        search.search(null, "ignored"); // a non-research session is a no-op, never a crash
     }
 
     @Test
-    public void thePhaseSelectorLivesInTheChatsFooterBesideTheLanguagePill() {
+    public void thePhaseSelectorIsNoLongerAToolbarContribution() {
+        for (AgentToolbarContribution registered
+                : new com.aresstack.askai.research.plugin.ResearchAgentPluginExtension().getToolbarContributions()) {
+            assertFalse("the phase selector lives in the State pane footer now",
+                    registered instanceof ResearchPhaseToolbarContribution);
+        }
+    }
+
+    @Test
+    public void thePhaseSelectorComponentKeepsItsIdentity() {
         ResearchPhaseToolbarContribution contribution = new ResearchPhaseToolbarContribution();
         assertEquals("research-phase-selector", contribution.getId());
         assertEquals(AgentToolbarContribution.Placement.SIDEBAR_FOOTER,
@@ -32,8 +43,17 @@ public class ResearchWebSearchToolbarContributionTest {
     }
 
     @Test
-    public void theLanguageSwitchLivesInTheChatsFooter() {
-        assertEquals(AgentToolbarContribution.Placement.SIDEBAR_FOOTER,
+    public void theLanguageSwitchIsTheOnlyTrailingControl() {
+        assertEquals(AgentToolbarContribution.Placement.TRAILING,
                 new ResearchLanguageToolbarContribution().getPlacement());
+        int trailing = 0;
+        for (AgentToolbarContribution registered
+                : new com.aresstack.askai.research.plugin.ResearchAgentPluginExtension().getToolbarContributions()) {
+            if (registered.getPlacement() == AgentToolbarContribution.Placement.TRAILING) {
+                trailing++;
+                assertTrue(registered instanceof ResearchLanguageToolbarContribution);
+            }
+        }
+        assertEquals("the language switch is the only top-bar control", 1, trailing);
     }
 }

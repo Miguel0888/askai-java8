@@ -6,6 +6,7 @@ import com.aresstack.askai.research.state.oo.ResearchStateIds;
 import com.aresstack.comiccontrols.control.ComicScrollPane;
 import com.aresstack.comiccontrols.control.ComicSectionPanel;
 import com.aresstack.comiccontrols.theme.ComicPalette;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -124,7 +125,8 @@ public final class ResearchStateView extends JPanel {
         boolean active = phaseId.equals(snapshot.getCurrentPhaseId());
         JLabel title = new JLabel(phaseDisplayName(phaseId));
         title.setFont(title.getFont().deriveFont(Font.BOLD, 12f));
-        title.setForeground(active ? palette.getInk() : palette.getInk().brighter());
+        title.setForeground(active ? palette.getInk() : ThemeColor.derive("ink.brighter",
+                () -> palette.getInk().brighter()));
         JPanel titleRow = new JPanel(new BorderLayout());
         titleRow.setOpaque(false);
         titleRow.add(title, BorderLayout.WEST);
@@ -139,7 +141,7 @@ public final class ResearchStateView extends JPanel {
             row.setAccentStripe(palette.getAgentPetrol());
             row.add(quietLine("completed"));
         } else {
-            row.setAccentStripe(new Color(0xD8D8D8));
+            row.setAccentStripe(ThemeColor.of("research.phasePendingStripe"));
             row.add(quietLine("pending"));
         }
         makeClickableWhenTheDomainAllowsIt(row, titleRow, phaseId);
@@ -171,7 +173,8 @@ public final class ResearchStateView extends JPanel {
         row.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseEntered(MouseEvent event) {
-                row.setPlateFill(blend(palette.getAccentYellow(), Color.WHITE));
+                row.setPlateFill(ThemeColor.average(palette.getAccentYellow(),
+                        ThemeColor.of("comic.buttonPlate")));
             }
 
             @Override
@@ -227,7 +230,8 @@ public final class ResearchStateView extends JPanel {
 
     private Color innerStateForeground() {
         // Petrol and red fills need light text; the yellow plate keeps ink.
-        return innerStateFill() == palette.getAccentYellow() ? palette.getInk() : Color.WHITE;
+        return innerStateFill() == palette.getAccentYellow() ? palette.getInk()
+                : ThemeColor.of("bubble.assistantForeground");
     }
 
     /** Red for the states that mean trouble/stop, else {@code null}. */
@@ -254,12 +258,6 @@ public final class ResearchStateView extends JPanel {
     static String label(ResearchCommandType type) {
         String words = type.name().toLowerCase().replace('_', ' ');
         return Character.toUpperCase(words.charAt(0)) + words.substring(1);
-    }
-
-    private static Color blend(Color accent, Color base) {
-        return new Color((accent.getRed() + base.getRed()) / 2,
-                (accent.getGreen() + base.getGreen()) / 2,
-                (accent.getBlue() + base.getBlue()) / 2);
     }
 
     // ------------------------------------------------------------------ text projection

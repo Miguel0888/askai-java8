@@ -35,6 +35,10 @@ final class ResearchSemanticCommands {
         map.put("resume", Arrays.asList(ResearchCommandType.RESUME, ResearchCommandType.UNBLOCK));
         map.put("pause", Arrays.asList(ResearchCommandType.PAUSE));
         map.put("cancel", Arrays.asList(ResearchCommandType.CANCEL));
+        // The way back (always possible): reopen an earlier phase; nothing is deleted.
+        map.put("reopen-concept", Arrays.asList(ResearchCommandType.REOPEN_CONCEPT));
+        map.put("reopen-sources", Arrays.asList(ResearchCommandType.REOPEN_SOURCES));
+        map.put("reopen-outline", Arrays.asList(ResearchCommandType.REOPEN_OUTLINE));
         CANDIDATES = Collections.unmodifiableMap(map);
     }
 

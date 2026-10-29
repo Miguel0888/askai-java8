@@ -1,12 +1,17 @@
 package com.aresstack.comiccontrols.control;
 
+import com.aresstack.comiccontrols.theme.AskAiTheme;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
-import javax.swing.BorderFactory;
+import javax.swing.AbstractButton;
 import javax.swing.ButtonModel;
 import javax.swing.Icon;
 import javax.swing.JButton;
+import javax.swing.border.Border;
+import javax.swing.plaf.UIResource;
 import java.awt.Color;
+import java.awt.Component;
+import java.awt.Insets;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -33,6 +38,17 @@ public class ComicButton extends JButton {
 
     private final ComicPalette palette;
     private final Accent accent;
+    /** False once a caller asked for a flat button ({@code setContentAreaFilled(false)}): no plate then. */
+    private boolean plateShown = true;
+    private boolean constructed;
+
+    public ComicButton() {
+        this(null, null, Accent.ACTION, ComicPalette.defaultPalette());
+    }
+
+    public ComicButton(Icon icon) {
+        this(null, icon, Accent.ACTION, ComicPalette.defaultPalette());
+    }
 
     public ComicButton(String text) {
         this(text, null, Accent.ACTION, ComicPalette.defaultPalette());
@@ -59,7 +75,29 @@ public class ComicButton extends JButton {
         setFocusPainted(false);
         setRolloverEnabled(true);
         setForeground(palette.getInk());
-        setBorder(BorderFactory.createEmptyBorder(5, 14, 5, 14));
+        setBorder(new Padding());
+        // This button paints its own plate — the global ComicButtonUI must not paint a second one.
+        putClientProperty(ComicButtonUI.PLAIN_BUTTON_PROPERTY, Boolean.TRUE);
+        constructed = true;
+    }
+
+    /**
+     * The look and feel's content fill stays off (the plate replaces it); a caller's
+     * {@code setContentAreaFilled(false)} after construction makes this a FLAT button without a plate,
+     * exactly as it would for a plain {@code JButton}.
+     */
+    @Override
+    public void setContentAreaFilled(boolean filled) {
+        if (constructed) {
+            plateShown = filled;
+            repaint();
+        }
+        super.setContentAreaFilled(false);
+    }
+
+    /** Whether the comic plate is painted (false for flat buttons). */
+    public boolean isPlateShown() {
+        return plateShown;
     }
 
     /** The button's color role (e.g. for tests and role-dependent wiring). */
@@ -69,6 +107,10 @@ public class ComicButton extends JButton {
 
     @Override
     protected void paintComponent(Graphics g) {
+        if (!plateShown) {
+            super.paintComponent(g); // flat: text and icon only
+            return;
+        }
         Graphics2D g2 = (Graphics2D) g.create();
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
@@ -80,23 +122,63 @@ public class ComicButton extends JButton {
             g2.setColor(isEnabled() ? palette.getInk() : palette.getInk().brighter().brighter());
             g2.setStroke(new java.awt.BasicStroke(OUTLINE_WIDTH));
             g2.draw(plate);
+            if (isEnabled() && isFocusOwner()) {
+                paintFocusRing(g2);
+            }
         } finally {
             g2.dispose();
         }
         super.paintComponent(g); // look-and-feel text + icon on top of the plate
     }
 
+    /** The resting plate: a caller-set background (e.g. a primary button) or the theme's button plate. */
+    private Color restingPlate() {
+        Color background = getBackground();
+        return background == null || background instanceof UIResource
+                ? AskAiTheme.active().buttonPlate() : background;
+    }
+
+    /**
+     * The comic padding (5/14), or the caller's explicit {@code setMargin(...)} — so compact buttons
+     * keep their size when they become comic buttons.
+     */
+    private static final class Padding implements Border {
+
+        private static final Insets DEFAULT = new Insets(5, 14, 5, 14);
+
+        @Override
+        public void paintBorder(Component c, Graphics g, int x, int y, int width, int height) {
+            // padding only — the plate carries the contour
+        }
+
+        @Override
+        public Insets getBorderInsets(Component c) {
+            Insets margin = c instanceof AbstractButton ? ((AbstractButton) c).getMargin() : null;
+            Insets source = margin == null || margin instanceof UIResource ? DEFAULT : margin;
+            return new Insets(source.top, source.left, source.bottom, source.right);
+        }
+
+        @Override
+        public boolean isBorderOpaque() {
+            return false;
+        }
+    }
+
+    /**
+     * The look and feel's focus painting is off (it would draw a rectangle across the comic plate), so the
+     * keyboard focus gets its own cue: a dashed navigation-blue ring just inside the ink contour.
+     */
+    private void paintFocusRing(Graphics2D g2) {
+        g2.setColor(palette.getNavigationBlue());
+        g2.setStroke(new java.awt.BasicStroke(1.4f, java.awt.BasicStroke.CAP_ROUND,
+                java.awt.BasicStroke.JOIN_ROUND, 1f, new float[] {3f, 2f}, 0f));
+        g2.draw(new RoundRectangle2D.Float(4f, 4f, getWidth() - 8f, getHeight() - 8f, ARC - 4, ARC - 4));
+    }
+
     private Color plateFill() {
         ButtonModel model = getModel();
-        if (!isEnabled()) {
-            return palette.getSurface();
-        }
-        if (model.isArmed() && model.isPressed()) {
-            return accent == Accent.CRITICAL ? palette.getAccentRed() : palette.getAccentOrange();
-        }
-        if (model.isRollover()) {
-            return accent == Accent.CRITICAL ? palette.getAccentRed() : palette.getAccentYellow();
-        }
-        return Color.WHITE; // calm resting plate, slightly lifted off the neutral surface
+        return ComicButtonUI.plateFill(palette, restingPlate(), isEnabled(),
+                model.isArmed() && model.isPressed(), model.isRollover(),
+                accent == Accent.CRITICAL);
     }
 }

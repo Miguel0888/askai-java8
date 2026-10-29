@@ -74,6 +74,7 @@ public final class AppConfigurationRepository {
         }
         return com.aresstack.askai.java8.stt.DecibelLevelScale.dbPercentFromLinearPercent(value);
     }
+    private static final String UI_THEME = "ui.theme";
     private static final String CHAT_COLOR_TRANSCRIPT_BG = "chat.color.transcriptBackground";
     private static final String CHAT_COLOR_USER_BG = "chat.color.userBackground";
     private static final String CHAT_COLOR_USER_FG = "chat.color.userForeground";
@@ -145,18 +146,15 @@ public final class AppConfigurationRepository {
                     parseInt(properties.getProperty(STT_AUTO_STOP_SILENCE_SECONDS,
                             String.valueOf(defaultStt.getAutoStopSilenceSeconds()))),
                     signalThreshold(properties, defaultStt.getSignalThresholdPercent()));
-            ChatColorSettings defaultColors = defaults.getChatColors();
             ChatColorSettings chatColors = new ChatColorSettings(
-                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_TRANSCRIPT_BG),
-                            defaultColors.getTranscriptBackground()),
-                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_USER_BG),
-                            defaultColors.getUserBackground()),
-                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_USER_FG),
-                            defaultColors.getUserForeground()),
-                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_ASSISTANT_BG),
-                            defaultColors.getAssistantBackground()),
-                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_ASSISTANT_FG),
-                            defaultColors.getAssistantForeground()));
+                    ChatColorSettings.fromStored(properties.getProperty(CHAT_COLOR_TRANSCRIPT_BG),
+                            "transcriptBackground"),
+                    ChatColorSettings.fromStored(properties.getProperty(CHAT_COLOR_USER_BG), "userBackground"),
+                    ChatColorSettings.fromStored(properties.getProperty(CHAT_COLOR_USER_FG), "userForeground"),
+                    ChatColorSettings.fromStored(properties.getProperty(CHAT_COLOR_ASSISTANT_BG),
+                            "assistantBackground"),
+                    ChatColorSettings.fromStored(properties.getProperty(CHAT_COLOR_ASSISTANT_FG),
+                            "assistantForeground"));
             return new AppConfiguration(
                     properties.getProperty(OLLAMA_BASE_URL, defaults.getOllamaBaseUrl()),
                     properties.getProperty(KEEP_ALIVE, defaults.getKeepAlive()),
@@ -187,9 +185,34 @@ public final class AppConfigurationRepository {
                                     AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS)))
                     .withHuggingFaceSearchFilters(properties.getProperty(HF_SEARCH_FILTERS, ""))
                     .withChatColors(chatColors)
-                    .withAiModelSelections(aiModels);
+                    .withAiModelSelections(aiModels)
+                    .withUiTheme(properties.getProperty(UI_THEME, ""));
         } catch (IOException ex) {
             return AppConfiguration.defaults();
+        } finally {
+            closeQuietly(inputStream);
+        }
+    }
+
+    private static void putUserColor(Properties properties, String key, java.awt.Color color) {
+        if (!ChatColorSettings.isThemeDefault(color)) {
+            properties.setProperty(key, ChatColorSettings.toHex(color));
+        }
+    }
+
+    /** The theme id currently stored in the configuration file ("" when none). */
+    private String storedUiTheme() {
+        if (!configurationFile.isFile()) {
+            return "";
+        }
+        Properties stored = new Properties();
+        FileInputStream inputStream = null;
+        try {
+            inputStream = new FileInputStream(configurationFile);
+            stored.load(inputStream);
+            return stored.getProperty(UI_THEME, "").trim();
+        } catch (IOException ex) {
+            return "";
         } finally {
             closeQuietly(inputStream);
         }
@@ -244,12 +267,19 @@ public final class AppConfigurationRepository {
         properties.setProperty(DOWNLOAD_DIRECTORY, configuration.getModelDownloadDirectory().getAbsolutePath());
         properties.setProperty(HF_SEARCH_SUGGESTIONS, configuration.getHuggingFaceSearchSuggestionsRaw());
         properties.setProperty(HF_SEARCH_FILTERS, configuration.getHuggingFaceSearchFilters());
+        // Only real user choices are stored; theme defaults stay absent so they keep following the theme.
         ChatColorSettings colors = configuration.getChatColors();
-        properties.setProperty(CHAT_COLOR_TRANSCRIPT_BG, ChatColorSettings.toHex(colors.getTranscriptBackground()));
-        properties.setProperty(CHAT_COLOR_USER_BG, ChatColorSettings.toHex(colors.getUserBackground()));
-        properties.setProperty(CHAT_COLOR_USER_FG, ChatColorSettings.toHex(colors.getUserForeground()));
-        properties.setProperty(CHAT_COLOR_ASSISTANT_BG, ChatColorSettings.toHex(colors.getAssistantBackground()));
-        properties.setProperty(CHAT_COLOR_ASSISTANT_FG, ChatColorSettings.toHex(colors.getAssistantForeground()));
+        putUserColor(properties, CHAT_COLOR_TRANSCRIPT_BG, colors.getTranscriptBackground());
+        putUserColor(properties, CHAT_COLOR_USER_BG, colors.getUserBackground());
+        putUserColor(properties, CHAT_COLOR_USER_FG, colors.getUserForeground());
+        putUserColor(properties, CHAT_COLOR_ASSISTANT_BG, colors.getAssistantBackground());
+        putUserColor(properties, CHAT_COLOR_ASSISTANT_FG, colors.getAssistantForeground());
+        // A configuration rebuilt without a theme (e.g. a save site using the plain constructor) keeps
+        // the stored choice instead of wiping it.
+        String uiTheme = configuration.getUiTheme().isEmpty() ? storedUiTheme() : configuration.getUiTheme();
+        if (!uiTheme.isEmpty()) {
+            properties.setProperty(UI_THEME, uiTheme);
+        }
         AiModelSelections aiModels = configuration.getAiModelSelections();
         properties.setProperty(AI_MAIN_MODEL, aiModels.getMainModel());
         properties.setProperty(AI_MAIN_MODEL_TIMEOUT_SECONDS,

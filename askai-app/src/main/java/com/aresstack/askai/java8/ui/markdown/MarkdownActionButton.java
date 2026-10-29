@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui.markdown;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+
 import javax.swing.Icon;
 import javax.swing.JButton;
 import java.awt.BasicStroke;
@@ -25,9 +27,9 @@ final class MarkdownActionButton extends JButton {
 
     MarkdownActionButton(Icon icon, String tooltip, Color foreground, final Runnable action) {
         super(icon);
-        Color fg = foreground == null ? new Color(0x44484D) : foreground;
+        Color fg = foreground == null ? ThemeColor.of("research.LIGHT_CONTROL_TEXT") : foreground;
         setForeground(fg);
-        this.overlay = new Color(fg.getRed(), fg.getGreen(), fg.getBlue(), 32);
+        this.overlay = ThemeColor.withAlpha(fg, 32);
         setToolTipText(tooltip);
         getAccessibleContext().setAccessibleName(tooltip);
         setFocusable(false);

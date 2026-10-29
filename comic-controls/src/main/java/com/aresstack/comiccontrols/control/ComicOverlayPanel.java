@@ -1,5 +1,6 @@
 package com.aresstack.comiccontrols.control;
 
+import com.aresstack.comiccontrols.theme.AskAiTheme;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
 import javax.swing.BorderFactory;
@@ -9,7 +10,6 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -33,6 +33,9 @@ public class ComicOverlayPanel extends JPanel {
     private static final int MARGIN = 24;
 
     private final ComicPalette palette;
+    private final CloseButton closeButton;
+    private final JPanel plate;
+    private Dimension plateLimit;
 
     public ComicOverlayPanel(String title, JComponent content, Runnable closeAction) {
         this(title, content, closeAction, ComicPalette.defaultPalette());
@@ -51,7 +54,7 @@ public class ComicOverlayPanel extends JPanel {
         addMouseMotionListener(new javax.swing.event.MouseInputAdapter() { });
         addMouseWheelListener(e -> { });
 
-        JPanel plate = new ComicSectionPanel(palette);
+        plate = new ComicSectionPanel(palette);
         plate.setLayout(new BorderLayout(0, 6));
         plate.setBorder(BorderFactory.createEmptyBorder(10, 14, 12, 14));
 
@@ -61,7 +64,8 @@ public class ComicOverlayPanel extends JPanel {
         JPanel titleRow = new JPanel(new BorderLayout(8, 0));
         titleRow.setOpaque(false);
         titleRow.add(heading, BorderLayout.CENTER);
-        titleRow.add(new CloseButton(palette, closeAction), BorderLayout.EAST);
+        closeButton = new CloseButton(palette, closeAction);
+        titleRow.add(closeButton, BorderLayout.EAST);
         plate.add(titleRow, BorderLayout.NORTH);
         plate.add(content, BorderLayout.CENTER);
 
@@ -73,11 +77,40 @@ public class ComicOverlayPanel extends JPanel {
         add(plate, constraints);
     }
 
+    /**
+     * Caps the plate at {@code limit} (centered, backdrop all around) when the overlay is larger, e.g. when it
+     * covers a whole maximized window; {@code null} lets the plate fill the overlay minus the margin (default).
+     */
+    public void setPlateLimit(Dimension limit) {
+        this.plateLimit = limit == null ? null : new Dimension(limit);
+        revalidate();
+    }
+
+    @Override
+    public void doLayout() {
+        int horizontal = MARGIN;
+        int vertical = MARGIN;
+        if (plateLimit != null) {
+            horizontal = Math.max(MARGIN, (getWidth() - plateLimit.width) / 2);
+            vertical = Math.max(MARGIN, (getHeight() - plateLimit.height) / 2);
+        }
+        GridBagLayout layout = (GridBagLayout) getLayout();
+        GridBagConstraints constraints = layout.getConstraints(plate);
+        constraints.insets = new java.awt.Insets(vertical, horizontal, vertical, horizontal);
+        layout.setConstraints(plate, constraints);
+        super.doLayout();
+    }
+
+    /** The overlay's ✕ (for tests and keyboard wiring). */
+    public CloseButton closeButton() {
+        return closeButton;
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         Graphics2D g2 = (Graphics2D) g.create();
         try {
-            g2.setColor(new Color(0, 0, 0, 110)); // the dimmed backdrop
+            g2.setColor(AskAiTheme.active().overlayDim()); // the dimmed backdrop
             g2.fillRect(0, 0, getWidth(), getHeight());
         } finally {
             g2.dispose();
@@ -115,13 +148,13 @@ public class ComicOverlayPanel extends JPanel {
                         RenderingHints.VALUE_ANTIALIAS_ON);
                 Ellipse2D chip = new Ellipse2D.Float(2f, 2f, getWidth() - 5f, getHeight() - 5f);
                 boolean hot = getModel().isRollover() || getModel().isPressed();
-                g2.setColor(hot ? palette.getAccentRed() : Color.WHITE);
+                g2.setColor(hot ? palette.getAccentRed() : AskAiTheme.active().buttonPlate());
                 g2.fill(chip);
                 g2.setColor(palette.getInk());
                 g2.setStroke(new BasicStroke(1.6f));
                 g2.draw(chip);
                 // the ✕ strokes
-                g2.setColor(hot ? Color.WHITE : palette.getInk());
+                g2.setColor(hot ? AskAiTheme.active().buttonPlate() : palette.getInk());
                 g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 int cx = getWidth() / 2;
                 int cy = getHeight() / 2;

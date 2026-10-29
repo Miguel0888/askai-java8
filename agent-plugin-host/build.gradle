@@ -12,6 +12,9 @@ dependencies {
     // agent-model-runtime-api types (reranker/inference snapshot providers, the active-session registry) as
     // compileOnly — so the test HOST classpath must provide them, exactly as the real host (askai-app) does.
     testImplementation project(':agent-model-runtime-api')
+    // Same rule for the comic-controls design system: the plugin's views use it compileOnly (it is
+    // host-provided and excluded from the plugin's lib/), so the test HOST must provide it like askai-app.
+    testRuntimeOnly project(':comic-controls')
 }
 
 test {

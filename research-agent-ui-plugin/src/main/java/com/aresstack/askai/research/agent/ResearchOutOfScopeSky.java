@@ -1,9 +1,12 @@
 package com.aresstack.askai.research.agent;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.paint.SkyClouds;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.ResearchUiPainter;
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
@@ -59,7 +62,7 @@ final class ResearchOutOfScopeSky extends JPanel {
     private final JScrollPane cloudScroll;
     private final MoreCloud moreCloud = new MoreCloud();
     private final AddCloud addCloud = new AddCloud();
-    private final JTextField addField = new JTextField(16);
+    private final JTextField addField = ComicControls.textField(16);
     /** Field + the shared comic ✕ ({@link com.aresstack.comiccontrols.control.ComicOverlayPanel.CloseButton}) as ONE flow entry. */
     private final JPanel addFieldRow = new JPanel(new java.awt.BorderLayout(2, 0)) {
         @Override
@@ -376,24 +379,18 @@ final class ResearchOutOfScopeSky extends JPanel {
             if (skyHeight <= 0) {
                 return;
             }
-            Color top = ResearchUiPalette.SKY_TOP;
             // Air, not a panel: strongly covering at the very top, bubbles faintly visible through
             // the middle, fully transparent at the bottom — a LONG soft ramp instead of a filled
-            // rectangle, so no horizontal edge is ever perceptible.
-            float contentStop = Math.max(0.1f, Math.min(0.85f,
-                    contentBottom / (float) skyHeight));
+            // rectangle, so no horizontal edge is ever perceptible. Two tones: SKY_TOP runs into
+            // SKY_MID (a sunset in arcane; identical tones = the single-tone classic sky).
             LinearGradientPaint sky = new LinearGradientPaint(0f, 0f, 0f, skyHeight,
-                    new float[]{0f, contentStop * 0.55f, contentStop, 1f},
-                    new Color[]{
-                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 242),
-                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 205),
-                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 105),
-                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 0)});
+                    SkyClouds.skyFractions(contentBottom, skyHeight),
+                    SkyClouds.skyColors(ResearchUiPalette.SKY_TOP, ResearchUiPalette.SKY_MID));
             g2.setPaint(sky);
             g2.fillRect(0, 0, getWidth(), skyHeight);
 
-            // Polish: two very faint white cloud forms drifting in the background.
-            g2.setColor(new Color(255, 255, 255, 30));
+            // Polish: two very faint light cloud forms drifting in the background.
+            g2.setColor(SkyClouds.ghostCloudColor());
             int w = getWidth();
             g2.fill(new Ellipse2D.Float(w * 0.08f, contentBottom * 0.15f, w * 0.28f,
                     Math.max(18f, contentBottom * 0.4f)));
@@ -548,7 +545,7 @@ final class ResearchOutOfScopeSky extends JPanel {
     private void styleAddField() {
         addFieldRow.setVisible(false);
         addFieldRow.setOpaque(true);
-        addFieldRow.setBackground(Color.WHITE);
+        addFieldRow.setBackground(ResearchUiPalette.LIGHT_CONTROL_BG);
         addFieldRow.setBorder(BorderFactory.createLineBorder(ResearchUiPalette.CLOUD_BORDER));
         addField.setFont(ResearchUiTypography.regular(12.5f));
         addField.setOpaque(false);
@@ -1016,7 +1013,7 @@ final class ResearchOutOfScopeSky extends JPanel {
                 java.awt.Rectangle speak = speakHit();
                 if (speakHovered) {
                     g2.setColor(ResearchUiPainter.mix(ResearchUiPalette.SKY_BAR_SURFACE,
-                            java.awt.Color.WHITE, 0.4f));
+                            ThemeColor.of("comic.buttonPlate"), 0.4f));
                     g2.fillOval(speak.x, speak.y, speak.width, speak.height);
                 }
                 g2.setColor(ResearchUiPalette.CLOUD_TEXT);
@@ -1153,7 +1150,7 @@ final class ResearchOutOfScopeSky extends JPanel {
             try {
                 if (hovered) {
                     g2.setColor(ResearchUiPainter.mix(ResearchUiPalette.SKY_BAR_SURFACE,
-                            java.awt.Color.WHITE, 0.35f));
+                            ThemeColor.of("comic.buttonPlate"), 0.35f));
                     g2.fillOval(0, 0, getWidth(), getHeight());
                 }
                 ResearchUiPainter.paintChevronUp(g2, getWidth() / 2, getHeight() / 2, 5,

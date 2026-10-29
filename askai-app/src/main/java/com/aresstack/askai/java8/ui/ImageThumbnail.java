@@ -1,11 +1,11 @@
 package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.vision.ImageAttachment;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.SwingWorker;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Graphics;
@@ -100,9 +100,9 @@ public final class ImageThumbnail extends JLabel {
             Graphics2D g2 = (Graphics2D) graphics.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.translate(x, y);
-            g2.setColor(new Color(0xD7DBE0));
+            g2.setColor(ThemeColor.of("chat.imagePlaceholderFill"));
             g2.fillRoundRect(0, 0, box, box, 8, 8);
-            g2.setColor(new Color(0x9AA0A6));
+            g2.setColor(ThemeColor.of("chat.imagePlaceholderGlyph"));
             g2.drawRoundRect(0, 0, box - 1, box - 1, 8, 8);
             int u = box;
             g2.drawOval(u * 5 / 22, u * 6 / 22, u * 4 / 22, u * 4 / 22);

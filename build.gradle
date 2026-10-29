@@ -29,3 +29,7 @@ subprojects {
         options.encoding = 'UTF-8'
     }
 }
+
+// The third-party library list of Help > About (oss-licenses.json in askai-app's resources).
+ext.ossLicenseTargetProjectPath = ':askai-app'
+apply from: "$rootDir/gradle/oss-licenses.gradle"

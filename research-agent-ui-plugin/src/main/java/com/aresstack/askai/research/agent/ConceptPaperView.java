@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.agent;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.askai.research.concept.ConceptProjection;
 import com.aresstack.askai.research.concept.ConceptTopicScanner;
 import com.aresstack.comiccontrols.control.ComicButton;
@@ -7,6 +8,7 @@ import com.aresstack.comiccontrols.control.ComicSearchBar;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
@@ -62,7 +64,7 @@ public final class ConceptPaperView extends JPanel {
     private static final String EMPTY =
             "_No concept yet. Describe in the chat what you want to research._";
 
-    private final JTextArea editor = new JTextArea();
+    private final JTextArea editor = ComicControls.textArea();
     private final JLabel statusLabel = new JLabel(" ");
     private final ComicButton saveButton = new ComicButton("Save");
     private final ComicButton discardButton = new ComicButton("Discard");
@@ -100,7 +102,7 @@ public final class ConceptPaperView extends JPanel {
     private final JScrollPane editorScroll = new JScrollPane(editor);
     private final com.aresstack.comiccontrols.control.ComicSectionPanel errorOverlay =
             new com.aresstack.comiccontrols.control.ComicSectionPanel();
-    private final JTextArea errorText = new JTextArea();
+    private final JTextArea errorText = ComicControls.textArea();
     private final javax.swing.Timer errorHideTimer =
             new javax.swing.Timer(ERROR_OVERLAY_MILLIS, new ActionListener() {
                 public void actionPerformed(ActionEvent event) {
@@ -165,7 +167,7 @@ public final class ConceptPaperView extends JPanel {
     }
 
     private void buildErrorOverlay() {
-        errorOverlay.setPlateFill(java.awt.Color.WHITE);
+        errorOverlay.setPlateFill(ThemeColor.of("comic.buttonPlate"));
         errorOverlay.setAccentStripe(ComicPalette.defaultPalette().getAccentRed());
         errorOverlay.setLayout(new BorderLayout());
         errorText.setEditable(false);
@@ -270,9 +272,10 @@ public final class ConceptPaperView extends JPanel {
                 ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H,
                 ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H));
 
-        // Layout ruling: the history arrows sit LEFT in both modes, Save/Discard CENTERED.
-        JPanel arrows = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        arrows.setOpaque(false);
+        // Layout ruling: reload LEFT, the history arrows CENTERED with Save/Discard, the status and the
+        // "Visualize concept" button RIGHT (where reload used to be).
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        left.setOpaque(false);
         JPanel saveActions = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 0));
         saveActions.setOpaque(false);
         for (ComicButton button : new ComicButton[] {olderButton, newerButton,
@@ -280,8 +283,8 @@ public final class ConceptPaperView extends JPanel {
             button.setFocusable(false);
             button.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
         }
-        arrows.add(olderButton);
-        arrows.add(newerButton);
+        saveActions.add(olderButton);
+        saveActions.add(newerButton);
         saveActions.add(saveButton);
         saveActions.add(discardButton);
         saveButton.setToolTipText("Save: apply the edit (JSON) or restore the previewed "
@@ -289,19 +292,37 @@ public final class ConceptPaperView extends JPanel {
         discardButton.setToolTipText("Discard the edits / leave the revision preview");
         olderButton.setToolTipText("Preview the previous working revision");
         newerButton.setToolTipText("Preview the next working revision");
-        footer.add(arrows, BorderLayout.WEST);
+        refreshButton.setFocusable(false);
+        refreshButton.setToolTipText("Reload view");
+        refreshButton.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
+        left.add(refreshButton);
+        footer.add(left, BorderLayout.WEST);
         footer.add(saveActions, BorderLayout.CENTER);
 
         JPanel status = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         status.setOpaque(false);
         statusLabel.setFont(ResearchUiTypography.regular(11.5f));
         status.add(statusLabel);
-        refreshButton.setFocusable(false);
-        refreshButton.setToolTipText("Reload view");
-        refreshButton.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
-        status.add(refreshButton);
+        status.add(visualizeSlot);
         footer.add(status, BorderLayout.EAST);
         return footer;
+    }
+
+    /** Holds the "Visualize concept" button (right of the status), set by the view contribution. */
+    private final JPanel visualizeSlot = new JPanel(new BorderLayout());
+
+    {
+        visualizeSlot.setOpaque(false);
+    }
+
+    /** Places the "Visualize concept" button at the right end of the footer. */
+    public void setVisualizeButton(javax.swing.JComponent button) {
+        visualizeSlot.removeAll();
+        if (button != null) {
+            visualizeSlot.add(button, BorderLayout.CENTER);
+        }
+        visualizeSlot.revalidate();
+        visualizeSlot.repaint();
     }
 
     private void wireActions() {

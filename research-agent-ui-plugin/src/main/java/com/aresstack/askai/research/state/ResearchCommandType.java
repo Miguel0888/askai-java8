@@ -22,5 +22,11 @@ public enum ResearchCommandType {
     BLOCK,
     UNBLOCK,
     FAIL,
-    RETRY
+    RETRY,
+    /** Back to the Concept phase (scoping, running) — allowed from every later phase and state. */
+    REOPEN_CONCEPT,
+    /** Back to the Sources phase (research, running) — allowed from Outline and Document. */
+    REOPEN_SOURCES,
+    /** Back to the Outline phase (outline, running) — allowed from Document. */
+    REOPEN_OUTLINE
 }

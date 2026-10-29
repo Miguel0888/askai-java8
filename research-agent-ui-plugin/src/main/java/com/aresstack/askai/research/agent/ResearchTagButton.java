@@ -1,5 +1,7 @@
 package com.aresstack.askai.research.agent;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+
 import javax.swing.JButton;
 import java.awt.Color;
 import java.awt.Cursor;
@@ -18,11 +20,11 @@ import java.awt.RenderingHints;
  */
 final class ResearchTagButton extends JButton {
 
-    static final Color SUGGESTION_BACKGROUND = new Color(0xF2C94C);
-    static final Color SUGGESTION_FOREGROUND = new Color(0x252525);
+    static final Color SUGGESTION_BACKGROUND = ThemeColor.of("bubble.activityBackground");
+    static final Color SUGGESTION_FOREGROUND = ThemeColor.of("bubble.activityForeground");
     /** The action red — the bubble palette's alert tone, same chip geometry as the yellow suggestion. */
-    static final Color ACTION_BACKGROUND = new Color(0xEB5757);
-    static final Color ACTION_FOREGROUND = Color.WHITE;
+    static final Color ACTION_BACKGROUND = ThemeColor.of("research.actionTagBackground");
+    static final Color ACTION_FOREGROUND = ThemeColor.of("bubble.assistantForeground");
 
     private final Color background;
 
@@ -50,7 +52,7 @@ final class ResearchTagButton extends JButton {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         Color fill = background;
         if (!isEnabled()) {
-            fill = new Color(fill.getRed(), fill.getGreen(), fill.getBlue(), 110); // faded, still readable
+            fill = ThemeColor.withAlpha(fill, 110); // faded, still readable
         } else if (getModel().isPressed()) {
             fill = fill.darker();
         } else if (getModel().isRollover()) {

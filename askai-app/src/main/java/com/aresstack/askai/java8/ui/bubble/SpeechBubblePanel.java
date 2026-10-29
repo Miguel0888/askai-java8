@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui.bubble;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+import com.aresstack.comiccontrols.control.ComicControls;
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -311,7 +313,7 @@ public final class SpeechBubblePanel extends JPanel
     }
 
     private JTextArea createTextArea(String text) {
-        JTextArea area = new JTextArea(normalize(text));
+        JTextArea area = ComicControls.textArea(normalize(text));
         Font baseFont = UIManager.getFont("TextArea.font");
         if (baseFont == null) {
             baseFont = new Font(Font.SANS_SERIF, Font.PLAIN, 13);
@@ -396,8 +398,9 @@ public final class SpeechBubblePanel extends JPanel
                 RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
     }
 
+    /** {@code color} with {@code alpha}, derived live (follows theme switches even when stored). */
     private static Color withAlpha(Color color, int alpha) {
-        return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
+        return ThemeColor.withAlpha(color, alpha);
     }
 
     private static String normalize(String value) {

@@ -1,5 +1,8 @@
 package com.aresstack.askai.research.sources;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -57,21 +60,21 @@ public final class ResearchSourcesView extends JPanel {
             new com.aresstack.comiccontrols.control.ComicSearchBar(
                     "Titel/URL filtern…", "Filtert nach Titel/URL — Enter wendet an");
 
-    private final JTextField titleField = new JTextField();
-    private final JTextField urlField = new JTextField();
-    private final JTextField authorField = new JTextField();
-    private final JTextField sectionsField = new JTextField();
-    private final JTextArea commentArea = new JTextArea(3, 20);
+    private final JTextField titleField = ComicControls.textField();
+    private final JTextField urlField = ComicControls.textField();
+    private final JTextField authorField = ComicControls.textField();
+    private final JTextField sectionsField = ComicControls.textField();
+    private final JTextArea commentArea = ComicControls.textArea(3, 20);
     // Pipeline-filled, read-only: the reranker score, the search excerpt and the visited page's full text.
     private final JTextField scoreField = readOnlyField();
     private final JTextArea excerptArea = readOnlyArea(2);
     private final JTextArea fullTextArea = readOnlyArea(6);
-    private final JComboBox<SourceStatus> statusCombo = new JComboBox<SourceStatus>(SourceStatus.values());
-    private final JComboBox<SourceRelevance> relevanceCombo = new JComboBox<SourceRelevance>(SourceRelevance.values());
+    private final JComboBox<SourceStatus> statusCombo = ComicControls.<SourceStatus>comboBox(SourceStatus.values());
+    private final JComboBox<SourceRelevance> relevanceCombo = ComicControls.<SourceRelevance>comboBox(SourceRelevance.values());
     private final JComboBox<SourceReliability> reliabilityCombo =
-            new JComboBox<SourceReliability>(SourceReliability.values());
+            ComicControls.<SourceReliability>comboBox(SourceReliability.values());
     /** The user-relevant (⭐) toggle — the same reversible signal the HUD ⭐ sets, editable here for any source. */
-    private final javax.swing.JCheckBox relevantCheck = new javax.swing.JCheckBox("Relevant (⭐)");
+    private final javax.swing.JCheckBox relevantCheck = ComicControls.checkBox("Relevant (⭐)");
     private final JLabel status = new JLabel(" ");
 
     private String selectedId;
@@ -93,7 +96,7 @@ public final class ResearchSourcesView extends JPanel {
         top.add(filterField, BorderLayout.CENTER);
         filterField.addSearchAction(e -> reloadTable());
         // #39: the user-import entrance — HTML/text through the canonical acceptance boundary.
-        JButton addSource = new JButton("Add source");
+        JButton addSource = new ComicButton("Add source");
         addSource.setToolTipText(
                 "Add your own source (raw HTML or plain text) to the research corpus");
         addSource.addActionListener(e -> openImportDialog());
@@ -117,7 +120,7 @@ public final class ResearchSourcesView extends JPanel {
 
         JScrollPane tableScroll = new com.aresstack.comiccontrols.control.ComicScrollPane(table,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        tableScroll.getViewport().setBackground(java.awt.Color.WHITE);
+        tableScroll.getViewport().setBackground(ThemeColor.of("comic.fieldBg"));
         // The overview sits on ONE quiet plate (like the State tab's sections) — search on top,
         // table below; no loud extra background panel.
         com.aresstack.comiccontrols.control.ComicSectionPanel tablePlate =
@@ -176,7 +179,7 @@ public final class ResearchSourcesView extends JPanel {
                 boolean read = String.valueOf(value).startsWith("✓");
                 component.setForeground(read ? palette.getAgentPetrol()
                         : com.aresstack.comiccontrols.theme.ResearchUiPainter.mix(
-                                palette.getInk(), java.awt.Color.WHITE, 0.45f));
+                                palette.getInk(), ThemeColor.of("comic.fieldBg"), 0.45f));
                 return component;
             }
         });
@@ -249,8 +252,7 @@ public final class ResearchSourcesView extends JPanel {
         fullTextArea.setRows(8);
         styleReadOnlyArea(fullTextArea);
         styleReadOnlyArea(excerptArea);
-        commentArea.setBackground(java.awt.Color.WHITE);
-        JTabbedPane texts = new JTabbedPane();
+        JTabbedPane texts = ComicControls.tabbedPane();
         texts.setOpaque(false);
         texts.addTab("Volltext", quietScroll(fullTextArea));
         texts.addTab("Suchausschnitt", quietScroll(excerptArea));
@@ -265,10 +267,16 @@ public final class ResearchSourcesView extends JPanel {
                 + "source (read-only; empty = not processed yet)");
         texts.setToolTipTextAt(2, "Eigener Kommentar (editierbar)");
 
+        // Save: a floppy-disk icon (tooltip only); reload: the same ⟳ button as the Concept view.
         com.aresstack.comiccontrols.control.ComicButton save =
-                new com.aresstack.comiccontrols.control.ComicButton("Speichern");
+                new com.aresstack.comiccontrols.control.ComicButton(
+                        com.aresstack.comiccontrols.paint.ComposerIcons.floppyDisk());
+        save.setToolTipText("Save");
+        save.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
         com.aresstack.comiccontrols.control.ComicButton reload =
-                new com.aresstack.comiccontrols.control.ComicButton("Neu laden");
+                new com.aresstack.comiccontrols.control.ComicButton("⟳");
+        reload.setToolTipText("Reload source");
+        reload.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
         com.aresstack.comiccontrols.control.ComicButton exclude =
                 new com.aresstack.comiccontrols.control.ComicButton("Ausschließen",
                         com.aresstack.comiccontrols.control.ComicButton.Accent.CRITICAL);
@@ -304,7 +312,13 @@ public final class ResearchSourcesView extends JPanel {
         detail.setPreferredSize(new java.awt.Dimension(10, 360));
         detail.add(plates, BorderLayout.NORTH);
         detail.add(texts, BorderLayout.CENTER);
-        detail.add(actions, BorderLayout.SOUTH);
+        // "Visualize sources" sits right-aligned in the same row.
+        visualizeSlot.setOpaque(false);
+        JPanel actionRow = new JPanel(new BorderLayout());
+        actionRow.setOpaque(false);
+        actionRow.add(actions, BorderLayout.CENTER);
+        actionRow.add(visualizeSlot, BorderLayout.EAST);
+        detail.add(actionRow, BorderLayout.SOUTH);
         return detail;
     }
 
@@ -343,16 +357,14 @@ public final class ResearchSourcesView extends JPanel {
     }
 
     private java.awt.Color mutedInk() {
-        return com.aresstack.comiccontrols.theme.ResearchUiPainter.mix(
-                palette.getInk(), java.awt.Color.WHITE, 0.35f);
+        return ThemeColor.mix(palette.getInk(), ThemeColor.of("comic.fieldBg"), 0.35f);
     }
 
     /** Editable fields: a thin derived line + breathing room instead of the LaF bevel. */
     private void styleField(JTextField field) {
         field.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(
-                        com.aresstack.comiccontrols.theme.ResearchUiPainter.mix(
-                                palette.getInk(), java.awt.Color.WHITE, 0.75f)),
+                        ThemeColor.mix(palette.getInk(), ThemeColor.of("comic.fieldBg"), 0.75f)),
                 BorderFactory.createEmptyBorder(3, 6, 3, 6)));
     }
 
@@ -436,7 +448,7 @@ public final class ResearchSourcesView extends JPanel {
                 String sourceId);
     }
 
-    private final javax.swing.JTextArea passagesArea = new javax.swing.JTextArea();
+    private final javax.swing.JTextArea passagesArea = ComicControls.textArea();
     private PassagesProvider passagesProvider;
 
     public void setPassagesProvider(PassagesProvider provider) {
@@ -492,12 +504,12 @@ public final class ResearchSourcesView extends JPanel {
             return;
         }
         javax.swing.JComboBox<String> kind =
-                new javax.swing.JComboBox<String>(
+                ComicControls.<String>comboBox(
                         new String[] {"Plain text", "Raw HTML", "PDF file"});
-        javax.swing.JTextField title = new javax.swing.JTextField();
-        javax.swing.JTextField origin = new javax.swing.JTextField();
+        javax.swing.JTextField title = ComicControls.textField();
+        javax.swing.JTextField origin = ComicControls.textField();
         origin.setToolTipText("Optional: source URL / base URI (HTML) or a path label");
-        javax.swing.JTextArea content = new javax.swing.JTextArea(12, 60);
+        javax.swing.JTextArea content = ComicControls.textArea(12, 60);
         content.setLineWrap(true);
         content.setWrapStyleWord(true);
         JPanel form = new JPanel(new BorderLayout(4, 4));
@@ -632,6 +644,9 @@ public final class ResearchSourcesView extends JPanel {
     }
 
     private void loadDetail(ResearchSourceRecord record) {
+        if (selectionPublisher != null) {
+            selectionPublisher.accept(record); // e.g. the full text in the main area
+        }
         renderPassages(record.getSourceId());
         selectedId = record.getSourceId();
         loadedRevision = record.getRevision();
@@ -656,6 +671,9 @@ public final class ResearchSourcesView extends JPanel {
     }
 
     private void clearDetail() {
+        if (selectionPublisher != null) {
+            selectionPublisher.accept(null);
+        }
         selectedId = null;
         loadedRevision = 0;
         titleField.setText("");
@@ -763,13 +781,13 @@ public final class ResearchSourcesView extends JPanel {
     }
 
     private static JTextField readOnlyField() {
-        JTextField f = new JTextField();
+        JTextField f = ComicControls.textField();
         f.setEditable(false);
         return f;
     }
 
     private static JTextArea readOnlyArea(int rows) {
-        JTextArea a = new JTextArea(rows, 20);
+        JTextArea a = ComicControls.textArea(rows, 20);
         a.setEditable(false);
         a.setLineWrap(true);
         a.setWrapStyleWord(true);
@@ -914,5 +932,32 @@ public final class ResearchSourcesView extends JPanel {
     /** Default known outline sections used for orphan detection in the clickdummy. */
     public static Set<String> demoKnownSections() {
         return new java.util.LinkedHashSet<String>(Arrays.asList("s1", "s2", "s2a", "s3", "s4"));
+    }
+
+    /** Holds the "Visualize sources" button, right-aligned in the action row (set by the contribution). */
+    private final JPanel visualizeSlot = new JPanel(new BorderLayout());
+
+    /** Places the "Visualize sources" button at the right end of the action row. */
+    public void setVisualizeButton(javax.swing.JComponent button) {
+        visualizeSlot.removeAll();
+        if (button != null) {
+            visualizeSlot.add(button, BorderLayout.CENTER);
+        }
+        visualizeSlot.revalidate();
+        visualizeSlot.repaint();
+    }
+
+    /** Notified with the selected source (null when the selection is cleared), e.g. to show its full text. */
+    private java.util.function.Consumer<ResearchSourceRecord> selectionPublisher;
+
+    /** Publishes every loaded/cleared selection (the contribution shows the full text in the main area). */
+    public void setSelectionPublisher(java.util.function.Consumer<ResearchSourceRecord> publisher) {
+        this.selectionPublisher = publisher;
+        if (publisher != null && selectedId != null) {
+            ResearchSourceRecord current = repository.get(selectedId);
+            if (current != null) {
+                publisher.accept(current); // a row selected while building the view counts too
+            }
+        }
     }
 }

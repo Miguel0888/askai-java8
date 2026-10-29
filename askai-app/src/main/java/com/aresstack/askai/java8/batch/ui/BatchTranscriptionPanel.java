@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.batch.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.audio.format.SupportedAudioFormats;
 import com.aresstack.askai.java8.batch.service.BatchProfileCatalogLoadedEvent;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionEvent;
@@ -58,17 +60,17 @@ public final class BatchTranscriptionPanel extends JPanel {
     private final DefaultListModel<File> audioFiles = new DefaultListModel<File>();
     // Audio files use plain multi-interval selection (standard Ctrl/Shift): the batch set is the whole list
     // model, list selection only drives the Markdown preview and the "remove" action — not what is processed.
-    private final JList<File> fileList = new JList<File>(audioFiles);
+    private final JList<File> fileList = ComicControls.<File>list(audioFiles);
     private final DefaultListModel<String> models = new DefaultListModel<String>();
     private final JList<String> modelList = new ToggleSelectionList<String>(models);
     private final DefaultListModel<AudioProcessingProfile> profiles = new DefaultListModel<AudioProcessingProfile>();
     private final JList<AudioProcessingProfile> profileList = new ToggleSelectionList<AudioProcessingProfile>(profiles);
-    private final JProgressBar progress = new JProgressBar();
+    private final JProgressBar progress = ComicControls.progressBar();
     private final JLabel status = new JLabel("Ready");
-    private final JTextArea log = new JTextArea();
-    private final JButton startButton = new JButton("Start batch");
-    private final JButton cancelButton = new JButton("Cancel");
-    private final JButton refreshButton = new JButton();
+    private final JTextArea log = ComicControls.textArea();
+    private final JButton startButton = new ComicButton("Start batch");
+    private final JButton cancelButton = new ComicButton("Cancel");
+    private final JButton refreshButton = new ComicButton();
     private final JPopupMenu fileContextMenu = new JPopupMenu();
     private final JMenuItem removeSelectedItem = new JMenuItem("Remove selected audio files");
     private MarkdownPreviewTabs bottomTabs;
@@ -139,7 +141,7 @@ public final class BatchTranscriptionPanel extends JPanel {
         selections.add(section("Audio AI models", new JScrollPane(modelList)));
         selections.add(section("Audio profiles", new JScrollPane(profileList)));
 
-        JButton addFiles = new JButton("Add audio files...");
+        JButton addFiles = new ComicButton("Add audio files...");
         addFiles.addActionListener(event -> chooseAudioFiles());
         startButton.addActionListener(event -> startBatch());
         cancelButton.addActionListener(event -> controller.cancel());
@@ -178,7 +180,7 @@ public final class BatchTranscriptionPanel extends JPanel {
 
     private JPanel section(String title, java.awt.Component component) {
         JPanel panel = new JPanel(new BorderLayout());
-        panel.setBorder(BorderFactory.createTitledBorder(title));
+        panel.setBorder(ComicControls.titledBorder(title));
         panel.add(component, BorderLayout.CENTER);
         return panel;
     }

@@ -37,6 +37,7 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
         }
         final ResearchAgentSession research = (ResearchAgentSession) session;
         final UiExecutor uiExecutor = context.getUiExecutor();
+        view.setVisualizeButton(ResearchVisualizeButtons.concept(research, context));
         // The user's manual edit + rollback path — the SAME validating pipeline as every agent
         // write (strict parse, envelope check, CAS against the shown revision, atomic commit).
         view.setEditActions(new ConceptPaperView.SaveHandler() {

@@ -1,5 +1,7 @@
 package com.aresstack.askai.research.document;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.plugin.api.agent.AgentSession;
 import com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore;
 import com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent;
@@ -20,7 +22,12 @@ import java.awt.CardLayout;
 import java.awt.FlowLayout;
 
 /**
- * #43 slice 9 — the Document tab: the {@link DocumentPageView} page canvas is the default
+ * The Document tab (Outline + Document in one): its DRAWER pane is the outline
+ * ({@link com.aresstack.askai.research.agent.ResearchOutlineViewContribution} — later also the navigation
+ * inside the document), the document itself shows in the workspace's MAIN area (where the chat is) while
+ * the Document pane is active.
+ *
+ * <p>#43 slice 9 — the document: the {@link DocumentPageView} page canvas is the default
  * face (chapter hierarchy, flowing text, clickable {@code [n]} source badges); the plain
  * editor stays one toggle away with the SAME optimistic-locking save semantics the host
  * markdown view used (conflict → reload, never overwrite).
@@ -48,7 +55,7 @@ public final class ResearchDocumentViewContribution implements ArtifactViewContr
         final AgentArtifactStore store = context.getArtifactStore();
         final String artifactId = context.getArtifact().getId();
         final DocumentPageView page = new DocumentPageView();
-        final JTextArea editor = new JTextArea();
+        final JTextArea editor = ComicControls.textArea();
         editor.setLineWrap(true);
         editor.setWrapStyleWord(true);
         final JLabel status = new JLabel(" ");
@@ -64,9 +71,9 @@ public final class ResearchDocumentViewContribution implements ArtifactViewContr
         center.add(new JScrollPane(editor), "edit");
 
         final boolean[] editing = {false};
-        final JButton toggle = new JButton("Edit");
-        final JButton save = new JButton("Save");
-        final JButton reload = new JButton("Reload");
+        final JButton toggle = new ComicButton("Edit");
+        final JButton save = new ComicButton("Save");
+        final JButton reload = new ComicButton("Reload");
 
         final Runnable load = new Runnable() {
             public void run() {
@@ -157,7 +164,9 @@ public final class ResearchDocumentViewContribution implements ArtifactViewContr
         root.add(center, BorderLayout.CENTER);
         load.run();
         showCard.run();
-        return root;
+        // the document in the main area, the outline in the drawer
+        context.showMainContent(root);
+        return new com.aresstack.askai.research.agent.ResearchOutlineViewContribution().createView(context);
     }
 
 }

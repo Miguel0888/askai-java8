@@ -1,5 +1,8 @@
 package com.aresstack.askai.research.host;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.askai.browser.search.DefaultLegacyBrowserSearchSettingsValidator;
 import com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults;
 import com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCatalog;
@@ -22,7 +25,6 @@ import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Font;
 import java.util.LinkedHashMap;
@@ -43,7 +45,7 @@ final class LegacyBrowserSearchSettingsPanel extends JPanel {
     private final WorkspaceStateStore store;
     private final Map<String, String> defaults;
     private final Map<String, FieldEditor> editors = new LinkedHashMap<String, FieldEditor>();
-    private final JTextArea problems = new JTextArea(4, 60);
+    private final JTextArea problems = ComicControls.textArea(4, 60);
     private final JLabel revisionLabel = new JLabel();
 
     LegacyBrowserSearchSettingsPanel(WorkspaceStateStore store,
@@ -68,7 +70,7 @@ final class LegacyBrowserSearchSettingsPanel extends JPanel {
         refreshRevisionLabel();
         add(header, BorderLayout.NORTH);
 
-        JTabbedPane tabs = new JTabbedPane();
+        JTabbedPane tabs = ComicControls.tabbedPane();
         Map<String, JPanel> sectionPanels = new LinkedHashMap<String, JPanel>();
         for (String section : LegacyBrowserSearchSettingsCatalog.sections()) {
             JPanel panel = new JPanel();
@@ -89,14 +91,14 @@ final class LegacyBrowserSearchSettingsPanel extends JPanel {
 
         JPanel south = new JPanel(new BorderLayout(4, 4));
         problems.setEditable(false);
-        problems.setForeground(new Color(150, 30, 30));
+        problems.setForeground(ThemeColor.of("research.settingsErrorText"));
         problems.setLineWrap(true);
         problems.setWrapStyleWord(true);
         south.add(new JScrollPane(problems), BorderLayout.CENTER);
         JPanel buttons = new JPanel();
-        JButton save = new JButton("Save");
+        JButton save = new ComicButton("Save");
         save.addActionListener(e -> save());
-        JButton resetAll = new JButton("Reset all to defaults");
+        JButton resetAll = new ComicButton("Reset all to defaults");
         resetAll.addActionListener(e -> {
             for (Map.Entry<String, FieldEditor> entry : editors.entrySet()) {
                 entry.getValue().set(defaults.get(entry.getKey()));
@@ -118,7 +120,8 @@ final class LegacyBrowserSearchSettingsPanel extends JPanel {
         JPanel row = new JPanel();
         row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
-        row.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(220, 220, 220)));
+        row.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0,
+                ThemeColor.of("research.settingsRowDivider")));
         row.add(bold(new JLabel(field.label)));
         row.add(gray(new JLabel("<html>" + escape(field.description) + "</html>")));
 
@@ -141,7 +144,7 @@ final class LegacyBrowserSearchSettingsPanel extends JPanel {
         metaRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         metaRow.add(gray(new JLabel(meta.toString())));
         metaRow.add(Box.createHorizontalStrut(12));
-        JButton reset = new JButton("Reset");
+        JButton reset = new ComicButton("Reset");
         reset.setFont(reset.getFont().deriveFont(11f));
         reset.addActionListener(e -> editor.set(defaults.get(field.key)));
         metaRow.add(reset);
@@ -153,14 +156,14 @@ final class LegacyBrowserSearchSettingsPanel extends JPanel {
     private FieldEditor createEditor(LegacyBrowserSearchSettingsCatalog.Field field, String value) {
         switch (field.kind) {
             case BOOLEAN:
-                final JCheckBox box = new JCheckBox("enabled", "true".equals(value));
+                final JCheckBox box = ComicControls.checkBox("enabled", "true".equals(value));
                 return new FieldEditor(box) {
                     String get() { return String.valueOf(box.isSelected()); }
                     void set(String v) { box.setSelected("true".equals(v)); }
                 };
             case CHOICE:
                 final JComboBox<String> combo =
-                        new JComboBox<String>(field.choices.toArray(new String[0]));
+                        ComicControls.<String>comboBox(field.choices.toArray(new String[0]));
                 combo.setSelectedItem(value);
                 combo.setMaximumSize(combo.getPreferredSize());
                 return new FieldEditor(combo) {
@@ -175,7 +178,7 @@ final class LegacyBrowserSearchSettingsPanel extends JPanel {
                 };
             case TEXT_LIST:
             case PROMPT:
-                final JTextArea area = new JTextArea(value,
+                final JTextArea area = ComicControls.textArea(value,
                         field.kind == LegacyBrowserSearchSettingsCatalog.Kind.PROMPT ? 8 : 5, 60);
                 area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
                 final JScrollPane scroll = new JScrollPane(area);
@@ -185,7 +188,7 @@ final class LegacyBrowserSearchSettingsPanel extends JPanel {
                     void set(String v) { area.setText(v); }
                 };
             default:
-                final JTextField text = new JTextField(value, 24);
+                final JTextField text = ComicControls.textField(value, 24);
                 text.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE,
                         text.getPreferredSize().height));
                 return new FieldEditor(text) {
@@ -208,7 +211,7 @@ final class LegacyBrowserSearchSettingsPanel extends JPanel {
                 .validate(decoded.settings).violations);
         if (!all.isEmpty()) {
             // Invalid settings are NEVER silently corrected or saved — the user sees each violation.
-            problems.setForeground(new Color(150, 30, 30));
+            problems.setForeground(ThemeColor.of("research.settingsErrorText"));
             problems.setText("Not saved — please fix:\n"
                     + new SettingsValidationResult(all).describe());
             return;
@@ -217,7 +220,7 @@ final class LegacyBrowserSearchSettingsPanel extends JPanel {
         refreshRevisionLabel();
         problems.setText("Saved. New research sessions will use revision "
                 + LegacyBrowserSearchSettingsStore.revision(store) + ".");
-        problems.setForeground(new Color(30, 110, 30));
+        problems.setForeground(ThemeColor.of("research.settingsSuccessText"));
     }
 
     private void refreshRevisionLabel() {
@@ -259,7 +262,7 @@ final class LegacyBrowserSearchSettingsPanel extends JPanel {
     }
 
     private static JLabel gray(JLabel label) {
-        label.setForeground(new Color(110, 110, 110));
+        label.setForeground(ThemeColor.of("research.settingsHintText"));
         label.setFont(label.getFont().deriveFont(11f));
         return label;
     }

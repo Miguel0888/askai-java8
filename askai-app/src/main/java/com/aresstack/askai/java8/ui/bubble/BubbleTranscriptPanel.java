@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui.bubble;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.ui.markdown.MarkdownMessageView;
 import com.aresstack.askai.java8.ui.markdown.MarkdownTheme;
 
@@ -57,7 +59,7 @@ public final class BubbleTranscriptPanel extends JPanel {
     private BubbleMessageRow currentActionsRow;
 
     public BubbleTranscriptPanel() {
-        this(BubblePalette.windowsPhoneInspired());
+        this(BubblePalette.themed());
     }
 
     public BubbleTranscriptPanel(BubblePalette palette) {
@@ -273,7 +275,7 @@ public final class BubbleTranscriptPanel extends JPanel {
             final int index = i;
             final boolean isNavigation = navigation != null && index < navigation.size()
                     && Boolean.TRUE.equals(navigation.get(index));
-            final javax.swing.JButton button = new javax.swing.JButton(labels.get(i));
+            final javax.swing.JButton button = new ComicButton(labels.get(i));
             button.addActionListener(event -> {
                 if (isNavigation) {
                     // Navigation shows something; the card (incl. its decisions) stays fully usable.
@@ -339,12 +341,9 @@ public final class BubbleTranscriptPanel extends JPanel {
             return; // restored/unknown line: nothing to decorate
         }
         String base = escapeHtml(String.valueOf(label.getClientProperty("info.plainText")));
-        if (success) {
-            label.setText("<html><i>" + base
-                    + "</i>&nbsp;&nbsp;<b style='color:#2e8b57;'>✔</b></html>");
-        } else {
-            label.setText("<html><i>" + base
-                    + "</i>&nbsp;&nbsp;<b style='color:#b03030;'>⟳</b></html>");
+        label.putClientProperty(INFO_MARK, Boolean.valueOf(success));
+        label.setText(markedInfoHtml(base, success));
+        if (!success) {
             if (retry != null) {
                 label.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
                 label.setToolTipText("Suche fehlgeschlagen — klicken: erneut versuchen");
@@ -358,6 +357,33 @@ public final class BubbleTranscriptPanel extends JPanel {
         }
         label.setMaximumSize(new Dimension(Integer.MAX_VALUE, label.getPreferredSize().height));
         refreshTranscript();
+    }
+
+    /** The client property remembering an info line's outcome mark (re-rendered on a theme switch). */
+    private static final String INFO_MARK = "info.mark";
+
+    /** The info line with its outcome mark; the mark color comes from the theme when the HTML is built. */
+    private static String markedInfoHtml(String base, boolean success) {
+        String color = ThemeColor.toHtmlHex(
+                ThemeColor.of(success ? "chat.infoLineSuccessMark" : "chat.infoLineRetryMark"));
+        return "<html><i>" + base + "</i>&nbsp;&nbsp;<b style='color:" + color + ";'>"
+                + (success ? "✔" : "⟳") + "</b></html>";
+    }
+
+    /** A theme switch (updateComponentTreeUI) re-renders the HTML outcome marks in the new theme colors. */
+    @Override
+    public void updateUI() {
+        super.updateUI();
+        if (infoLinesById == null) {
+            return; // called from the JPanel constructor, before the fields exist
+        }
+        for (JLabel label : infoLinesById.values()) {
+            Object mark = label.getClientProperty(INFO_MARK);
+            if (mark instanceof Boolean) {
+                label.setText(markedInfoHtml(
+                        escapeHtml(String.valueOf(label.getClientProperty("info.plainText"))), (Boolean) mark));
+            }
+        }
     }
 
     private static String escapeHtml(String value) {
@@ -754,9 +780,13 @@ public final class BubbleTranscriptPanel extends JPanel {
     /**
      * One line per appended message with the ACTUAL widths of the whole chain. A layout defect that only
      * appears in a running window cannot be reasoned about from a screenshot: this says plainly which
-     * component is the narrow one.
+     * component is the narrow one. OFF by default (it fired for every message); switch it on with
+     * {@code -Daskai.debug.bubbleGeometry=true} when hunting a layout defect.
      */
     private void traceGeometry() {
+        if (!Boolean.getBoolean("askai.debug.bubbleGeometry")) {
+            return;
+        }
         Component last = null;
         for (Component child : messageList.getComponents()) {
             if (child instanceof BubbleMessageRow) {
@@ -796,7 +826,7 @@ public final class BubbleTranscriptPanel extends JPanel {
         private final Timer timer;
         private boolean active;
         private String text = "";
-        private Color accent = Color.DARK_GRAY;
+        private Color accent = ThemeColor.of("chat.floatingSummaryAccent");
         private Font font;
         private int anchorX;
         private double startY;
@@ -821,7 +851,7 @@ public final class BubbleTranscriptPanel extends JPanel {
             this.anchorX = anchorX;
             this.startY = startY;
             this.text = text == null ? "" : text;
-            this.accent = accent == null ? Color.DARK_GRAY : accent;
+            this.accent = accent == null ? ThemeColor.of("chat.floatingSummaryAccent") : accent;
             this.font = font;
             this.startedAt = System.currentTimeMillis();
             this.active = true;

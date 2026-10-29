@@ -1,7 +1,8 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+
 import java.awt.BasicStroke;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
@@ -31,7 +32,8 @@ public final class PlusIcon implements Icon {
         Graphics2D g = (Graphics2D) graphics.create();
         try {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g.setColor(component.isEnabled() ? new Color(0x42, 0x60, 0x77) : new Color(0x9E, 0x9E, 0x9E));
+            g.setColor(component.isEnabled() ? ThemeColor.of("app.iconGlyph")
+                    : ThemeColor.of("app.iconGlyphDisabled"));
             g.setStroke(new BasicStroke(Math.max(1.6f, size / 8f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             double pad = size * 0.22;
             double cx = x + size / 2.0;

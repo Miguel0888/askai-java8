@@ -25,6 +25,7 @@ public final class AskAiModel {
     private SpeechToTextConfiguration speechToTextConfiguration;
     private ChatColorSettings chatColors;
     private AiModelSelections aiModelSelections;
+    private String uiTheme;
     private final java.util.List<AiModelSelectionListener> modelSelectionListeners =
             new java.util.concurrent.CopyOnWriteArrayList<AiModelSelectionListener>();
 
@@ -38,6 +39,7 @@ public final class AskAiModel {
         this.speechToTextConfiguration = configuration.getSpeechToTextConfiguration();
         this.chatColors = configuration.getChatColors();
         this.aiModelSelections = configuration.getAiModelSelections();
+        this.uiTheme = configuration.getUiTheme();
     }
 
     public String getOllamaBaseUrl() {
@@ -79,6 +81,15 @@ public final class AskAiModel {
     public void setSpeechToTextConfiguration(SpeechToTextConfiguration speechToTextConfiguration) {
         this.speechToTextConfiguration = speechToTextConfiguration == null
                 ? SpeechToTextConfiguration.defaults() : speechToTextConfiguration;
+    }
+
+    /** @return the chosen UI theme id ({@code arcane}/{@code classic}), "" when none was chosen yet. */
+    public String getUiTheme() {
+        return uiTheme;
+    }
+
+    public void setUiTheme(String uiTheme) {
+        this.uiTheme = uiTheme == null ? "" : uiTheme.trim();
     }
 
     public ChatColorSettings getChatColors() {
@@ -180,7 +191,8 @@ public final class AskAiModel {
                 .withHuggingFaceSearchSuggestions(current.getHuggingFaceSearchSuggestionsRaw())
                 .withHuggingFaceSearchFilters(current.getHuggingFaceSearchFilters())
                 .withChatColors(chatColors)
-                .withAiModelSelections(aiModelSelections));
+                .withAiModelSelections(aiModelSelections)
+                .withUiTheme(uiTheme));
         this.ollamaBaseUrl = configurationRepository.load().getOllamaBaseUrl();
     }
 }

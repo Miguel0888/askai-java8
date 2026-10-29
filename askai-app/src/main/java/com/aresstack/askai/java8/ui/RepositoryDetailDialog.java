@@ -1,5 +1,8 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
 import com.aresstack.askai.java8.hf.convert.SupportDecision;
@@ -76,7 +79,7 @@ public final class RepositoryDetailDialog extends JDialog {
 
                 public void onError(String message) {
                     statusValue.setText("Analyse fehlgeschlagen");
-                    statusValue.setForeground(new Color(0xB0, 0x50, 0x50));
+                    statusValue.setForeground(ThemeColor.of("models.statusErrorText"));
                     reasonValue.setText(message == null ? "" : message);
                 }
             });
@@ -118,7 +121,7 @@ public final class RepositoryDetailDialog extends JDialog {
         header.setAlignmentX(Component.LEFT_ALIGNMENT);
         JLabel id = new JLabel(model.getId());
         id.setFont(id.getFont().deriveFont(Font.BOLD, id.getFont().getSize2D() + 2f));
-        JButton open = new JButton("Auf HuggingFace öffnen");
+        JButton open = new ComicButton("Auf HuggingFace öffnen");
         final String url = "https://huggingface.co/" + model.getId();
         open.setToolTipText(url);
         open.addActionListener(event -> {
@@ -179,7 +182,7 @@ public final class RepositoryDetailDialog extends JDialog {
     }
 
     private JComponent buildFilesArea() {
-        JList<String> files = new JList<String>(filesModel);
+        JList<String> files = ComicControls.<String>list(filesModel);
         JScrollPane scroll = new JScrollPane(files);
         filesHeader.setBorder(BorderFactory.createEmptyBorder(2, 12, 2, 12));
         filesHeader.setFont(filesHeader.getFont().deriveFont(Font.BOLD));
@@ -195,7 +198,7 @@ public final class RepositoryDetailDialog extends JDialog {
 
     private void showPending() {
         statusValue.setText("wird geprüft …");
-        statusValue.setForeground(new Color(0x88, 0x88, 0x88));
+        statusValue.setForeground(ThemeColor.of("comic.hintText"));
         reasonValue.setText("Analyse läuft …");
         strategyValue.setText("—");
         formatsValue.setText("Analyse läuft …");
@@ -208,16 +211,16 @@ public final class RepositoryDetailDialog extends JDialog {
         Color color;
         if (decision.isChecking()) {
             statusWord = "wird geprüft";
-            color = new Color(0x88, 0x88, 0x88);
+            color = ThemeColor.of("comic.hintText");
         } else if (decision.isExecutable()) {
             statusWord = "importierbar";
-            color = new Color(0x2E, 0x7D, 0x32);
+            color = ThemeColor.of("models.statusSuccessText");
         } else if (decision.isSupported()) {
             statusWord = "erkannt — Import folgt";
-            color = new Color(0x8A, 0x6D, 0x00);
+            color = ThemeColor.of("models.statusWarningText");
         } else {
             statusWord = "kein Importweg";
-            color = new Color(0xB0, 0x50, 0x50);
+            color = ThemeColor.of("models.statusErrorText");
         }
         statusValue.setText(statusWord + (decision.isVerified() ? "" : " (vorläufig)"));
         statusValue.setForeground(color);
@@ -270,7 +273,7 @@ public final class RepositoryDetailDialog extends JDialog {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.setBorder(BorderFactory.createTitledBorder(title));
+        panel.setBorder(ComicControls.titledBorder(title));
         return panel;
     }
 

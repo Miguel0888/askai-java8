@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.host;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.askai.plugin.api.agent.AgentSession;
 import com.aresstack.askai.plugin.api.agent.AgentSettingsContribution;
 import com.aresstack.askai.research.agent.ResearchAgentSession;
@@ -28,7 +29,7 @@ public final class ResearchSettingsContribution implements AgentSettingsContribu
         ResearchAgentSession research = (ResearchAgentSession) session;
         final SearchProviderCardsPanel searchProviders =
                 new SearchProviderCardsPanel(research.getHostStateStore());
-        JTabbedPane tabs = new JTabbedPane();
+        JTabbedPane tabs = ComicControls.tabbedPane();
         tabs.addTab("General", buildGeneralTab(research));
         tabs.addTab("Runtime", new ResearchRuntimeSettingsPanel(research.getHostStateStore(), research));
         // The provider PICKER + each provider's own settings card (browser default, full DataForSEO
@@ -55,13 +56,13 @@ public final class ResearchSettingsContribution implements AgentSettingsContribu
         javax.swing.JPanel tab = new javax.swing.JPanel();
         tab.setLayout(new javax.swing.BoxLayout(tab, javax.swing.BoxLayout.Y_AXIS));
         tab.setBorder(javax.swing.BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        final javax.swing.JCheckBox readTagsBox = new javax.swing.JCheckBox(
+        final javax.swing.JCheckBox readTagsBox = ComicControls.checkBox(
                 "Read search tags aloud when clicked",
                 ResearchRuntimeSettings.loadReadSearchTagsOnClick(research.getHostStateStore()));
         readTagsBox.setToolTipText("Clicking a yellow search/activity tag in the chat speaks its"
                 + " text with an assertive delivery.");
         readTagsBox.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
-        final javax.swing.JCheckBox onlyWhenActiveBox = new javax.swing.JCheckBox(
+        final javax.swing.JCheckBox onlyWhenActiveBox = ComicControls.checkBox(
                 "Only while read-aloud is active (Play pressed or automatic reading enabled)",
                 ResearchRuntimeSettings.loadReadTagsOnlyWhenReadAloudActive(
                         research.getHostStateStore()));
@@ -91,7 +92,7 @@ public final class ResearchSettingsContribution implements AgentSettingsContribu
         hint.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
         hint.setBorder(javax.swing.BorderFactory.createEmptyBorder(4, 22, 12, 0));
         tab.add(hint);
-        final javax.swing.JCheckBox autoReviewBox = new javax.swing.JCheckBox(
+        final javax.swing.JCheckBox autoReviewBox = ComicControls.checkBox(
                 "Review new sources automatically after a successful web search",
                 ResearchRuntimeSettings.loadAutoReviewAfterSearch(research.getHostStateStore()));
         autoReviewBox.setToolTipText("On: when a web search accepts sources, the review that the"

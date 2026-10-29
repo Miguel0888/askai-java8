@@ -13,6 +13,9 @@ import javax.swing.JComponent;
  * stale marker when its inputs changed) and offers the explicit rebuild button; neither opening the tab nor
  * any upstream change triggers processing. Read-only, no approval, no phase transition. The listener + host
  * MarkdownView are released when the view leaves the hierarchy.
+ *
+ * <p>No tab of its own anymore: the Document tab uses this view as its DRAWER pane (the document itself
+ * shows in the main area).</p>
  */
 public final class ResearchOutlineViewContribution implements ArtifactViewContribution {
 

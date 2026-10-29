@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.agent.model.nlp.NlpCapability;
 import com.aresstack.askai.agent.model.nlp.NlpModelCatalog;
 import com.aresstack.askai.agent.model.reranker.RerankerModelCatalog;
@@ -40,10 +42,10 @@ public final class AiModelsPanel extends JPanel {
     private final VirtualOllamaContainerService ollamaService;
 
     private final JLabel mainModelValue = new JLabel();
-    private final JComboBox<String> rerankerCombo = new JComboBox<String>();
-    private final JComboBox<String> embeddingsCombo = new JComboBox<String>();
-    private final JComboBox<String> nlpSentenceDeCombo = new JComboBox<String>();
-    private final JComboBox<String> nlpSentenceEnCombo = new JComboBox<String>();
+    private final JComboBox<String> rerankerCombo = ComicControls.<String>comboBox();
+    private final JComboBox<String> embeddingsCombo = ComicControls.<String>comboBox();
+    private final JComboBox<String> nlpSentenceDeCombo = ComicControls.<String>comboBox();
+    private final JComboBox<String> nlpSentenceEnCombo = ComicControls.<String>comboBox();
     private final JLabel status = new JLabel(" ");
 
     public AiModelsPanel(AskAiModel model, RerankerModelCatalog rerankerCatalog,
@@ -68,7 +70,7 @@ public final class AiModelsPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         JPanel form = new JPanel(new GridBagLayout());
-        form.setBorder(BorderFactory.createTitledBorder("AI models (managed centrally for all plugins)"));
+        form.setBorder(ComicControls.titledBorder("AI models (managed centrally for all plugins)"));
         GridBagConstraints constraints = new GridBagConstraints();
         constraints.insets = new Insets(4, 4, 4, 4);
         constraints.anchor = GridBagConstraints.WEST;
@@ -81,9 +83,9 @@ public final class AiModelsPanel extends JPanel {
         addRow(form, constraints, 4, "NLP — Sentence detection (English)", nlpSentenceEnCombo);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton saveButton = new JButton("Save");
+        JButton saveButton = new ComicButton("Save");
         saveButton.addActionListener(event -> save());
-        JButton refreshButton = new JButton("Refresh models");
+        JButton refreshButton = new ComicButton("Refresh models");
         refreshButton.addActionListener(event -> reloadAvailableModels());
         buttons.add(saveButton);
         buttons.add(refreshButton);

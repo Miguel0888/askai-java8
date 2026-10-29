@@ -10,6 +10,7 @@ import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.ResearchUiPainter;
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.JComponent;
 import javax.swing.JOptionPane;
@@ -23,7 +24,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The research PHASE SELECTOR — a dark pill in the drawer's CHATS FOOTER beside the language
+ * The research PHASE SELECTOR — a dark pill in the FOOTER of the State pane (built there by
+ * {@link ResearchStateViewContribution}; no longer registered as a toolbar contribution) — formerly beside the language
  * switch (maintenance corner: rarely touched in the normal flow), always showing its ≤8-character
  * short label while the popup carries the full phase titles. Dark "New Chat" accent
  * ({@link ResearchUiPalette#SECONDARY_SURFACE}), shared with the hamburger and the active ribbon
@@ -96,7 +98,7 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
         // The DARK "New Chat" family (SECONDARY_SURFACE) — one near-black accent shared with the
         // hamburger and the active ribbon entry; hover/open lift it slightly.
         pill.setFills(ResearchUiPalette.SECONDARY_SURFACE, ResearchUiPalette.SECONDARY_HOVER,
-                ResearchUiPainter.mix(ResearchUiPalette.SECONDARY_HOVER, java.awt.Color.WHITE,
+                ThemeColor.mix(ResearchUiPalette.SECONDARY_HOVER, ThemeColor.of("comic.buttonPlate"),
                         0.06f));
         pill.setPillForeground(ResearchUiPalette.TEXT_PRIMARY);
         pill.setToolTipText("Research-Phase (Wechsel läuft über den regulären Workflow)");

@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui.bubble;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.askai.java8.ui.markdown.MarkdownMessageView;
 
 import javax.swing.JLabel;
@@ -172,7 +173,8 @@ final class AssistantMarkdownBubble extends JPanel
         return tail;
     }
 
+    /** {@code color} with {@code alpha}, derived live (follows theme switches even when stored). */
     private static Color withAlpha(Color color, int alpha) {
-        return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
+        return ThemeColor.withAlpha(color, alpha);
     }
 }

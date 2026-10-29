@@ -3,16 +3,26 @@ package com.aresstack.comiccontrols.control;
 import com.aresstack.comiccontrols.theme.ResearchUiPainter;
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
 
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
+import javax.swing.AbstractAction;
+import javax.swing.ActionMap;
 import javax.swing.BorderFactory;
 import javax.swing.Icon;
+import javax.swing.InputMap;
 import javax.swing.JComponent;
 import javax.swing.JPopupMenu;
+import javax.swing.KeyStroke;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.event.ActionEvent;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -82,6 +92,7 @@ public class ResearchPillDropdown extends JComponent {
         this.paddingRight = paddingRight;
         setOpaque(false);
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        installKeyboardSupport();
         addMouseListener(new MouseAdapter() {
             @Override
             public void mouseEntered(MouseEvent event) {
@@ -135,7 +146,34 @@ public class ResearchPillDropdown extends JComponent {
         }
     }
 
+    private boolean iconOnly;
+
+    /**
+     * ICON-ONLY mode: the pill shows just the selected item's icon and the chevron (e.g. a flag), no
+     * label; the POPUP keeps the full texts, and assistive technology still reads the item text.
+     */
+    public void setIconOnly(boolean iconOnly) {
+        if (this.iconOnly != iconOnly) {
+            this.iconOnly = iconOnly;
+            revalidate();
+            repaint();
+        }
+    }
+
+    /** Icon-only: the tooltip names the selected item (e.g. "Deutsch"), since the pill shows no label. */
+    @Override
+    public String getToolTipText() {
+        Item item = selectedItem();
+        if (iconOnly && item != null) {
+            return item.text;
+        }
+        return super.getToolTipText();
+    }
+
     private String pillTextOf(Item item) {
+        if (iconOnly && item.icon != null) {
+            return "";
+        }
         return compact && item.shortText != null && !item.shortText.isEmpty()
                 ? item.shortText : item.text;
     }
@@ -169,6 +207,100 @@ public class ResearchPillDropdown extends JComponent {
         }
     }
 
+    /** Keyboard: the next enabled item in {@code step} direction (no wrap-around); nothing when none follows. */
+    public void selectRelative(int step) {
+        for (int index = selectedIndex + step; index >= 0 && index < items.size(); index += step) {
+            if (items.get(index).enabled) {
+                select(index);
+                return;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ keyboard and accessibility
+
+    /**
+     * Reachable with Tab (a mouse click leaves the focus where it is): Space/Enter open and close the popup,
+     * Escape closes it, Up/Left and Down/Right change the value directly like a combo box.
+     */
+    private void installKeyboardSupport() {
+        setFocusable(true);
+        setRequestFocusEnabled(false);
+        addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusGained(FocusEvent event) {
+                repaint();
+            }
+
+            @Override
+            public void focusLost(FocusEvent event) {
+                repaint();
+            }
+        });
+        InputMap input = getInputMap(WHEN_FOCUSED);
+        ActionMap actions = getActionMap();
+        bind(input, actions, "togglePopup", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                togglePopup();
+            }
+        }, KeyEvent.VK_SPACE, KeyEvent.VK_ENTER);
+        bind(input, actions, "closePopup", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                if (popup != null && popup.isVisible()) {
+                    popup.setVisible(false);
+                }
+            }
+        }, KeyEvent.VK_ESCAPE);
+        bind(input, actions, "selectPrevious", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                selectRelative(-1);
+            }
+        }, KeyEvent.VK_UP, KeyEvent.VK_LEFT);
+        bind(input, actions, "selectNext", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                selectRelative(1);
+            }
+        }, KeyEvent.VK_DOWN, KeyEvent.VK_RIGHT);
+    }
+
+    private static void bind(InputMap input, ActionMap actions, String name, AbstractAction action,
+                             int... keyCodes) {
+        actions.put(name, action);
+        for (int keyCode : keyCodes) {
+            input.put(KeyStroke.getKeyStroke(keyCode, 0), name);
+        }
+    }
+
+    /** Assistive technology sees a combo box whose name is the current value. */
+    @Override
+    public AccessibleContext getAccessibleContext() {
+        if (accessibleContext == null) {
+            accessibleContext = new AccessibleJComponent() {
+                private static final long serialVersionUID = 1L;
+
+                @Override
+                public AccessibleRole getAccessibleRole() {
+                    return AccessibleRole.COMBO_BOX;
+                }
+
+                @Override
+                public String getAccessibleName() {
+                    String name = super.getAccessibleName();
+                    if (name != null) {
+                        return name;
+                    }
+                    Item item = selectedItem();
+                    return item == null ? null : item.text;
+                }
+            };
+        }
+        return accessibleContext;
+    }
+
     private Item selectedItem() {
         return selectedIndex >= 0 && selectedIndex < items.size() ? items.get(selectedIndex) : null;
     }
@@ -182,6 +314,9 @@ public class ResearchPillDropdown extends JComponent {
             boolean open = popup != null && popup.isVisible();
             Color fill = open ? openFill : hovered ? hoverFill : normalFill;
             ResearchUiPainter.fillRound(g2, 0, 0, getWidth(), getHeight(), radius, fill);
+            if (isFocusOwner()) {
+                ResearchUiPainter.strokeRound(g2, 1, 1, getWidth() - 2, getHeight() - 2, radius - 1, foreground);
+            }
 
             int x = paddingLeft;
             if (leadingIcon != null) {
@@ -224,8 +359,8 @@ public class ResearchPillDropdown extends JComponent {
             }
             width += metrics.stringWidth(pillTextOf(item));
         }
-        // Compact drops the minimum width too — the whole point is to stop dominating.
-        return new Dimension(compact ? width : Math.max(minWidth, width), fixedHeight);
+        // Compact (and icon-only) drop the minimum width too — the whole point is to stop dominating.
+        return new Dimension(compact || iconOnly ? width : Math.max(minWidth, width), fixedHeight);
     }
 
     @Override

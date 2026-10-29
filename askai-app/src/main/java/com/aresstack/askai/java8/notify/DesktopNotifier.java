@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.notify;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
@@ -202,9 +203,9 @@ public final class DesktopNotifier {
         Graphics2D g = image.createGraphics();
         try {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g.setColor(new Color(0x2979FF));
+            g.setColor(ThemeColor.of("research.ACCENT_BLUE"));
             g.fillRoundRect(1, 1, 14, 14, 6, 6);
-            g.setColor(Color.WHITE);
+            g.setColor(ThemeColor.of("comic.buttonPlate"));
             g.fillOval(5, 5, 6, 6);
         } finally {
             g.dispose();
