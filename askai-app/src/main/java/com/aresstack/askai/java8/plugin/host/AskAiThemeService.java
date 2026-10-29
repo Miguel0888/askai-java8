@@ -11,6 +11,16 @@ public final class AskAiThemeService implements ThemeService {
 
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<Runnable>();
 
+    /** Forwards every applied theme switch (ThemeSwitcher) to the plugin listeners. */
+    public AskAiThemeService() {
+        com.aresstack.comiccontrols.theme.AskAiTheme.addChangeListener(new Runnable() {
+            @Override
+            public void run() {
+                fireThemeChanged();
+            }
+        });
+    }
+
     @Override
     public Color color(String key, Color fallback) {
         Color value = key == null ? null : UIManager.getColor(key);

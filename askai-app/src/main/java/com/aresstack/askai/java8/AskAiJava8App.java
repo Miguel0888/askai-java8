@@ -26,6 +26,11 @@ public final class AskAiJava8App {
         if (configurationRepository.load().getHttpClientConfiguration().isPreferIpv6()) {
             System.setProperty("java.net.preferIPv6Addresses", "true");
         }
+        // Start theme: JVM property askai.theme > stored ui.theme > the default (arcane).
+        com.aresstack.comiccontrols.theme.AskAiTheme.setActive(
+                com.aresstack.askai.java8.ui.theme.ThemeSwitcher.startTheme(
+                        System.getProperty(com.aresstack.comiccontrols.theme.AskAiTheme.PROPERTY),
+                        configurationRepository.load().getUiTheme()));
         SwingUtilities.invokeLater(new Runnable() {
             public void run() {
                 DefaultAskAiService askAiService = new DefaultAskAiService(configurationRepository);

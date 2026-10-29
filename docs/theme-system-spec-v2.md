@@ -399,3 +399,20 @@ Nur Dinge, die der User NICHT gefordert hat:
 - Contrast test (6.7) is in `ThemeContrastTest`: all 14 pairs (7 per theme) reach ≥ 4.5:1 — lowest classic
   user bubble 4.61, classic assistant bubble 4.66; arcane minimum 5.54 (assistant bubble).
 
+### T4
+- `ThemeSwitcher` lives in `askai-app` (`ui.theme.ThemeSwitcher`): `apply` = `setActive` → `ComicTheme.install` →
+  `updateComponentTreeUI` per window (+ JMenuBar) + `invalidate/validate/repaint` → `AskAiTheme.fireChanged()`
+  (exactly once). `startTheme(property, config)` is the pure precedence (known property value > known stored
+  value > default arcane); an unknown property value counts as absent.
+- `AskAiThemeService` registers itself as `AskAiTheme` change listener in its constructor and forwards to its plugin
+  listeners; `color(key)`/`isDark()` read the UIManager defaults, which `ThemeSwitcher` re-installs first.
+- Persistence: `AppConfiguration.uiTheme` (`""` = not chosen) + `withUiTheme`, all `with*` copies carry it,
+  `AskAiModel` buffers it like the chat colors. Found on the way (pre-existing): `ProxyPanel` and
+  `OllamaInstallPanel` save through the plain `AppConfiguration` constructor, which drops fields such as chat colors
+  and model selections. So that this can never wipe the theme, `AppConfigurationRepository.save` keeps the stored
+  `ui.theme` when the saved configuration carries none (pinned). The pre-existing loss of the other fields is NOT
+  fixed here (outside this order; separate ticket).
+- "Appearance" is inserted after "General"; the existing jump to "Audio & Dictation" (`openSpeechOutputSettings`)
+  was moved to the new index. The theme combo is a `ComicControls.comboBox`; choosing an entry applies it at once
+  and saves.
+

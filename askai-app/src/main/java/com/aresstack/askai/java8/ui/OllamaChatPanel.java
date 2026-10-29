@@ -930,7 +930,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
     /** The category names shown in the Outlook-style navigation list, in display order. */
     private static final String[] SETTINGS_CATEGORIES = {
-            "General", "Audio & Dictation", "Notifications", "Party: Identity & Room",
+            "General", "Appearance", "Audio & Dictation", "Notifications", "Party: Identity & Room",
             "Party: Network", "Party: Bot", "Party: History", "Technical Details"};
 
     /**
@@ -960,14 +960,15 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         final JPanel cards = new JPanel(cardLayout);
         JComponent[] partyCards = buildPartyCards();
         cards.add(settingsCard(buildGeneralCard()), SETTINGS_CATEGORIES[0]);
-        cards.add(settingsCard(buildAudioCard()), SETTINGS_CATEGORIES[1]);
-        cards.add(settingsCard(buildNotificationsCard()), SETTINGS_CATEGORIES[2]);
-        cards.add(settingsCard(partyCards[0]), SETTINGS_CATEGORIES[3]);
-        cards.add(settingsCard(partyCards[1]), SETTINGS_CATEGORIES[4]);
-        cards.add(settingsCard(partyCards[2]), SETTINGS_CATEGORIES[5]);
-        cards.add(settingsCard(partyCards[3]), SETTINGS_CATEGORIES[6]);
+        cards.add(settingsCard(buildAppearanceCard()), SETTINGS_CATEGORIES[1]);
+        cards.add(settingsCard(buildAudioCard()), SETTINGS_CATEGORIES[2]);
+        cards.add(settingsCard(buildNotificationsCard()), SETTINGS_CATEGORIES[3]);
+        cards.add(settingsCard(partyCards[0]), SETTINGS_CATEGORIES[4]);
+        cards.add(settingsCard(partyCards[1]), SETTINGS_CATEGORIES[5]);
+        cards.add(settingsCard(partyCards[2]), SETTINGS_CATEGORIES[6]);
+        cards.add(settingsCard(partyCards[3]), SETTINGS_CATEGORIES[7]);
         // The technical log is already scrollable — no settingsCard wrapper (no double scroll pane).
-        cards.add(buildTechnicalDetails(), SETTINGS_CATEGORIES[7]);
+        cards.add(buildTechnicalDetails(), SETTINGS_CATEGORIES[8]);
 
         java.util.List<String> categories =
                 new java.util.ArrayList<String>(java.util.Arrays.asList(SETTINGS_CATEGORIES));
@@ -1010,6 +1011,34 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         root.add(navigationScroll, BorderLayout.WEST);
         root.add(cards, BorderLayout.CENTER);
         return root;
+    }
+
+    /**
+     * The Appearance card: the theme choice. Selecting an entry applies it IMMEDIATELY to every open
+     * window (live preview, no restart) and persists it as {@code ui.theme}.
+     */
+    private JComponent buildAppearanceCard() {
+        JPanel column = settingsColumn();
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.add(new JLabel("Theme"));
+        final javax.swing.JComboBox<String> themes = com.aresstack.comiccontrols.control.ComicControls.comboBox(
+                com.aresstack.askai.java8.ui.theme.ThemeSwitcher.displayNames());
+        themes.setSelectedIndex(com.aresstack.askai.java8.ui.theme.ThemeSwitcher.indexOf(
+                com.aresstack.comiccontrols.theme.AskAiTheme.active()));
+        themes.addActionListener(event -> {
+            com.aresstack.comiccontrols.theme.AskAiTheme chosen =
+                    com.aresstack.askai.java8.ui.theme.ThemeSwitcher.themeAt(themes.getSelectedIndex());
+            if (chosen.name().equals(com.aresstack.comiccontrols.theme.AskAiTheme.active().name())) {
+                return;
+            }
+            com.aresstack.askai.java8.ui.theme.ThemeSwitcher.apply(chosen);
+            model.setUiTheme(chosen.name());
+            model.saveSettings();
+        });
+        row.add(themes);
+        column.add(row);
+        return column;
     }
 
     /** Wraps a card in a scroll pane so long cards stay usable at small dialog sizes. */
@@ -1310,7 +1339,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     public void openSpeechOutputSettings(String voiceId) {
         openSettingsDialog();
         if (settingsNavigation != null) {
-            settingsNavigation.setSelectedValue(SETTINGS_CATEGORIES[1], true);
+            settingsNavigation.setSelectedValue(SETTINGS_CATEGORIES[2], true);
         }
         if (speechVoicesPanel != null) {
             speechVoicesPanel.highlightVoice(voiceId);

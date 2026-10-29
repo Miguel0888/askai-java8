@@ -74,6 +74,7 @@ public final class AppConfigurationRepository {
         }
         return com.aresstack.askai.java8.stt.DecibelLevelScale.dbPercentFromLinearPercent(value);
     }
+    private static final String UI_THEME = "ui.theme";
     private static final String CHAT_COLOR_TRANSCRIPT_BG = "chat.color.transcriptBackground";
     private static final String CHAT_COLOR_USER_BG = "chat.color.userBackground";
     private static final String CHAT_COLOR_USER_FG = "chat.color.userForeground";
@@ -187,9 +188,28 @@ public final class AppConfigurationRepository {
                                     AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS)))
                     .withHuggingFaceSearchFilters(properties.getProperty(HF_SEARCH_FILTERS, ""))
                     .withChatColors(chatColors)
-                    .withAiModelSelections(aiModels);
+                    .withAiModelSelections(aiModels)
+                    .withUiTheme(properties.getProperty(UI_THEME, ""));
         } catch (IOException ex) {
             return AppConfiguration.defaults();
+        } finally {
+            closeQuietly(inputStream);
+        }
+    }
+
+    /** The theme id currently stored in the configuration file ("" when none). */
+    private String storedUiTheme() {
+        if (!configurationFile.isFile()) {
+            return "";
+        }
+        Properties stored = new Properties();
+        FileInputStream inputStream = null;
+        try {
+            inputStream = new FileInputStream(configurationFile);
+            stored.load(inputStream);
+            return stored.getProperty(UI_THEME, "").trim();
+        } catch (IOException ex) {
+            return "";
         } finally {
             closeQuietly(inputStream);
         }
@@ -250,6 +270,12 @@ public final class AppConfigurationRepository {
         properties.setProperty(CHAT_COLOR_USER_FG, ChatColorSettings.toHex(colors.getUserForeground()));
         properties.setProperty(CHAT_COLOR_ASSISTANT_BG, ChatColorSettings.toHex(colors.getAssistantBackground()));
         properties.setProperty(CHAT_COLOR_ASSISTANT_FG, ChatColorSettings.toHex(colors.getAssistantForeground()));
+        // A configuration rebuilt without a theme (e.g. a save site using the plain constructor) keeps
+        // the stored choice instead of wiping it.
+        String uiTheme = configuration.getUiTheme().isEmpty() ? storedUiTheme() : configuration.getUiTheme();
+        if (!uiTheme.isEmpty()) {
+            properties.setProperty(UI_THEME, uiTheme);
+        }
         AiModelSelections aiModels = configuration.getAiModelSelections();
         properties.setProperty(AI_MAIN_MODEL, aiModels.getMainModel());
         properties.setProperty(AI_MAIN_MODEL_TIMEOUT_SECONDS,

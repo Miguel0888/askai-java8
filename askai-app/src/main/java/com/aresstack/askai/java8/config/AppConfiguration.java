@@ -24,6 +24,8 @@ public final class AppConfiguration {
     private final String huggingFaceSearchFilters;
     private final ChatColorSettings chatColors;
     private final AiModelSelections aiModelSelections;
+    /** The chosen UI theme id ({@code arcane}/{@code classic}); empty = not chosen (start default applies). */
+    private final String uiTheme;
 
     /**
      * Default HuggingFace search suggestions for the Install panel dropdown, curated for a 16 GB
@@ -187,7 +189,7 @@ public final class AppConfiguration {
         this(ollamaBaseUrl, keepAlive, proxyConfiguration, certificateTrustConfiguration,
                 httpClientConfiguration, defaultQuantization, huggingFaceToken, modelDownloadDirectory,
                 SpeechToTextConfiguration.defaults(), DEFAULT_HF_SEARCH_SUGGESTIONS, "",
-                ChatColorSettings.defaults(), AiModelSelections.defaults());
+                ChatColorSettings.defaults(), AiModelSelections.defaults(), "");
     }
 
     private AppConfiguration(String ollamaBaseUrl, String keepAlive, ProxyConfiguration proxyConfiguration,
@@ -196,7 +198,8 @@ public final class AppConfiguration {
                              String huggingFaceToken, File modelDownloadDirectory,
                              SpeechToTextConfiguration speechToTextConfiguration,
                              String huggingFaceSearchSuggestions, String huggingFaceSearchFilters,
-                             ChatColorSettings chatColors, AiModelSelections aiModelSelections) {
+                             ChatColorSettings chatColors, AiModelSelections aiModelSelections,
+                             String uiTheme) {
         this.ollamaBaseUrl = normalizeBaseUrl(ollamaBaseUrl);
         this.keepAlive = keepAlive == null || keepAlive.trim().length() == 0 ? "5m" : keepAlive.trim();
         this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.defaults() : proxyConfiguration;
@@ -218,6 +221,7 @@ public final class AppConfiguration {
         this.huggingFaceSearchFilters = huggingFaceSearchFilters == null ? "" : huggingFaceSearchFilters;
         this.chatColors = chatColors == null ? ChatColorSettings.defaults() : chatColors;
         this.aiModelSelections = aiModelSelections == null ? AiModelSelections.defaults() : aiModelSelections;
+        this.uiTheme = uiTheme == null ? "" : uiTheme.trim();
     }
 
     /**
@@ -228,7 +232,7 @@ public final class AppConfiguration {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
                 huggingFaceToken, modelDownloadDirectory, configuration, huggingFaceSearchSuggestions,
-                huggingFaceSearchFilters, chatColors, aiModelSelections);
+                huggingFaceSearchFilters, chatColors, aiModelSelections, uiTheme);
     }
 
     /**
@@ -239,7 +243,7 @@ public final class AppConfiguration {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
                 huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration, suggestions,
-                huggingFaceSearchFilters, chatColors, aiModelSelections);
+                huggingFaceSearchFilters, chatColors, aiModelSelections, uiTheme);
     }
 
     /**
@@ -250,7 +254,7 @@ public final class AppConfiguration {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
                 huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
-                huggingFaceSearchSuggestions, filters, chatColors, aiModelSelections);
+                huggingFaceSearchSuggestions, filters, chatColors, aiModelSelections, uiTheme);
     }
 
     /** @return a copy of this configuration with the given chat bubble colors. */
@@ -258,7 +262,7 @@ public final class AppConfiguration {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
                 huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
-                huggingFaceSearchSuggestions, huggingFaceSearchFilters, colors, aiModelSelections);
+                huggingFaceSearchSuggestions, huggingFaceSearchFilters, colors, aiModelSelections, uiTheme);
     }
 
     /**
@@ -270,7 +274,15 @@ public final class AppConfiguration {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
                 huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
-                huggingFaceSearchSuggestions, huggingFaceSearchFilters, chatColors, selections);
+                huggingFaceSearchSuggestions, huggingFaceSearchFilters, chatColors, selections, uiTheme);
+    }
+
+    /** @return a copy of this configuration with the given UI theme id ({@code arcane}/{@code classic}). */
+    public AppConfiguration withUiTheme(String theme) {
+        return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
+                certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
+                huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
+                huggingFaceSearchSuggestions, huggingFaceSearchFilters, chatColors, aiModelSelections, theme);
     }
 
     public static AppConfiguration defaults() {
@@ -303,6 +315,11 @@ public final class AppConfiguration {
 
     public SpeechToTextConfiguration getSpeechToTextConfiguration() {
         return speechToTextConfiguration;
+    }
+
+    /** @return the chosen UI theme id, or an empty string when none was chosen yet. */
+    public String getUiTheme() {
+        return uiTheme;
     }
 
     public ChatColorSettings getChatColors() {
