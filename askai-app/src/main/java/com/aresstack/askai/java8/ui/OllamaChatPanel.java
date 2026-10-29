@@ -984,6 +984,27 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         return settingsPagesPane;
     }
 
+    /** The settings categories in order: the general ones, then the active agent's pages. */
+    public java.util.List<String> settingsCategories() {
+        ensureSettingsPanes();
+        java.util.List<String> names = new java.util.ArrayList<String>();
+        for (int i = 0; i < settingsNavigation.getModel().getSize(); i++) {
+            names.add(settingsNavigation.getModel().getElementAt(i));
+        }
+        return names;
+    }
+
+    /** Whether a category is one of the general (non-agent) ones. */
+    public static boolean isGeneralSettingsCategory(String category) {
+        return java.util.Arrays.asList(SETTINGS_CATEGORIES).contains(category);
+    }
+
+    /** The category whose page is shown. */
+    public String selectedSettingsCategory() {
+        ensureSettingsPanes();
+        return settingsNavigation.getSelectedValue();
+    }
+
     /** Show this category's page (no-op for unknown names). */
     public void selectSettingsCategory(String category) {
         ensureSettingsPanes();

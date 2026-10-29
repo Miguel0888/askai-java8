@@ -69,8 +69,16 @@ public final class SidebarTabRibbon extends JPanel {
         this.listener = listener;
     }
 
+    private List<String> shownTitles = java.util.Collections.emptyList();
+
+    /** The entries currently shown, in order. */
+    public List<String> titles() {
+        return java.util.Collections.unmodifiableList(shownTitles);
+    }
+
     /** Rebuild the entries (the active one is emphasized); keeps the current unfold state. */
     public void setTabs(List<String> titles, String activeTitle) {
+        shownTitles = new java.util.ArrayList<String>(titles);
         content.removeAll();
         for (final String title : titles) {
             JButton entry = ChatComposerPanel.createRibbonEntryButton(title, title.equals(activeTitle));

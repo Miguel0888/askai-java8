@@ -101,8 +101,10 @@ public class ChatWorkspacePanelTest {
         onEdt(new Runnable() {
             public void run() {
                 ChatWorkspacePanel workspace = build();
-                assertTrue("the Settings pane is always offered",
+                assertTrue("the Settings pane exists in the drawer",
                         workspace.sidebarTabTitlesForTest().contains(ChatWorkspacePanel.SETTINGS_TAB));
+                assertFalse("but it is NO ribbon entry (reached through the gear only)",
+                        workspace.ribbonTitlesForTest().contains(ChatWorkspacePanel.SETTINGS_TAB));
                 javax.swing.JLabel page = new javax.swing.JLabel("page");
                 workspace.setMainContent(ChatWorkspacePanel.SETTINGS_TAB, page);
                 assertFalse("the Chats pane is active: the chat stays", workspace.isMainContentShowing());

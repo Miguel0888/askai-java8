@@ -587,7 +587,10 @@ public final class ChatWorkspacePanel extends JPanel {
     }
 
     private void refreshRibbonTabs() {
-        ribbon.setTabs(sidebar.tabTitles(), sidebar.activeTab());
+        // The Settings pane is reached through the gear only — it is never a ribbon entry.
+        List<String> titles = new java.util.ArrayList<String>(sidebar.tabTitles());
+        titles.remove(SETTINGS_TAB);
+        ribbon.setTabs(titles, sidebar.activeTab());
     }
 
     private void openMenuAndSidebar() {
@@ -862,6 +865,12 @@ public final class ChatWorkspacePanel extends JPanel {
         return sidebar.tabTitles();
     }
 
+    /** The ribbon's entries (tests). */
+    List<String> ribbonTitlesForTest() {
+        refreshRibbonTabs();
+        return ribbon.titles();
+    }
+
     /** Whether the main area currently shows a pane's content instead of the chat (tests). */
     boolean isMainContentShowing() {
         return mainContentSlot.isVisible() && mainContentSlot.getComponentCount() > 0
@@ -907,22 +916,58 @@ public final class ChatWorkspacePanel extends JPanel {
         ChatSessionComponent active = activeSession();
         if (active instanceof OllamaChatPanel) {
             OllamaChatPanel chat = (OllamaChatPanel) active;
-            settingsPane.add(chat.settingsNavigationComponent(), BorderLayout.CENTER);
+            renderSettingsRows(chat);
             mainContentByTab.put(SETTINGS_TAB, chat.settingsPagesComponent());
         }
     }
 
     private void openSettings(OllamaChatPanel chat, String category) {
-        settingsPane.removeAll();
-        settingsPane.add(chat.settingsNavigationComponent(), BorderLayout.CENTER);
-        settingsPane.revalidate();
-        settingsPane.repaint();
         if (category != null) {
             chat.selectSettingsCategory(category);
         }
+        renderSettingsRows(chat);
         setMainContent(SETTINGS_TAB, chat.settingsPagesComponent());
         refreshSidebarTabs();
         openSidebarTab(SETTINGS_TAB);
+    }
+
+    /**
+     * The settings categories in the drawer's OWN design — the same rows and group headings as the chat
+     * list (SETTINGS, then the active agent's pages); the selected category is the highlighted row.
+     */
+    private void renderSettingsRows(final OllamaChatPanel chat) {
+        JPanel rows = new JPanel();
+        rows.setLayout(new javax.swing.BoxLayout(rows, javax.swing.BoxLayout.Y_AXIS));
+        rows.setOpaque(false);
+        String selected = chat.selectedSettingsCategory();
+        boolean agentHeading = false;
+        rows.add(alignedLeft(groupHeader("SETTINGS")));
+        for (final String category : chat.settingsCategories()) {
+            if (!agentHeading && !OllamaChatPanel.isGeneralSettingsCategory(category)) {
+                rows.add(alignedLeft(groupHeader("AGENT")));
+                agentHeading = true;
+            }
+            rows.add(alignedLeft(new ChatHistoryRow(category, "", "", false, category.equals(selected), () -> {
+                chat.selectSettingsCategory(category);
+                renderSettingsRows(chat); // move the highlight
+            }, null)));
+        }
+        JScrollPane scroll = new ComicScrollPane(rows,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        settingsPane.removeAll();
+        settingsPane.setOpaque(false);
+        settingsPane.add(scroll, BorderLayout.CENTER);
+        settingsPane.revalidate();
+        settingsPane.repaint();
+    }
+
+    private static JComponent alignedLeft(JComponent component) {
+        component.setAlignmentX(LEFT_ALIGNMENT);
+        return component;
     }
 
     /** One chat-list entry: an open session ({@code openId != null}) and/or its persisted record. */

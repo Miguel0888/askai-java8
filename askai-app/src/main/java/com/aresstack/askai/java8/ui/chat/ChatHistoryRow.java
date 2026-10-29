@@ -107,7 +107,7 @@ final class ChatHistoryRow extends JComponent {
                     undoAction.run(); // the permanent return arrow brings the chat back
                     return;
                 }
-                if (hovered && menuHit().contains(event.getPoint())) {
+                if (hovered && menuSupplier != null && menuHit().contains(event.getPoint())) {
                     Rectangle hit = menuHit();
                     showMenu(hit.x, hit.y + hit.height);
                 } else if (javax.swing.SwingUtilities.isLeftMouseButton(event)
@@ -218,7 +218,7 @@ final class ChatHistoryRow extends JComponent {
                 g2.drawLine(cx - 5, cy, cx - 1, cy + 4);
                 g2.drawLine(cx + 6, cy, cx + 6, cy - 5);   // the return hook
                 titleLimit = hit.x - 6;
-            } else if (hovered) {
+            } else if (hovered && menuSupplier != null) {
                 Rectangle hit = menuHit();
                 if (menuHovered) {
                     g2.setColor(ResearchUiPainter.mix(
