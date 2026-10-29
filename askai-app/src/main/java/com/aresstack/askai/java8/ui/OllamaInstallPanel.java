@@ -1,5 +1,8 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicToggleButton;
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion;
@@ -71,8 +74,8 @@ public final class OllamaInstallPanel extends JPanel {
     private final JList<HuggingFaceFile> filesList;
     private final JTextField repoField;
     private final JPasswordField tokenField;
-    private final JToggleButton tokenShowToggle = new JToggleButton("Show");
-    private final JButton tokenClearButton = new JButton("Clear");
+    private final JToggleButton tokenShowToggle = new ComicToggleButton("Show");
+    private final JButton tokenClearButton = new ComicButton("Clear");
     private final JLabel tokenStatusLabel = new JLabel();
     private final JTextField installAsField;
     // Read-only: the quantization derived from the selected GGUF file name (no manual entry).
@@ -80,9 +83,9 @@ public final class OllamaInstallPanel extends JPanel {
     private final JProgressBar progressBar;
     private final JButton cancelInstallButton;
     private final JCheckBox deleteAfterInstallCheckbox =
-            new JCheckBox("Delete download after install");
+            ComicControls.checkBox("Delete download after install");
     /** R0: install the selection as a LOCAL AskAI runtime model instead of the GGUF/Ollama path. */
-    private final JCheckBox installLocallyCheckbox = new JCheckBox("Install locally in AskAI");
+    private final JCheckBox installLocallyCheckbox = ComicControls.checkBox("Install locally in AskAI");
     /** True once the user manually changed "Install locally" for the CURRENT selection. */
     private boolean localInstallTouchedByUser = false;
     /** Guards the auto-activation setSelected from being counted as a user decision. */
@@ -98,9 +101,9 @@ public final class OllamaInstallPanel extends JPanel {
     // collapsed "Technical details" log so the panel isn't dominated by technical output.
     private final JLabel statusLine = new JLabel(" ");
     private final JTextArea logArea;
-    private final JToggleButton originalsToggle = new JToggleButton("Originals", true);
-    private final JToggleButton variantsToggle = new JToggleButton("Variants");
-    private final JToggleButton allToggle = new JToggleButton("All");
+    private final JToggleButton originalsToggle = new ComicToggleButton("Originals", true);
+    private final JToggleButton variantsToggle = new ComicToggleButton("Variants");
+    private final JToggleButton allToggle = new ComicToggleButton("All");
     private List<HuggingFaceModel> lastOriginalModels = Collections.emptyList();
     private List<HuggingFaceModel> lastVariantModels = Collections.emptyList();
     private File lastDownloadedFile;
@@ -130,13 +133,13 @@ public final class OllamaInstallPanel extends JPanel {
     private static final String[] LIBRARY_TAGS = {"gguf", "safetensors", "pytorch", "transformers", "onnx", "mlx"};
     private static final String[] LIBRARY_LABELS = {"GGUF", "Safetensors", "PyTorch", "Transformers", "ONNX", "MLX"};
 
-    private final JComboBox<SortOrder> sortCombo = new JComboBox<SortOrder>(SortOrder.values());
+    private final JComboBox<SortOrder> sortCombo = ComicControls.<SortOrder>comboBox(SortOrder.values());
     private final JToggleButton[] libraryToggles = buildLibraryToggles();
-    private final JCheckBox baseOnlyCheckbox = new JCheckBox("Base only");
-    private final JButton loadMoreButton = new JButton("Load more");
+    private final JCheckBox baseOnlyCheckbox = ComicControls.checkBox("Base only");
+    private final JButton loadMoreButton = new ComicButton("Load more");
     // Install actions that must be gated by the ConverterService support decision.
-    private final JButton downloadButton = new JButton("Download");
-    private final JButton fullInstallButton = new JButton("Download and install");
+    private final JButton downloadButton = new ComicButton("Download");
+    private final JButton fullInstallButton = new ComicButton("Download and install");
     private final JLabel activeFiltersLabel = new JLabel(" ");
     // The verified support decision + analysis + model for the currently selected repo (null until
     // analyzed / selected) — kept so the detail dialog can show them without re-fetching.
@@ -171,7 +174,7 @@ public final class OllamaInstallPanel extends JPanel {
     private static JToggleButton[] buildLibraryToggles() {
         JToggleButton[] toggles = new JToggleButton[LIBRARY_LABELS.length];
         for (int i = 0; i < toggles.length; i++) {
-            toggles[i] = new JToggleButton(LIBRARY_LABELS[i], i == 0); // GGUF pre-selected, not hardcoded-forced
+            toggles[i] = new ComicToggleButton(LIBRARY_LABELS[i], i == 0); // GGUF pre-selected, not hardcoded-forced
         }
         return toggles;
     }
@@ -181,21 +184,21 @@ public final class OllamaInstallPanel extends JPanel {
         this.askAiService = askAiService;
         this.filterState = SearchFilterState.deserialize(
                 configurationRepository.load().getHuggingFaceSearchFilters());
-        this.searchCombo = new JComboBox<HuggingFaceSearchSuggestion>();
+        this.searchCombo = ComicControls.<HuggingFaceSearchSuggestion>comboBox();
         this.searchCombo.setEditable(true);
         this.searchCombo.setRenderer(new SearchSuggestionRenderer());
-        this.searchButton = new JButton("Search Hugging Face");
+        this.searchButton = new ComicButton("Search Hugging Face");
         this.resultsModel = new DefaultListModel<HuggingFaceModel>();
         this.resultsList = new HuggingFaceResultsList(resultsModel);
         this.filesModel = new DefaultListModel<HuggingFaceFile>();
-        this.filesList = new JList<HuggingFaceFile>(filesModel);
-        this.repoField = new JTextField(30);
-        this.tokenField = new JPasswordField(24);
-        this.installAsField = new JTextField(24);
-        this.progressBar = new JProgressBar(0, 100);
-        this.cancelInstallButton = new JButton(new CancelIcon(11));
+        this.filesList = ComicControls.<HuggingFaceFile>list(filesModel);
+        this.repoField = ComicControls.textField(30);
+        this.tokenField = ComicControls.passwordField(24);
+        this.installAsField = ComicControls.textField(24);
+        this.progressBar = ComicControls.progressBar(0, 100);
+        this.cancelInstallButton = new ComicButton(new CancelIcon(11));
         buildCancelButton();
-        this.logArea = new JTextArea(12, 80);
+        this.logArea = ComicControls.textArea(12, 80);
         buildUserInterface();
         // Restore the last-used search text (optional persistence, spec §21).
         if (filterState.getSearchText().length() > 0) {
@@ -276,7 +279,7 @@ public final class OllamaInstallPanel extends JPanel {
         });
         searchRow.add(sortCombo);
         searchRow.add(searchButton);
-        JButton editSuggestionsButton = new JButton("Edit list...");
+        JButton editSuggestionsButton = new ComicButton("Edit list...");
         editSuggestionsButton.setToolTipText("Edit the model suggestions shown in the dropdown");
         editSuggestionsButton.addActionListener(event -> editSearchSuggestions());
         searchRow.add(editSuggestionsButton);
@@ -306,7 +309,7 @@ public final class OllamaInstallPanel extends JPanel {
                 + "requested count and reports it in the log if still short.</html>");
         baseOnlyCheckbox.addActionListener(event -> filterState.setBaseOnly(baseOnlyCheckbox.isSelected()));
         filterRow.add(baseOnlyCheckbox);
-        JButton filtersButton = new JButton("Filters...");
+        JButton filtersButton = new ComicButton("Filters...");
         filtersButton.setToolTipText("Open the full filter dialog (tasks, libraries, languages, licenses, other)");
         filtersButton.addActionListener(event -> openFilterDialog());
         filterRow.add(filtersButton);
@@ -416,7 +419,7 @@ public final class OllamaInstallPanel extends JPanel {
             }
         });
         JScrollPane resultsScroll = new JScrollPane(resultsList);
-        resultsScroll.setBorder(BorderFactory.createTitledBorder("Hugging Face models"));
+        resultsScroll.setBorder(ComicControls.titledBorder("Hugging Face models"));
         // Infinite-scroll: trigger "load more" when scrolled near the bottom, in addition to the
         // explicit button below (the spec allows either).
         resultsScroll.getVerticalScrollBar().addAdjustmentListener(event -> {
@@ -515,13 +518,13 @@ public final class OllamaInstallPanel extends JPanel {
             }
         });
         JScrollPane filesScroll = new JScrollPane(filesList);
-        filesScroll.setBorder(BorderFactory.createTitledBorder("GGUF files"));
+        filesScroll.setBorder(ComicControls.titledBorder("GGUF files"));
         return filesScroll;
     }
 
     private JComponent buildForm() {
         JPanel form = new JPanel(new GridBagLayout());
-        form.setBorder(BorderFactory.createTitledBorder("Install"));
+        form.setBorder(ComicControls.titledBorder("Install"));
         GridBagConstraints constraints = new GridBagConstraints();
         constraints.insets = new Insets(3, 4, 3, 4);
         constraints.fill = GridBagConstraints.HORIZONTAL;
@@ -534,11 +537,11 @@ public final class OllamaInstallPanel extends JPanel {
         addRow(form, constraints, 3, "Quantization", quantizationLabel);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-        JButton filesButton = new JButton("Load GGUF files");
-        JButton detailsButton = new JButton("Details");
+        JButton filesButton = new ComicButton("Load GGUF files");
+        JButton detailsButton = new ComicButton("Details");
         detailsButton.setToolTipText("Show the repository details (files, architecture, formats, compatibility)");
-        JButton importLastButton = new JButton("Install downloaded file");
-        final JButton importMenuButton = new JButton("▾");
+        JButton importLastButton = new ComicButton("Install downloaded file");
+        final JButton importMenuButton = new ComicButton("▾");
         importMenuButton.setToolTipText("Install another already-downloaded model");
         filesButton.addActionListener(event -> loadFiles());
         detailsButton.addActionListener(event -> openDetailDialog());
@@ -750,7 +753,7 @@ public final class OllamaInstallPanel extends JPanel {
     /** Opens a small editor for the dropdown suggestions (one per line) and persists the list. */
     private void editSearchSuggestions() {
         AppConfiguration current = configurationRepository.load();
-        JTextArea editor = new JTextArea(current.getHuggingFaceSearchSuggestionsRaw(), 14, 40);
+        JTextArea editor = ComicControls.textArea(current.getHuggingFaceSearchSuggestionsRaw(), 14, 40);
         JPanel content = new JPanel(new BorderLayout(4, 4));
         content.add(new JLabel("<html>One suggestion per line: "
                 + "<b>&lt;search term&gt; | &lt;input&gt;,&lt;input&gt; | &lt;target&gt;</b>"
@@ -762,7 +765,7 @@ public final class OllamaInstallPanel extends JPanel {
                 + "Ollama/GGUF import.</html>"),
                 BorderLayout.NORTH);
         content.add(new JScrollPane(editor), BorderLayout.CENTER);
-        JButton restoreDefaults = new JButton("Restore defaults");
+        JButton restoreDefaults = new ComicButton("Restore defaults");
         restoreDefaults.addActionListener(event -> editor.setText(AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS));
         JPanel southRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         southRow.add(restoreDefaults);
@@ -1030,7 +1033,7 @@ public final class OllamaInstallPanel extends JPanel {
     /** A dismissible banner shown only in add-on mode, so the transient target model is always visible. */
     private JComponent buildAddOnBanner() {
         addOnBannerLabel = new JLabel();
-        JButton cancel = new JButton("Cancel add-on mode");
+        JButton cancel = new ComicButton("Cancel add-on mode");
         cancel.addActionListener(event -> {
             append("Add-on mode cancelled.");
             clearAddOnMode();
@@ -2027,7 +2030,7 @@ public final class OllamaInstallPanel extends JPanel {
     private JComponent buildDownloadRow(final JPopupMenu menu, final JButton anchor, final File file) {
         boolean valid = isValidGguf(file);
 
-        final JButton installButton = new JButton(
+        final JButton installButton = new ComicButton(
                 downloadedFileLabel(file) + (valid ? "" : "   [invalid/incomplete]"));
         installButton.setHorizontalAlignment(javax.swing.SwingConstants.LEFT);
         installButton.setBorderPainted(false);
@@ -2044,7 +2047,7 @@ public final class OllamaInstallPanel extends JPanel {
             chooseAndInstall(file);
         });
 
-        JButton deleteButton = new JButton("✕");
+        JButton deleteButton = new ComicButton("✕");
         deleteButton.setMargin(new Insets(0, 6, 0, 6));
         deleteButton.setFocusPainted(false);
         deleteButton.setToolTipText("Delete this download (including partial data)");

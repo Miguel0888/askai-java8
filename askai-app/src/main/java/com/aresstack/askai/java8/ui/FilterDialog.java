@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.hf.SearchFilterState;
 import com.aresstack.askai.java8.hf.SearchFilterState.Group;
 import com.aresstack.askai.java8.hf.catalog.CatalogBundle;
@@ -90,7 +92,7 @@ public final class FilterDialog extends JDialog {
     private void buildUserInterface() {
         setLayout(new BorderLayout(0, 0));
         add(buildHeader(), BorderLayout.NORTH);
-        tabs = new JTabbedPane();
+        tabs = ComicControls.tabbedPane();
         // Re-sync tab checkboxes from the shared state on tab switch. Registered ONCE here — never in
         // rebuildTabs, which used to strip every ChangeListener (including BasicTabbedPaneUI's own
         // selection handler), leaving the tab header not repainting on click until the next rebuild.
@@ -105,7 +107,7 @@ public final class FilterDialog extends JDialog {
     private JComponent buildHeader() {
         originLabel = new JLabel();
         updateOriginLabel();
-        refreshButton = new JButton("Refresh");
+        refreshButton = new ComicButton("Refresh");
         refreshButton.setToolTipText("Reload the filter catalogs live from HuggingFace");
         refreshButton.addActionListener(event -> doRefresh());
         if (refresher == null) {
@@ -167,17 +169,17 @@ public final class FilterDialog extends JDialog {
     // ------------------------------------------------------------------ footer
 
     private JComponent buildFooter() {
-        JButton resetAll = new JButton("Reset all");
+        JButton resetAll = new ComicButton("Reset all");
         resetAll.addActionListener(event -> {
             state.resetAll();
             rebuildTabs();
         });
-        JButton apply = new JButton("Apply");
+        JButton apply = new ComicButton("Apply");
         apply.addActionListener(event -> {
             applied = true;
             dispose();
         });
-        JButton close = new JButton("Close");
+        JButton close = new ComicButton("Close");
         close.addActionListener(event -> dispose());
         JPanel footer = new JPanel(new BorderLayout());
         footer.setBorder(BorderFactory.createEmptyBorder(6, 8, 8, 8));
@@ -243,7 +245,7 @@ public final class FilterDialog extends JDialog {
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
         for (int i = 0; i < ids.length; i++) {
             final String id = ids[i];
-            final JCheckBox box = new JCheckBox(displayNameFor(group, id), state.isSelected(group, id));
+            final JCheckBox box = ComicControls.checkBox(displayNameFor(group, id), state.isSelected(group, id));
             box.addActionListener(event -> state.setSelected(group, id, box.isSelected()));
             syncers.add(new Runnable() {
                 public void run() {
@@ -258,7 +260,7 @@ public final class FilterDialog extends JDialog {
     private JComponent gatedRow() {
         JPanel row = new JPanel(new WrapLayout(FlowLayout.LEFT, 4, 2));
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
-        final JCheckBox gated = new JCheckBox("Gated only", state.isGated());
+        final JCheckBox gated = ComicControls.checkBox("Gated only", state.isGated());
         gated.setToolTipText("Only repositories that require accepting terms / access (HuggingFace gated=true)");
         gated.addActionListener(event -> state.setGated(gated.isSelected()));
         syncers.add(new Runnable() {
@@ -273,7 +275,7 @@ public final class FilterDialog extends JDialog {
     private JComponent inferenceRow() {
         JPanel row = new JPanel(new WrapLayout(FlowLayout.LEFT, 4, 2));
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
-        final JCheckBox inference = new JCheckBox("Warm inference only", state.isInference());
+        final JCheckBox inference = ComicControls.checkBox("Warm inference only", state.isInference());
         inference.setToolTipText("Only models served by at least one warm inference provider "
                 + "(HuggingFace inference=warm)");
         inference.addActionListener(event -> state.setInference(inference.isSelected()));
@@ -345,7 +347,7 @@ public final class FilterDialog extends JDialog {
         };
 
         if (lazy) {
-            final JTextField searchField = new JTextField();
+            final JTextField searchField = ComicControls.textField();
             Runnable render = new Runnable() {
                 public void run() {
                     renderLazy(list, boxes, group, orphans, entries, searchField.getText(), shownLabel, updateCount);
@@ -402,7 +404,7 @@ public final class FilterDialog extends JDialog {
         });
         updateCount.run();
 
-        final JTextField searchField = new JTextField();
+        final JTextField searchField = ComicControls.textField();
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { filter(); }
             public void removeUpdate(DocumentEvent e) { filter(); }
@@ -464,7 +466,7 @@ public final class FilterDialog extends JDialog {
 
     private JComponent assembleTab(final Group group, JPanel list, JTextField searchField,
                                    JLabel countLabel, JLabel shownLabel, final Runnable updateCount) {
-        JButton reset = new JButton("Reset");
+        JButton reset = new ComicButton("Reset");
         reset.addActionListener(event -> {
             state.resetGroup(group);
             rebuildTabs();
@@ -522,7 +524,7 @@ public final class FilterDialog extends JDialog {
 
     private JCheckBox catalogCheckbox(final Group group, CatalogEntry entry, final Runnable updateCount) {
         final String id = entry.getId();
-        JCheckBox box = new JCheckBox(entry.getDisplayName(), state.isSelected(group, id));
+        JCheckBox box = ComicControls.checkBox(entry.getDisplayName(), state.isSelected(group, id));
         box.setAlignmentX(Component.LEFT_ALIGNMENT);
         box.putClientProperty("filterId", id);
         box.setToolTipText(id);

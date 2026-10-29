@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.ollamalib.OllamaLibraryModel;
 import com.aresstack.askai.java8.ollamalib.OllamaModelVariant;
 import com.aresstack.askai.java8.service.AskAiService;
@@ -34,15 +36,15 @@ import java.util.List;
 public final class OllamaLibraryPanel extends JPanel {
 
     private final AskAiService askAiService;
-    private final JTextField searchField = new JTextField(28);
-    private final JButton searchButton = new JButton("Search Ollama Library");
+    private final JTextField searchField = ComicControls.textField(28);
+    private final JButton searchButton = new ComicButton("Search Ollama Library");
     private final DefaultListModel<OllamaLibraryModel> resultsModel = new DefaultListModel<OllamaLibraryModel>();
-    private final JList<OllamaLibraryModel> resultsList = new JList<OllamaLibraryModel>(resultsModel);
+    private final JList<OllamaLibraryModel> resultsList = ComicControls.<OllamaLibraryModel>list(resultsModel);
     private final DefaultListModel<OllamaModelVariant> variantsModel = new DefaultListModel<OllamaModelVariant>();
-    private final JList<OllamaModelVariant> variantsList = new JList<OllamaModelVariant>(variantsModel);
-    private final JButton installButton = new JButton("Install (pull) selected tag");
-    private final JProgressBar progressBar = new JProgressBar(0, 100);
-    private final JTextArea logArea = new JTextArea(10, 80);
+    private final JList<OllamaModelVariant> variantsList = ComicControls.<OllamaModelVariant>list(variantsModel);
+    private final JButton installButton = new ComicButton("Install (pull) selected tag");
+    private final JProgressBar progressBar = ComicControls.progressBar(0, 100);
+    private final JTextArea logArea = ComicControls.textArea(10, 80);
 
     public OllamaLibraryPanel(AskAiService askAiService) {
         this.askAiService = askAiService;
@@ -97,7 +99,7 @@ public final class OllamaLibraryPanel extends JPanel {
             }
         });
         JScrollPane scroll = new JScrollPane(resultsList);
-        scroll.setBorder(BorderFactory.createTitledBorder("Ollama models"));
+        scroll.setBorder(ComicControls.titledBorder("Ollama models"));
         return scroll;
     }
 
@@ -110,7 +112,7 @@ public final class OllamaLibraryPanel extends JPanel {
             }
         });
         JScrollPane scroll = new JScrollPane(variantsList);
-        scroll.setBorder(BorderFactory.createTitledBorder("Tags / variants"));
+        scroll.setBorder(ComicControls.titledBorder("Tags / variants"));
         return scroll;
     }
 

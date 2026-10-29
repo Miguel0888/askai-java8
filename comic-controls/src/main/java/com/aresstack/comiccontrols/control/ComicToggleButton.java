@@ -26,8 +26,18 @@ public class ComicToggleButton extends JToggleButton {
 
     private final ComicPalette palette;
 
+    public ComicToggleButton() {
+        this(null, ComicPalette.defaultPalette());
+    }
+
     public ComicToggleButton(String text) {
         this(text, ComicPalette.defaultPalette());
+    }
+
+    /** Like {@code JToggleButton(String, boolean)}: initially selected or not. */
+    public ComicToggleButton(String text, boolean selected) {
+        this(text, ComicPalette.defaultPalette());
+        setSelected(selected);
     }
 
     public ComicToggleButton(String text, ComicPalette palette) {

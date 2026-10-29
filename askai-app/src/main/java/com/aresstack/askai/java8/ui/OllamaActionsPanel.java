@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.client.OllamaModelInfoView;
 import com.aresstack.askai.java8.client.OllamaPullProgress;
 import com.aresstack.askai.java8.client.OllamaRunningModelInfo;
@@ -47,10 +49,10 @@ public final class OllamaActionsPanel extends JPanel {
     public OllamaActionsPanel(FeatureActionService featureActionService, OllamaService ollamaService) {
         this.featureActionService = featureActionService;
         this.ollamaService = ollamaService;
-        this.modelField = new JTextField(24);
-        this.inputField = new JTextField(32);
-        this.progressBar = new JProgressBar(0, 100);
-        this.logArea = new JTextArea(10, 80);
+        this.modelField = ComicControls.textField(24);
+        this.inputField = ComicControls.textField(32);
+        this.progressBar = ComicControls.progressBar(0, 100);
+        this.logArea = ComicControls.textArea(10, 80);
         buildUserInterface();
     }
 
@@ -111,20 +113,20 @@ public final class OllamaActionsPanel extends JPanel {
         logArea.setWrapStyleWord(true);
         logArea.setText("Select an action. Operations run against the configured server.");
         JScrollPane scroll = new JScrollPane(logArea);
-        scroll.setBorder(BorderFactory.createTitledBorder("Action log"));
+        scroll.setBorder(ComicControls.titledBorder("Action log"));
         return scroll;
     }
 
     private JPanel card(final FeatureAction action) {
         JPanel panel = new JPanel(new BorderLayout(6, 6));
         panel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(action.getTitle()),
+                ComicControls.titledBorder(action.getTitle()),
                 BorderFactory.createEmptyBorder(8, 8, 8, 8)));
         JLabel body = new JLabel("<html>" + action.getDescription() + "</html>");
         panel.add(body, BorderLayout.CENTER);
 
         if (action.isAvailable()) {
-            JButton button = new JButton("Run");
+            JButton button = new ComicButton("Run");
             button.addActionListener(event -> run(action.getId()));
             panel.add(button, BorderLayout.SOUTH);
         } else {

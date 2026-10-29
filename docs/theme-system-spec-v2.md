@@ -450,4 +450,9 @@ Nur Dinge, die der User NICHT gefordert hat:
   - T6b (`OllamaChatPanel`, 58 sites): no hardcoded color was set on a converted control; nothing removed or kept.
   - T6c (video/record dialogs, audio panels, batch transcription; 105 sites): no hardcoded color on a converted
     control; nothing removed or kept.
+  - T6d (Ollama panels, `AiModelsPanel`, `ProxyPanel`, `FilterDialog`; 121 sites): `ComicToggleButton` got the
+    `()` and `(String, boolean selected)` constructors of `JToggleButton` (used by the library/variant toggles).
+    Kept (meaningful, tokenized in T7): `OllamaModelCard` "Test reranker"/"Use in chat" primary-blue foreground and
+    "Delete" red foreground; `OllamaInstallPanel` token "Clear" red foreground and the invalid-file install button
+    red foreground; `FilterDialog` orphan catalog check boxes in amber. Nothing removed.
 

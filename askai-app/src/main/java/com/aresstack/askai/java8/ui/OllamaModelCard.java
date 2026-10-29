@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.client.OllamaModelInfo;
 import com.aresstack.askai.java8.client.OllamaRunningModelInfo;
 
@@ -62,7 +63,7 @@ final class OllamaModelCard extends JPanel {
         if (deleteAction != null) {
             // Local reranker models are directly testable from their card (R0.4).
             if (testRerankerAction != null) {
-                JButton testReranker = new JButton("Test reranker");
+                JButton testReranker = new ComicButton("Test reranker");
                 testReranker.setToolTipText(
                         "Run a sample query against this local reranker (loads the model)");
                 testReranker.setFont(testReranker.getFont().deriveFont(Font.BOLD));
@@ -72,7 +73,7 @@ final class OllamaModelCard extends JPanel {
             }
             // Primary action first and highlighted: open this model in the chat with one click.
             if (useInChatAction != null) {
-                JButton useInChat = new JButton("Use in chat");
+                JButton useInChat = new ComicButton("Use in chat");
                 useInChat.setToolTipText("Open the Chat and select this model (keeps the current conversation)");
                 useInChat.setFont(useInChat.getFont().deriveFont(Font.BOLD));
                 useInChat.setForeground(new Color(0x0D, 0x47, 0xA1));
@@ -83,7 +84,7 @@ final class OllamaModelCard extends JPanel {
                 // AskAI stores no model state, so it cannot know whether a text model is secretly a
                 // multimodal model missing its encoder. Offer two ways to add an encoder (mmproj): search
                 // Hugging Face, or pick a projector GGUF already on disk. Both take the same attach path.
-                final JButton addOns = new JButton("Add-ons…");
+                final JButton addOns = new ComicButton("Add-ons…");
                 addOns.setToolTipText("Add an audio/vision encoder (mmproj) to this model");
                 final javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
                 if (searchAddOnsAction != null) {
@@ -100,7 +101,7 @@ final class OllamaModelCard extends JPanel {
                 right.add(addOns);
             }
             // Destructive action last and clearly marked.
-            JButton deleteButton = new JButton("Delete");
+            JButton deleteButton = new ComicButton("Delete");
             deleteButton.setToolTipText("Delete this model from the Ollama server");
             deleteButton.setForeground(new Color(0xC6, 0x28, 0x28));
             deleteButton.addActionListener(event -> deleteAction.run());

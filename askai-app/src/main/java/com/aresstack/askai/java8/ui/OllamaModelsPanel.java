@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.client.OllamaModelInfo;
 import com.aresstack.askai.java8.client.OllamaModelInfoView;
@@ -141,7 +143,7 @@ public final class OllamaModelsPanel extends JPanel {
 
     private JPanel createInstalledToolbar() {
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton refreshButton = new JButton("Refresh");
+        JButton refreshButton = new ComicButton("Refresh");
         refreshButton.addActionListener(event -> refreshInstalledModels());
         toolbar.add(refreshButton);
         toolbar.add(installedStatusLabel);
@@ -150,7 +152,7 @@ public final class OllamaModelsPanel extends JPanel {
 
     private JPanel createRunningToolbar() {
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton refreshButton = new JButton("Refresh");
+        JButton refreshButton = new ComicButton("Refresh");
         refreshButton.addActionListener(event -> refreshRunningModels());
         toolbar.add(refreshButton);
         toolbar.add(runningStatusLabel);
@@ -390,16 +392,16 @@ public final class OllamaModelsPanel extends JPanel {
                         : null,
                 "Test reranker - " + modelName, true);
         final javax.swing.JTextField queryField =
-                new javax.swing.JTextField("What is DirectML?");
-        final javax.swing.JTextArea document1 = new javax.swing.JTextArea(
+                ComicControls.textField("What is DirectML?");
+        final javax.swing.JTextArea document1 = ComicControls.textArea(
                 "DirectML is a Windows API for hardware-accelerated machine learning.", 2, 48);
-        final javax.swing.JTextArea document2 = new javax.swing.JTextArea(
+        final javax.swing.JTextArea document2 = ComicControls.textArea(
                 "Paris is the capital of France.", 2, 48);
-        final javax.swing.JTextArea document3 = new javax.swing.JTextArea(
+        final javax.swing.JTextArea document3 = ComicControls.textArea(
                 "Shoes are available in many sizes.", 2, 48);
-        final javax.swing.JTextArea resultArea = new javax.swing.JTextArea(6, 48);
+        final javax.swing.JTextArea resultArea = ComicControls.textArea(6, 48);
         resultArea.setEditable(false);
-        final javax.swing.JButton runButton = new javax.swing.JButton("Run rerank");
+        final javax.swing.JButton runButton = new ComicButton("Run rerank");
 
         JPanel form = new JPanel();
         form.setLayout(new javax.swing.BoxLayout(form, javax.swing.BoxLayout.Y_AXIS));

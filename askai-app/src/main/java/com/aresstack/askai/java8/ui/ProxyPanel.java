@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.hf.HuggingFaceClient;
@@ -86,24 +88,24 @@ public final class ProxyPanel extends JPanel {
         CertificateTrustConfiguration trust = configurationRepository.load().getCertificateTrustConfiguration();
         HttpClientConfiguration http = configurationRepository.load().getHttpClientConfiguration();
 
-        this.mode = new JComboBox<String>(UI_MODES);
+        this.mode = ComicControls.<String>comboBox(UI_MODES);
         this.mode.setSelectedItem(cfg.getModeName());
-        this.testUrl = new JTextField(cfg.getTestUrl());
-        this.pacUrlDiscoveryScript = new JTextField(scriptTextFor(cfg.getModeName()));
-        this.manualHost = new JTextField(empty(cfg.getManualProxyHost()));
-        this.manualPort = new JTextField(cfg.getManualProxyPort() > 0 ? String.valueOf(cfg.getManualProxyPort()) : "");
-        this.trustJvmDefault = new JCheckBox("Use JVM default cacerts", trust.isUseJvmDefault());
-        this.trustWindowsRoot = new JCheckBox("Use Windows-ROOT store", trust.isUseWindowsRoot());
-        this.trustWindowsCaStores = new JCheckBox("Use Windows Root/Intermediate stores", trust.isUseWindowsCaStores());
-        this.userAgentField = new JTextField(http.getUserAgent(), 28);
-        this.proxyAuthMode = new JComboBox<String>(PROXY_AUTH_MODES);
+        this.testUrl = ComicControls.textField(cfg.getTestUrl());
+        this.pacUrlDiscoveryScript = ComicControls.textField(scriptTextFor(cfg.getModeName()));
+        this.manualHost = ComicControls.textField(empty(cfg.getManualProxyHost()));
+        this.manualPort = ComicControls.textField(cfg.getManualProxyPort() > 0 ? String.valueOf(cfg.getManualProxyPort()) : "");
+        this.trustJvmDefault = ComicControls.checkBox("Use JVM default cacerts", trust.isUseJvmDefault());
+        this.trustWindowsRoot = ComicControls.checkBox("Use Windows-ROOT store", trust.isUseWindowsRoot());
+        this.trustWindowsCaStores = ComicControls.checkBox("Use Windows Root/Intermediate stores", trust.isUseWindowsCaStores());
+        this.userAgentField = ComicControls.textField(http.getUserAgent(), 28);
+        this.proxyAuthMode = ComicControls.<String>comboBox(PROXY_AUTH_MODES);
         this.proxyAuthMode.setSelectedItem(http.getProxyAuthMode().name());
-        this.proxyAuthUser = new JTextField(empty(http.getProxyAuthUsername()), 16);
-        this.proxyAuthPassword = new JPasswordField(empty(http.getProxyAuthPassword()), 16);
-        this.preferIpv6 = new JCheckBox("Prefer IPv6 (needs restart; use when IPv4 egress is broken)", http.isPreferIpv6());
+        this.proxyAuthUser = ComicControls.textField(empty(http.getProxyAuthUsername()), 16);
+        this.proxyAuthPassword = ComicControls.passwordField(empty(http.getProxyAuthPassword()), 16);
+        this.preferIpv6 = ComicControls.checkBox("Prefer IPv6 (needs restart; use when IPv4 egress is broken)", http.isPreferIpv6());
 
         JPanel form = new JPanel(new GridLayout(0, 2, 6, 6));
-        form.setBorder(BorderFactory.createTitledBorder("Proxy resolution"));
+        form.setBorder(ComicControls.titledBorder("Proxy resolution"));
         form.add(new JLabel("Mode"));
         form.add(mode);
         form.add(new JLabel("Test URL"));
@@ -116,19 +118,19 @@ public final class ProxyPanel extends JPanel {
         form.add(manualPort);
 
         JPanel trustPanel = new JPanel(new GridLayout(0, 1, 4, 4));
-        trustPanel.setBorder(BorderFactory.createTitledBorder("TLS certificate trust"));
+        trustPanel.setBorder(ComicControls.titledBorder("TLS certificate trust"));
         trustPanel.add(trustJvmDefault);
         trustPanel.add(trustWindowsRoot);
         trustPanel.add(trustWindowsCaStores);
 
-        JButton browserUserAgent = new JButton("Use browser UA");
+        JButton browserUserAgent = new ComicButton("Use browser UA");
         browserUserAgent.addActionListener(e -> userAgentField.setText(HttpClientConfiguration.BROWSER_USER_AGENT));
         JPanel userAgentRow = new JPanel(new BorderLayout(6, 0));
         userAgentRow.add(userAgentField, BorderLayout.CENTER);
         userAgentRow.add(browserUserAgent, BorderLayout.EAST);
 
         JPanel httpPanel = new JPanel(new GridLayout(0, 2, 6, 6));
-        httpPanel.setBorder(BorderFactory.createTitledBorder("HTTP client & proxy authentication"));
+        httpPanel.setBorder(ComicControls.titledBorder("HTTP client & proxy authentication"));
         httpPanel.add(new JLabel("User-Agent"));
         httpPanel.add(userAgentRow);
         httpPanel.add(new JLabel("Proxy auth mode"));
@@ -147,11 +149,11 @@ public final class ProxyPanel extends JPanel {
         groups.add(httpPanel);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton test = new JButton("Resolve test URL");
+        JButton test = new ComicButton("Resolve test URL");
         test.addActionListener(e -> resolveTestUrl());
-        JButton testHuggingFace = new JButton("Test HuggingFace HTTPS");
+        JButton testHuggingFace = new ComicButton("Test HuggingFace HTTPS");
         testHuggingFace.addActionListener(e -> testHuggingFaceHttps());
-        JButton defaults = new JButton("Reset default");
+        JButton defaults = new ComicButton("Reset default");
         defaults.addActionListener(e -> resetDefault());
         buttons.add(test);
         buttons.add(testHuggingFace);
@@ -162,7 +164,7 @@ public final class ProxyPanel extends JPanel {
         top.add(buttons, BorderLayout.SOUTH);
         add(top, BorderLayout.NORTH);
 
-        log = new JTextArea(12, 60);
+        log = ComicControls.textArea(12, 60);
         log.setEditable(false);
         add(new JScrollPane(log), BorderLayout.CENTER);
         append("Proxy changes apply immediately to all Hugging Face operations.");
