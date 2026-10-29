@@ -24,7 +24,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The research PHASE SELECTOR — a dark pill in the drawer's CHATS FOOTER beside the language
+ * The research PHASE SELECTOR — a dark pill in the FOOTER of the State pane (built there by
+ * {@link ResearchStateViewContribution}; no longer registered as a toolbar contribution) — formerly beside the language
  * switch (maintenance corner: rarely touched in the normal flow), always showing its ≤8-character
  * short label while the popup carries the full phase titles. Dark "New Chat" accent
  * ({@link ResearchUiPalette#SECONDARY_SURFACE}), shared with the hamburger and the active ribbon

@@ -26,7 +26,16 @@ public class ResearchWebSearchToolbarContributionTest {
     }
 
     @Test
-    public void thePhaseSelectorLivesInTheChatsFooterBesideTheLanguagePill() {
+    public void thePhaseSelectorIsNoLongerAToolbarContribution() {
+        for (AgentToolbarContribution registered
+                : new com.aresstack.askai.research.plugin.ResearchAgentPluginExtension().getToolbarContributions()) {
+            assertFalse("the phase selector lives in the State pane footer now",
+                    registered instanceof ResearchPhaseToolbarContribution);
+        }
+    }
+
+    @Test
+    public void thePhaseSelectorComponentKeepsItsIdentity() {
         ResearchPhaseToolbarContribution contribution = new ResearchPhaseToolbarContribution();
         assertEquals("research-phase-selector", contribution.getId());
         assertEquals(AgentToolbarContribution.Placement.SIDEBAR_FOOTER,

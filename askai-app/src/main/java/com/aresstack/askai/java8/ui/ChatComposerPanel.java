@@ -608,6 +608,11 @@ public final class ChatComposerPanel extends JPanel {
      * The bare gear GLYPH (paints with the owning component's foreground) — for buttons that manage
      * their own surface, e.g. the dark chats-footer settings button.
      */
+    public static Icon createTrashGlyphIcon() {
+        return new TrashIcon();
+    }
+
+    /** The new-chat glyph (same contract as {@link #createGearGlyphIcon()}). */
     public static Icon createNewChatGlyphIcon() {
         return new NewChatIcon();
     }
@@ -1071,6 +1076,17 @@ public final class ChatComposerPanel extends JPanel {
             g2.drawLine(2, 5, 8, 5);
             g2.drawLine(12, 9, 12, 14);
             g2.drawLine(9, 12, 14, 12);
+        }
+    }
+
+    /** The TRASH glyph: lid with handle over a tapered bin with two ribs (delete all chats). */
+    private static final class TrashIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            g2.drawLine(2, 4, 13, 4);
+            g2.drawPolyline(new int[]{6, 6, 9, 9}, new int[]{4, 2, 2, 4}, 4);
+            g2.drawPolyline(new int[]{3, 4, 11, 12}, new int[]{4, 13, 13, 4}, 4);
+            g2.drawLine(6, 6, 6, 11);
+            g2.drawLine(9, 6, 9, 11);
         }
     }
 

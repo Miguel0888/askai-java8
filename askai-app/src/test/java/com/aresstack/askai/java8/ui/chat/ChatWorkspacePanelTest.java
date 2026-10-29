@@ -87,6 +87,11 @@ public class ChatWorkspacePanelTest {
                 assertEquals("icon only, no label", "", newChat.getText() == null ? "" : newChat.getText());
                 newChat.doClick();
                 assertEquals(2, workspace.openSessionCount());
+                boolean trash = false;
+                for (com.aresstack.comiccontrols.control.ResearchIconButton button : buttons) {
+                    trash |= "Delete all chats…".equals(button.getToolTipText());
+                }
+                assertTrue("delete-all is an icon-only trash button", trash);
             }
         });
     }

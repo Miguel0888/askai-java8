@@ -743,7 +743,7 @@ public final class ChatWorkspacePanel extends JPanel {
     }
 
     /**
-     * The Chats-pane FOOTER: [new chat] [agent slot] [Delete all chats…] in ONE row, pinned to the
+     * The Chats-pane FOOTER: [new chat] [agent slot] ... [trash = delete all chats] in ONE row, pinned to the
      * bottom of the pane (it never scrolls with the list). The language control is the active
      * agent's SIDEBAR_FOOTER toolbar contribution; delete-all lost its own full-width row — it is a
      * small quiet control now that only turns red on hover (the confirmation logic is unchanged).
@@ -759,7 +759,7 @@ public final class ChatWorkspacePanel extends JPanel {
 
         agentFooterToolbarSlot.setOpaque(false);
         // Left group: the New-chat icon button (moved down from above the list, icon + tooltip only),
-        // then the agent's footer contributions (phase selector). The MODE pill moved up beside the
+        // then the agent's footer contributions (if any). The MODE pill moved up beside the
         // burger: mode is navigation.
         ResearchIconButton newChat = new ResearchIconButton(
                 ChatComposerPanel.createNewChatGlyphIcon(), "New chat");
@@ -779,25 +779,13 @@ public final class ChatWorkspacePanel extends JPanel {
         left.add(agentFooterToolbarSlot);
         footer.add(left, BorderLayout.WEST);
 
-        // Delete-all: same height/radius family as the language pill; white and quiet at rest,
-        // red only on hover/pressed — a rarely used destructive action must not draw attention.
-        ResearchPillButton deleteAll = new ResearchPillButton("Delete all chats…",
-                ResearchUiMetrics.FOOTER_CONTROL_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL, 13);
-        deleteAll.setFont(ResearchUiTypography.regular(12.5f));
-        deleteAll.setToolTipText("Delete every saved chat (asks for confirmation)");
-        deleteAll.setFills(ResearchUiPalette.LIGHT_CONTROL_BG, ResearchUiPalette.DANGER_RED,
-                ThemeColor.mix(ResearchUiPalette.DANGER_RED,
-                        ThemeColor.of("chat.deleteAllPressedShade"), 0.18f));
-        deleteAll.setBorders(ResearchUiPalette.LIGHT_CONTROL_BORDER, ResearchUiPalette.DANGER_RED,
-                ThemeColor.mix(ResearchUiPalette.DANGER_RED,
-                        ThemeColor.of("chat.deleteAllPressedShade"), 0.18f));
-        deleteAll.setForegrounds(ResearchUiPalette.LIGHT_CONTROL_TEXT,
-                ThemeColor.of("bubble.assistantForeground"), ThemeColor.of("bubble.assistantForeground"));
+        // Delete-all: just a trash icon, right-aligned; quiet at rest, danger red only on hover — a
+        // rarely used destructive action must not draw attention (the confirmation is unchanged).
+        ResearchIconButton deleteAll = new ResearchIconButton(
+                ChatComposerPanel.createTrashGlyphIcon(), "Delete all chats…");
+        deleteAll.setHoverColors(ResearchUiPalette.DANGER_RED, ThemeColor.of("bubble.assistantForeground"));
         deleteAll.addActionListener(event -> deleteAllChats());
-        JPanel deleteWrap = new JPanel(new java.awt.GridBagLayout());
-        deleteWrap.setOpaque(false);
-        deleteWrap.add(deleteAll);
-        footer.add(deleteWrap, BorderLayout.CENTER);
+        footer.add(deleteAll, BorderLayout.EAST);
         return footer;
     }
 

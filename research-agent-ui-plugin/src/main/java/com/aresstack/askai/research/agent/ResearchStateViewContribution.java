@@ -85,6 +85,43 @@ public final class ResearchStateViewContribution implements ArtifactViewContribu
         });
         research.addStateListener(refresh);
         refresh.run(); // initial paint
-        return view;
+        return withPhaseFooter(view, context);
+    }
+
+    /**
+     * The State pane with its FOOTER: the phase selector at the left — the same spot it had in the Chats
+     * pane footer (same height and padding), now beside the state it switches.
+     */
+    private static JComponent withPhaseFooter(JComponent view, final ArtifactViewContext context) {
+        JComponent phase = new ResearchPhaseToolbarContribution().createComponent(
+                new com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContext() {
+                    public AgentSession getSession() {
+                        return context.getSession();
+                    }
+
+                    public UiExecutor getUiExecutor() {
+                        return context.getUiExecutor();
+                    }
+
+                    public com.aresstack.askai.plugin.api.service.ThemeService getThemeService() {
+                        return context.getThemeService();
+                    }
+                });
+        javax.swing.JPanel footer = new javax.swing.JPanel(new java.awt.BorderLayout(8, 0));
+        footer.setOpaque(false);
+        footer.setName("research.state.footer");
+        footer.setBorder(javax.swing.BorderFactory.createEmptyBorder(
+                com.aresstack.comiccontrols.theme.ResearchUiMetrics.FOOTER_PADDING_V,
+                com.aresstack.comiccontrols.theme.ResearchUiMetrics.FOOTER_PADDING_H,
+                com.aresstack.comiccontrols.theme.ResearchUiMetrics.FOOTER_PADDING_V,
+                com.aresstack.comiccontrols.theme.ResearchUiMetrics.FOOTER_PADDING_H));
+        footer.setPreferredSize(new java.awt.Dimension(10,
+                com.aresstack.comiccontrols.theme.ResearchUiMetrics.FOOTER_HEIGHT));
+        footer.add(phase, java.awt.BorderLayout.WEST);
+        javax.swing.JPanel pane = new javax.swing.JPanel(new java.awt.BorderLayout());
+        pane.setOpaque(false);
+        pane.add(view, java.awt.BorderLayout.CENTER);
+        pane.add(footer, java.awt.BorderLayout.SOUTH);
+        return pane;
     }
 }
