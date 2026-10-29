@@ -1,0 +1,298 @@
+# Theme-System v2 „Arcane Knowledge“ — Analyse & verbindliche Implementierungs-Spezifikation
+
+Stand: 2026-10-29, Branch `arch` @ `8eef9ba6` (enthält v1: `AskAiTheme`, `ComicTheme.install`,
+`ComicButtonUI`). Ersetzt `docs/theme-system-spec.md` (v1), das als Historie bleibt.
+Zielgruppe: eine Implementierungs-Session OHNE Vorkontext. Dieses Dokument ist verbindlich.
+Abweichungen nur unter „Implementation notes“ am Ende dokumentieren, nicht selbst entscheiden.
+
+## 0. Warum v2 — die Mängel von v1 (User-Abnahme gescheitert)
+
+1. **Controls nicht umgestellt.** Der User hat ausdrücklich verlangt, dass ALLE Controls zuerst auf
+   die zentralen Comic-Controls umgestellt werden. v1 hat das durch globale UIManager-Defaults
+   ersetzt. Das ist zu wenig: Checkboxen, Combos, Spinner, Tabs, Textfelder sehen weiter nach Metal aus.
+2. **Hintergründe weiterhin Swing-Grau.** Die Arcane-Fläche `0xF7F5F0` ist vom Metal-Grau kaum zu
+   unterscheiden.
+3. **Chat-Bubbles ohne passende Akzente.** Sie waren ausgeschlossen.
+4. **Brauner Wolkenhimmel.** `SKY_BAR_SURFACE`/`SKY_TOP` wurden mechanisch „blau → gold“ übersetzt.
+   Ein Himmel ist nie braun. Gewünscht: Sonnenuntergang, Orange-Rot.
+5. **Keine Theme-Auswahl in den Settings.** Nur eine JVM-Property.
+
+## 1. Ist-Analyse (verifiziert)
+
+### 1.1 Roh-Swing in App + Plugin (`askai-app/src/main`, `research-agent-ui-plugin/src/main`)
+
+| Typ | `new …(` | Comic-Pendant heute | Quelle für Pendant |
+|---|---|---|---|
+| JButton | 101 | ComicButton (9×) | vorhanden |
+| JTextField | 104 | — | NEU zu bauen |
+| JPasswordField | 4 | — | NEU (Variante von ComicTextField) |
+| JCheckBox | 44 | — | Port: enterprise `ComicFormControls.install(JCheckBox)` |
+| JComboBox | 45 | — | Port: enterprise `ComicComboBoxUI` |
+| JSpinner | 24 | — | Port: enterprise `ComicFormControls.install(JSpinner)` |
+| JTextArea | 29 | — | Port: enterprise `PlaceholderTextArea` + NEU `ComicTextArea` |
+| JScrollPane | 59 | ComicScrollPane (2×) | vorhanden |
+| TitledBorder | 27 | — | NEU `ComicBorder.titled(…)` |
+| JTabbedPane | 9 | — | NEU `ComicTabbedPaneUI` |
+| JList | 9 | — | NEU `ComicListSupport.style` (Muster `ComicTableSupport`) |
+| JTable | 4 | ComicTableSupport | vorhanden |
+| JProgressBar | 5 | — | NEU `ComicProgressBarUI` |
+| JSplitPane | 4 | ComicSplitPane | vorhanden |
+| JSlider | 2 | — | Port: enterprise `ComicFormControls.install(JSlider)` |
+| JToggleButton | 1 | — | Port: enterprise `ComicToggleButton` |
+| JSeparator | 2 | — | via UIManager reicht |
+| JRadioButton | 0 | — | (nicht benötigt) |
+
+44 Dateien enthalten diese Controls. Die größten: `ResearchRuntimeSettingsPanel` (54),
+`OllamaChatPanel` (54), `VideoSettingsDialog` (42), `OllamaInstallPanel` (31),
+`DataForSeoSettingsPanel` (23), `ResearchSourcesView` (19), `AudioProcessingTestPanel` (18),
+`ProxyPanel` (17), `OllamaConfigPanel` (15), `FilterDialog` (12), `AudioProcessingPanel` (10).
+
+### 1.2 Portierbare Quelle: `C:\Projects\enterprise-ai-client\comic-controls`
+
+Package `com.aresstack.enterpriseai.ui.comic.*`. Java-8-sauber (geprüft), nur JDK-Abhängigkeiten.
+Porten heißt: Package nach `com.aresstack.comiccontrols.*` umbenennen und JEDE hartkodierte Farbe,
+jedes `ResearchUiPalette.X` und jedes `ComicPalette.defaultPalette()` auf die Token aus
+`AskAiTheme.active()` umstellen (Abschnitt 3). Zu portieren (NEU):
+
+- `control/ComicFormControls` (install für JCheckBox, JSlider, JSpinner, JToggleButton)
+- `control/ComicComboBoxUI` (braucht `paint/StrokeIcon`, `paint/ComposerIcons`)
+- `control/ComicToggleButton`, `control/PlaceholderTextArea`
+- `paint/StrokeIcon`, `paint/ComposerIcons`, `paint/CountBadgeIcon`, `paint/SkyClouds`
+- `theme/ColorContrast` (WCAG-Kontrast, wird für Tests genutzt, Abschnitt 6)
+
+Zusammenführen in bestehende Klassen (SOURCE ist dort weiter):
+`ComicButton` (gestrichelter Fokusring), `ComicScrollBarUI` (eigene Thumb-Farben),
+`ComicOverlayPanel` (`setPlateLimit`), `ResearchPillDropdown` (Tastatur + Accessibility).
+
+NICHT portieren: `ComicWindow*` (rahmenlose Fenster), `Composer*Button`, `ReadAloudOrb`,
+`SidebarIcons`, das Bubble-Package (AskAIs Bubbles sind in Teilen WEITER, siehe 1.4).
+
+### 1.3 Theme-Wahl: Vorbild `C:\Projects\MainframeMate` (`app/src/main/java/de/bund/zrb/ui/theme/`)
+
+MainframeMate: Combo in den Settings, Wert in JSON persistiert, Settings-Change-Listener ruft
+`ThemeManager.applyTheme`, dieser setzt UIManager-Keys und ruft `updateComponentTreeUI` für alle
+`Window.getWindows()`. Übernommen wird **das Muster** (Combo, Persistenz, ein Apply-Punkt), nicht
+der Code (gekoppelt an LockerStyle, JNA, RSyntaxTextArea).
+
+**Entscheidung: Theme-Wechsel wirkt nach Neustart.** Grund: `ResearchUiPalette` besteht aus
+`public static final Color`-Konstanten, die das Plugin überall direkt liest. Sie lassen sich zur
+Laufzeit nicht ändern. Live-Umschalten würde alle Plugin-Verbraucher auf Methodenaufrufe umbauen.
+Das ist ausdrücklich NICHT Teil dieses Auftrags.
+
+### 1.4 Bubbles
+
+`askai-app/src/main/java/com/aresstack/askai/java8/ui/bubble/BubblePalette.java`, 10 Rollen,
+Default `windowsPhoneInspired()`. Nutzerfarben: `config/ChatColorSettings` (5 Farben, persistiert
+unter `chat.color.*` in `AppConfigurationRepository`, Zeilen 77–81 und 148–158), Settings-Zeile
+„Colors“ mit Reset. `ChatTranscript.paletteFrom(ChatColorSettings)` baut die Palette.
+
+### 1.5 Himmel
+
+`research-agent-ui-plugin/.../agent/ResearchOutOfScopeSky.java` ~Z. 379–393 malt EINE Farbe
+(`SKY_TOP`) mit Alpha-Rampe 242 → 205 → 105 → 0. Wolken-Chips: `CLOUD_*` (~Z. 552, 617).
+
+### 1.6 Startpfad und Settings-Dialog
+
+- `askai-app/.../AskAiJava8App.java:24` lädt `AppConfigurationRepository`, Z. 29–32 `invokeLater`
+  → `new AskAiFrame(...)`. `AskAiFrame.java:267` ruft `ComicTheme.install(AskAiTheme.active())`.
+- Settings-Dialog: `OllamaChatPanel` (ab ~Z. 925): `SETTINGS_CATEGORIES`-Array + `CardLayout`,
+  Karten über `cards.add(settingsCard(...), SETTINGS_CATEGORIES[i])`.
+
+## 2. Verbindliche Entscheidungen
+
+- **E1 — Theme-Quelle.** `AskAiTheme` bekommt `public static void activate(String name)`. Der Host
+  ruft es GENAU EINMAL in `AskAiJava8App.main`, VOR `invokeLater` und vor jeder UI-Klasse, mit dem
+  Wert aus der Konfiguration (Key `ui.theme`). Vorrang: JVM-Property `askai.theme`, dann `ui.theme`,
+  dann Default `arcane`. `active()` liefert danach immer dasselbe Objekt. Wird `activate` nach dem
+  ersten `active()`-Aufruf gerufen, dann `IllegalStateException`. Das ist Absicht: so fällt ein
+  falscher Startreihenfolge-Fehler im Test auf.
+- **E2 — Settings.** Neue Kategorie **„Appearance“** im Settings-Dialog (Englisch, UI-Regel), als
+  erste Kategorie nach „General“. Inhalt: Label „Theme“ + `JComboBox` (selbst schon ComicComboBoxUI)
+  mit „Arcane Knowledge“ (`arcane`) und „Classic Comic“ (`classic`), darunter der Hinweis
+  „Restart AskAI to apply the theme.“ (Label in Muted-Farbe). Speichern über den bestehenden
+  Settings-Speicherweg; neuer Key `ui.theme` in `AppConfiguration`/`AppConfigurationRepository`
+  (Muster wie die `chat.color.*`-Keys).
+- **E3 — Controls einheitlich auf Comic-Controls.** JEDE Instanziierung aus Tabelle 1.1 in App und
+  Plugin wird ersetzt durch das Comic-Pendant. Stil: Subklasse, wo eine existiert
+  (`ComicButton`, `ComicScrollPane`, `ComicSplitPane`, `ComicToggleButton`), sonst eine **Fabrik in
+  der neuen Fassade `ComicControls`** (`comic-controls/.../control/ComicControls.java`), die den
+  Swing-Typ zurückgibt, damit Feld- und Parametertypen unverändert bleiben:
+  `checkBox(String)`, `comboBox()` / `comboBox(E[])` / `comboBox(ComboBoxModel)`, `spinner(SpinnerModel)`,
+  `textField()` / `textField(int columns)` / `textField(String)` / `textField(String,int)`,
+  `passwordField(...)`, `textArea(...)` (gleiche Überladungen wie JTextArea), `slider(...)`,
+  `progressBar(...)`, `tabbedPane()`, `list(...)`, `titledBorder(String)`.
+  Muster: `ComicControls.checkBox("x")` statt `new JCheckBox("x")`.
+- **E4 — Aufrufstellen-Garantie per Test.** Neuer Test `RawSwingGuardTest` in `askai-app/src/test`:
+  scannt die Quelltexte von `askai-app/src/main` und `research-agent-ui-plugin/src/main` (relativer
+  Pfad über `user.dir`/Projektwurzel) per Regex nach `new (javax\.swing\.)?(JButton|JCheckBox|JComboBox|
+  JSpinner|JTextField|JPasswordField|JTextArea|JTabbedPane|JList|JProgressBar|JSlider|JToggleButton)
+  (<[^>]*>)?\(` und `createTitledBorder\(|new TitledBorder\(`. Treffer außerhalb einer expliziten
+  Allowlist (Datei:Grund, in der Testklasse als Konstante) lassen den Test fehlschlagen. Die
+  Allowlist ist am Ende leer oder hat höchstens begründete Einzelfälle (z. B. Renderer-Komponenten).
+  Anonyme Subklassen (`new JButton("x") { ... }`) zählen ebenfalls und werden auf
+  `new ComicButton("x") { ... }` umgestellt, sofern sie `paintComponent` nicht selbst übernehmen.
+  Eigene Button-Klassen mit `setContentAreaFilled(false)` (ResearchPillButton, MarkdownActionButton
+  usw.) sind keine `new JButton(`-Treffer und bleiben unverändert.
+- **E5 — v1 bleibt die Basis.** `ComicTheme.install` (globale UIManager-Defaults) bleibt als
+  Sicherheitsnetz für Dialoge von Swing selbst (JOptionPane, JFileChooser) und für Labels/Panels.
+  `ComicButtonUI` bleibt global. Comic-Controls, die selbst malen, setzen die Opt-out-Property
+  (`ComicButtonUI.PLAIN_BUTTON_PROPERTY`), wie `ComicButton` schon heute.
+- **E6 — Bubbles folgen dem Theme.** Neue Token-Gruppe „bubble“ in `AskAiTheme` (10 Rollen wie
+  `BubblePalette`). `BubblePalette.windowsPhoneInspired()` bleibt als Classic-Wert;
+  `ChatColorSettings.defaults()` liefert künftig die Bubble-Token des AKTIVEN Themes (askai-app darf
+  comic-controls benutzen). **Migrationsregel für gespeicherte Nutzerfarben:** Ein gespeicherter
+  `chat.color.*`-Wert, der GENAU dem alten Classic-Default entspricht, gilt als „nicht angepasst“
+  und wird beim Laden durch den Theme-Default ersetzt. Abweichende Werte sind echte
+  Nutzerentscheidungen und bleiben. Der Reset-Knopf in den Settings setzt auf die Theme-Defaults.
+- **E7 — Himmel als Sonnenuntergang.** Neuer Token `SKY_MID` in der Research-Gruppe (Konstante
+  `ResearchUiPalette.SKY_MID`). `ResearchOutOfScopeSky` malt einen Zwei-Farben-Verlauf: oben
+  `SKY_TOP` (Alpha 242), bei `contentStop*0.55` `SKY_MID` (Alpha 205), bei `contentStop` `SKY_MID`
+  (Alpha 105), unten `SKY_MID` (Alpha 0). Classic: `SKY_MID == SKY_TOP` → Classic sieht
+  pixelgleich aus wie heute.
+
+## 3. Token-Werte (Arcane; Classic = heutige Werte unverändert)
+
+Die Arcane-Werte aus v1 werden ersetzt. Leitidee: Pergament statt Grau, Marine als Tinte,
+Gold als Akzent, Rot bleibt Funktionsfarbe.
+
+### 3.1 Comic-Gruppe (helle Seite)
+
+| Token | Classic | Arcane v2 |
+|---|---|---|
+| surface | `0xF4F4F4` | `0xEFE4CF` (Pergament, deutlich kein Grau) |
+| ink | `0x252525` | `0x24304A` |
+| navigationBlue | `0x1676D2` | `0x2D4F86` |
+| agentPetrol | `0x15827A` | `0x2A6F6B` |
+| accentYellow | `0xF2C94C` | `0xE9B949` |
+| accentOrange | `0xE39A18` | `0xD08A2C` |
+| accentRed | `0xC94C4C` | `0xC94C4C` |
+| buttonPlate | `0xFFFFFF` | `0xFBF6EA` |
+| warmFocus | `0xFFF8E1` | `0xFFF3D6` |
+| fieldBg | `0xFFFFFF` | `0xFFFCF4` |
+| fieldBgQuiet | `0xFAFAFA` | `0xF8F1E2` |
+| fieldBorder | `0xC6C6C6` | `0xCDBE9E` |
+| hintText | `0x888888` | `0x857A63` |
+| hintTextSoft | `0xAAAAAA` | `0xA89C82` |
+| overlayDim | `rgba(0,0,0,110)` | `rgba(11,18,32,120)` |
+
+### 3.2 Research-Gruppe (dunkle Seite + Himmel)
+
+Dunkle Flächen, Gold-Akzente, `DANGER_RED`, `TEXT_*`: Werte aus v1 (`AskAiTheme.arcane()` heute)
+BEHALTEN. Ersetzt werden nur die hellen Licht- und Himmel-Token:
+
+| Konstante | Classic | Arcane v2 |
+|---|---|---|
+| SKY_TOP | `0xF5FAFE` | `0xE4572E` (Orange-Rot) |
+| SKY_MID (neu) | = SKY_TOP | `0xF4A259` (Abendgold) |
+| SKY_BAR_SURFACE | `0xBFDCF2` | `0xF3B07A` |
+| SKY_CAPTION | `0x6E87A2` | `0x7A3B22` |
+| CLOUD_SURFACE | `0xF7FBFF` | `0xFFF6EC` |
+| CLOUD_BORDER | `0xAFCDE8` | `0xEDB48A` |
+| CLOUD_TEXT | `0x40556B` | `0x5A2E1C` |
+| CLOUD_HOVER_SURFACE | `0xEAF4FC` | `0xFFEBD6` |
+| CLOUD_HOVER_BORDER | `0x8FB8DE` | `0xE08F5C` |
+| CLOUD_CLOSE | `0x72879A` | `0x9A5A3C` |
+| LIGHT_CONTROL_BG | `0xFFFFFF` | `0xFFFCF4` |
+| LIGHT_CONTROL_BORDER | `0xC9CED6` | `0xCDBE9E` |
+
+### 3.3 Bubble-Gruppe (neu)
+
+| Rolle | Classic (= `windowsPhoneInspired()`) | Arcane v2 |
+|---|---|---|
+| transcriptBackground | `0xF4F4F4` | `0xF6EEDD` |
+| userBackground | `0x1676D2` | `0x24406E` (Marine) |
+| userForeground | `0xFFFFFF` | `0xFFF8EA` |
+| assistantBackground | `0x15827A` | `0x2A6F6B` |
+| assistantForeground | `0xFFFFFF` | `0xFFF8EA` |
+| activityBackground | `0xF2C94C` | `0xE9B949` (Gold) |
+| activityForeground | `0x252525` | `0x24304A` |
+| activityAccent | `0xE39A18` | `0xB9771F` |
+| failureAccent | `0xC94C4C` | `0xC94C4C` |
+| infoForeground | `0x6B6F76` | `0x7A7262` |
+
+(Classic-Werte vor dem Pinnen mit `BubblePalette.windowsPhoneInspired()` und
+`ChatColorSettings.defaults()` im Code abgleichen. Bei Abweichung gilt der Code-Wert.)
+
+## 4. Arbeitspakete (je ein Commit, Reihenfolge verbindlich)
+
+**T1 — Port der enterprise-Controls** in `comic-controls` (1.2), Farben auf Token. Tests: je Control
+ein Headless-Test (Install setzt UI/Icons, Farben = Token des aktiven Themes).
+
+**T2 — Neue Controls + Fassade:** `ComicControls` (E3), `ComicTextFieldUI` bzw. Border+Insets für
+JTextField/JPasswordField (abgerundete Kontur `fieldBorder`, Fokus-Kontur `navigationBlue`, Hintergrund
+`fieldBg`), `ComicTabbedPaneUI` (Reiter als Plates wie ComicButton, aktiver Reiter `accentYellow`,
+Inhalt `surface`), `ComicProgressBarUI` (abgerundet, Füllung `accentOrange`), `ComicListSupport`,
+`ComicBorder.titled(String, palette)` (Tintenlinie gerundet, Titel in `ink` bold). Tests je Control.
+
+**T3 — Token v2 + Theme-Aktivierung:** Werte aus Abschnitt 3, `SKY_MID`, Bubble-Gruppe, `activate`
+(E1), Default `arcane`. Classic-Pin-Tests erweitern (Bubble-Gruppe, `SKY_MID == SKY_TOP`).
+
+**T4 — Settings „Appearance“ + Persistenz + Startpfad** (E1, E2). Tests: Roundtrip `ui.theme` in
+`AppConfigurationRepository`; `activate` vor/nach `active()`.
+
+**T5 — Bubbles + Himmel** (E6, E7). Tests: Migrationsregel (Classic-Default gespeichert → Theme-Wert;
+abweichend → bleibt); Himmel-Verlauf: Farbstopps aus Token (Painter-Logik in pure Methode
+extrahieren und testen).
+
+**T6a–T6e — Aufrufstellen-Migration (DER TEURE TEIL)**, je Gruppe ein Commit, nach jedem Commit
+`:askai-app:compileJava :research-agent-ui-plugin:compileJava`:
+- T6a: `research-agent-ui-plugin` komplett (ResearchRuntimeSettingsPanel, DataForSeoSettingsPanel,
+  ResearchSourcesView, LegacyBrowserSearchSettingsPanel, SearchEngineOrderEditor,
+  ResearchSettingsContribution, ResearchDocumentViewContribution, Outline/Concept-Views, Rest)
+- T6b: `OllamaChatPanel`
+- T6c: `VideoSettingsDialog`, `RecordVideoDialog`, `Audio*Panel`, `BatchTranscriptionPanel`
+- T6d: `OllamaInstallPanel`, `OllamaConfigPanel`, `OllamaModelsPanel`, `OllamaLibraryPanel`,
+  `OllamaActionsPanel`, `OllamaModelCard`, `AiModelsPanel`, `ProxyPanel`, `FilterDialog`
+- T6e: Rest + `RawSwingGuardTest` (E4) scharf schalten (leere bzw. begründete Allowlist)
+
+Regeln für T6: rein mechanisch (Konstruktor → Fabrik/Subklasse, gleiche Argumente). KEINE
+Layout-, Text- oder Logikänderung. Wo ein Control danach explizit `setBackground`/`setForeground`/
+`setBorder` mit einer HARDKODIERTEN Farbe bekommt, die den Comic-Look überschreibt: Zeile entfernen,
+wenn sie nur „Swing-Standard nachbaut“ (weiß, grau, schwarz); sonst stehen lassen und unter
+„Implementation notes“ auflisten.
+
+## 5. Nicht in diesem Auftrag (bewusst, beziffert)
+
+- **Die ~145 verstreuten `new Color(…)`** (u. a. 20 Dateien `askai-app/ui`, 5 `ui/markdown`) jenseits
+  von T6-Fall „Swing-Standard nachbauen“. Eigener Folgeauftrag pro Bereich.
+- **Live-Umschalten ohne Neustart** (Umbau der `ResearchUiPalette`-Konstanten auf Methoden).
+- **Rahmenlose Fenster** (`ComicWindow*`).
+- **Fremdbefunde aus dem GUI-Gate**, je eigenes Ticket: deutsche statische Texte in
+  `ResearchSourcesView` (Titel, Status, Relevanz, Speichern, Neu laden, Ausschließen, Volltext …,
+  Verstoß gegen die UI-Englisch-Regel) und Mojibake in Quellentiteln (`Ã¢Â€Â¦` statt `…`,
+  Encoding-Fehler beim Import/Anzeigen).
+
+## 6. Leitplanken (verbindlich)
+
+1. Java 8, keine neuen Dependencies. comic-controls bleibt nur von `java.*`/`javax.*` abhängig.
+2. Alle statischen UI-Texte Englisch, Kommentare/Javadoc Englisch.
+3. Die App NIE selbst starten/beenden. GUI-Gates macht der User.
+4. Gezielte Builds: `:comic-controls:test`, die neuen/geänderten Testklassen in `:askai-app:test`
+   und `:research-agent-ui-plugin:test` per `--tests`, `compileJava` beider Module. KEINE vollen
+   Suiten (Live-Tests treffen Ollama automatisch). Plugin geändert → am Ende einmal
+   `:research-agent-ui-plugin:installDevPlugin`.
+5. Jeder Commit auf `arch`, sofort pushen. NICHT auf main (Merge erst nach Review + GUI-Gate).
+6. UIManager-Installation nur im Host. Das Plugin bekommt Comic-Controls über `compileOnly`
+   (comic-controls ist host-provided und darf NICHT in `lib/` des Plugins landen).
+7. Kontrast: ein Test mit `ColorContrast` prüft für Arcane und Classic, dass Text auf Fläche
+   (ink/surface, ink/fieldBg, userForeground/userBackground, assistantForeground/assistantBackground,
+   activityForeground/activityBackground, CLOUD_TEXT/CLOUD_SURFACE, TEXT_PRIMARY/DARK_BASE)
+   mindestens WCAG 4.5:1 erreicht. Scheitert ein Paar, Wert dokumentieren, NICHT eigenmächtig ändern.
+
+## 7. Review-Checkliste
+
+- [ ] `RawSwingGuardTest` grün, Allowlist leer oder jeder Eintrag begründet.
+- [ ] Portierte Klassen: kein `com.aresstack.enterpriseai`, keine hartkodierten Farben, nur Token.
+- [ ] Classic pixelgleich zu heute (Pins inkl. Bubble-Gruppe, `SKY_MID == SKY_TOP`).
+- [ ] `activate` einmal in `main`, vor `invokeLater`; Settings „Appearance“ speichert `ui.theme`;
+      Hinweis auf Neustart sichtbar.
+- [ ] Bubble-Migrationsregel getestet; Reset → Theme-Defaults.
+- [ ] Himmel-Verlauf aus `SKY_TOP` → `SKY_MID`, Classic unverändert.
+- [ ] Kontrasttest vorhanden.
+- [ ] T6 rein mechanisch: keine Text-/Layout-/Logikänderung im Diff.
+- [ ] comic-controls nicht im Plugin-`lib/`; nur gezielte Builds; alles auf `arch`; keine App-Starts.
+- [ ] „Implementation notes“ ergänzt.
+
+## Implementation notes
+
+(von der Implementierungs-Session zu füllen)

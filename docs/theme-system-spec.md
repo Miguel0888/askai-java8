@@ -1,3 +1,6 @@
+> **ÜBERHOLT (2026-10-29):** Die User-Abnahme von v1 ist gescheitert. Verbindlich ist jetzt
+> `docs/theme-system-spec-v2.md`. Dieses Dokument bleibt als Historie.
+
 # Theme-System „Arcane Knowledge“ — Analyse & Implementierungs-Spezifikation
 
 Stand: 2026-10-29, `main`/`arch` @ `69c343ee`. Autor: Review-Session (Claude, voller Projektkontext).
