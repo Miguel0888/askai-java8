@@ -780,9 +780,13 @@ public final class BubbleTranscriptPanel extends JPanel {
     /**
      * One line per appended message with the ACTUAL widths of the whole chain. A layout defect that only
      * appears in a running window cannot be reasoned about from a screenshot: this says plainly which
-     * component is the narrow one.
+     * component is the narrow one. OFF by default (it fired for every message); switch it on with
+     * {@code -Daskai.debug.bubbleGeometry=true} when hunting a layout defect.
      */
     private void traceGeometry() {
+        if (!Boolean.getBoolean("askai.debug.bubbleGeometry")) {
+            return;
+        }
         Component last = null;
         for (Component child : messageList.getComponents()) {
             if (child instanceof BubbleMessageRow) {
