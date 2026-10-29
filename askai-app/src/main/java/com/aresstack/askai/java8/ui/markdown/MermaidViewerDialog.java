@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui.markdown;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
@@ -16,7 +18,6 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import java.awt.AlphaComposite;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -322,7 +323,7 @@ public final class MermaidViewerDialog extends JDialog {
         private boolean fitted;
 
         ZoomableImagePanel() {
-            setBackground(new Color(30, 30, 30));
+            setBackground(ThemeColor.of("markdown.viewerCanvasBackground"));
             // The image is often set before the panel has a size; fit it once a size is available.
             addComponentListener(new ComponentAdapter() {
                 public void componentResized(ComponentEvent e) {
@@ -396,7 +397,7 @@ public final class MermaidViewerDialog extends JDialog {
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             setToolTipText(tooltip);
             JLabel label = new JLabel(symbol, SwingConstants.CENTER);
-            label.setForeground(new Color(255, 255, 255, 210));
+            label.setForeground(ThemeColor.withAlpha(ThemeColor.of("markdown.viewerControlGlyph"), 210));
             label.setFont(label.getFont().deriveFont(Font.BOLD, 16f));
             add(label, BorderLayout.CENTER);
             setPreferredSize(new Dimension(size, size));
@@ -407,7 +408,7 @@ public final class MermaidViewerDialog extends JDialog {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
-            g2.setColor(Color.BLACK);
+            g2.setColor(ThemeColor.of("markdown.viewerControlPlate"));
             g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
             g2.dispose();
             super.paintComponent(g);

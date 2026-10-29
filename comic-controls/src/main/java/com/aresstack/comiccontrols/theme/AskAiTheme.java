@@ -203,6 +203,17 @@ public final class AskAiTheme {
         put(t, "models.capabilityInsert", 0x00838F);
         put(t, "models.capabilityCloud", 0x546E7A);
 
+        // markdown role tokens (T7c): Markdown/Mermaid/code rendering, classic = the former literal
+        put(t, "markdown.text", 0x404040);
+        put(t, "markdown.mutedText", 0x777777);
+        put(t, "markdown.linkText", 0x1565C0);
+        put(t, "markdown.errorText", 0xC62828);
+        put(t, "markdown.userMessageBackground", 0x1565C0);
+        put(t, "markdown.diagramBusyText", 0x464646);
+        put(t, "markdown.viewerCanvasBackground", 0x1E1E1E);
+        put(t, "markdown.viewerControlPlate", 0x000000);
+        put(t, "markdown.viewerControlGlyph", 0xFFFFFF);
+
         // bubble group: exactly BubblePalette.windowsPhoneInspired()
         put(t, "bubble.transcriptBackground", 0xF4F4F4);
         put(t, "bubble.userBackground", 0x1676D2);
@@ -362,6 +373,19 @@ public final class AskAiTheme {
         put(t, "models.capabilityEmbedding", 0xD08A2C); // orange: comic.accentOrange
         put(t, "models.capabilityInsert", 0x2A6F6B); // teal: comic.agentPetrol
         put(t, "models.capabilityCloud", 0x857A63); // blue-grey glyph: comic.hintText
+
+        // markdown role tokens (T7c): arcane value copied from the family representative
+        put(t, "markdown.text", 0x24304A); // dark grey text: comic.ink
+        put(t, "markdown.mutedText", 0x857A63); // mid-grey secondary text: comic.hintText
+        put(t, "markdown.linkText", 0x2D4F86); // blue: comic.navigationBlue
+        // markdown.errorText: red function color stays classic
+        put(t, "markdown.userMessageBackground", 0x2D4F86); // blue: comic.navigationBlue
+        put(t, "markdown.diagramBusyText", 0x24304A); // dark grey text: comic.ink
+        // dark letterbox behind the diagram: the parchment family would flip the dark viewer light —
+        // the dark side's research.WORKSPACE_SURFACE is the representative instead
+        put(t, "markdown.viewerCanvasBackground", 0x192338); // dark canvas: research.WORKSPACE_SURFACE
+        put(t, "markdown.viewerControlPlate", 0x24304A); // black plate: comic.ink
+        put(t, "markdown.viewerControlGlyph", 0xFBF6EA); // white glyph: comic.buttonPlate
 
         put(t, "bubble.transcriptBackground", 0xF6EEDD);
         put(t, "bubble.userBackground", 0x24406E);

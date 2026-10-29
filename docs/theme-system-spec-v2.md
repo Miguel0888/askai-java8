@@ -505,4 +505,10 @@ Nur Dinge, die der User NICHT gefordert hat:
   - Arcane collisions: capability icons Audio/Insert both petrol, Text/Cloud both hint grey (shapes differ).
   - Literals equal by VALUE to a token of another role got their own role token (rule 2 over rule 1 when the role
     differs), e.g. model status green vs. connection dot green.
+- T7c (`ui/markdown`, 23 literals in 5 files, grep at zero, no allowlist): group `markdown.*`. `MarkdownTheme`
+  shades (code background, quote border, separators) are live mixes; its UIManager reads (`Label.foreground`,
+  `TextArea.background`, ...) are live too (`ThemeColor.derive`), since `ThemeSwitcher` re-installs the defaults
+  before repainting. Deviation for review: `markdown.viewerCanvasBackground` (the dark letterbox of the Mermaid
+  viewer dialog, classic 0x1E1E1E) maps to the dark-side `research.WORKSPACE_SURFACE` in arcane instead of a
+  parchment surface (rule 3 literally would turn the dark viewer light).
 

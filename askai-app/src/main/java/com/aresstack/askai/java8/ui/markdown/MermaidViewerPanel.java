@@ -1,6 +1,8 @@
 package com.aresstack.askai.java8.ui.markdown;
 
 import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.theme.ThemeColor;
+
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
 import javax.swing.JFileChooser;
@@ -53,7 +55,7 @@ public final class MermaidViewerPanel extends JPanel {
     private static final int HIGH_RES_WIDTH = 2600;
 
     /** The diagram surface color — white like the overlay frame. THE retheme constant. */
-    public static final Color DEFAULT_SURFACE_COLOR = Color.WHITE;
+    public static final Color DEFAULT_SURFACE_COLOR = ThemeColor.of("comic.buttonPlate");
     /** Surface opacity in percent: 100 = solid, 0 = fully transparent (the frame shines through). */
     public static final int DEFAULT_SURFACE_OPACITY_PERCENT = 100;
 
@@ -74,7 +76,8 @@ public final class MermaidViewerPanel extends JPanel {
         this.diagramCode = diagramCode == null ? "" : diagramCode;
         this.renderer = renderer;
 
-        busy.setForeground(new Color(70, 70, 70, 200)); // legible on the (light) default surface
+        // legible on the (light) default surface
+        busy.setForeground(ThemeColor.withAlpha(ThemeColor.of("markdown.diagramBusyText"), 200));
         busy.setFont(busy.getFont().deriveFont(Font.ITALIC, 12f));
 
         final ViewerButton zoomOut = new ViewerButton("➖", 36, "Zoom out (−)");
@@ -402,8 +405,7 @@ public final class MermaidViewerPanel extends JPanel {
             super.paintComponent(g);
             Graphics2D g2 = (Graphics2D) g.create();
             if (opacityPercent > 0) {
-                g2.setColor(new Color(surface.getRed(), surface.getGreen(), surface.getBlue(),
-                        Math.round(opacityPercent * 255 / 100f)));
+                g2.setColor(ThemeColor.withAlpha(surface, Math.round(opacityPercent * 255 / 100f)));
                 g2.fillRect(0, 0, getWidth(), getHeight());
             }
             if (staticImage == null) {
@@ -447,7 +449,7 @@ public final class MermaidViewerPanel extends JPanel {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setColor(surfaceColor);
             g2.fillOval(1, 1, getWidth() - 3, getHeight() - 3);
-            g2.setColor(new Color(37, 37, 37));
+            g2.setColor(ThemeColor.of("comic.ink"));
             g2.setStroke(new java.awt.BasicStroke(1.4f));
             g2.drawOval(1, 1, getWidth() - 3, getHeight() - 3);
             g2.dispose();
@@ -465,7 +467,7 @@ public final class MermaidViewerPanel extends JPanel {
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             setToolTipText(tooltip);
             JLabel label = new JLabel(symbol, SwingConstants.CENTER);
-            label.setForeground(new Color(255, 255, 255, 210));
+            label.setForeground(ThemeColor.withAlpha(ThemeColor.of("markdown.viewerControlGlyph"), 210));
             label.setFont(label.getFont().deriveFont(Font.BOLD, 15f));
             add(label, BorderLayout.CENTER);
             setPreferredSize(new Dimension(size, size));
@@ -488,7 +490,7 @@ public final class MermaidViewerPanel extends JPanel {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
-            g2.setColor(Color.BLACK);
+            g2.setColor(ThemeColor.of("markdown.viewerControlPlate"));
             g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
             g2.dispose();
             super.paintComponent(g);

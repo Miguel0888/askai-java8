@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui.markdown;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+
 import javax.swing.UIManager;
 import java.awt.Color;
 import java.awt.Font;
@@ -40,14 +42,14 @@ public final class MarkdownTheme {
     public static MarkdownTheme fromUiDefaults() {
         Font labelFont = UIManager.getFont("Label.font");
         Font textFont = UIManager.getFont("TextArea.font");
-        Color foreground = color("Label.foreground", Color.DARK_GRAY);
-        Color muted = color("Label.disabledForeground", new Color(0x777777));
-        Color link = color("Component.linkColor", new Color(0x1565C0));
-        Color background = color("TextArea.background", Color.WHITE);
+        Color foreground = color("Label.foreground", ThemeColor.of("markdown.text"));
+        Color muted = color("Label.disabledForeground", ThemeColor.of("markdown.mutedText"));
+        Color link = color("Component.linkColor", ThemeColor.of("markdown.linkText"));
+        Color background = color("TextArea.background", ThemeColor.of("comic.fieldBg"));
         Color codeBackground = blend(background, foreground, 0.06f);
         Color quoteBorder = blend(background, foreground, 0.22f);
         Color separator = blend(background, foreground, 0.16f);
-        Color error = color("Actions.Red", new Color(0xC62828));
+        Color error = color("Actions.Red", ThemeColor.of("markdown.errorText"));
         Font body = labelFont == null ? new Font(Font.SANS_SERIF, Font.PLAIN, 13) : labelFont;
         Font code = textFont == null
                 ? new Font(Font.MONOSPACED, Font.PLAIN, body.getSize())
@@ -65,14 +67,14 @@ public final class MarkdownTheme {
     public static MarkdownTheme forBubble(Color background, Color foreground) {
         Font labelFont = UIManager.getFont("Label.font");
         Font textFont = UIManager.getFont("TextArea.font");
-        Color fg = foreground == null ? color("Label.foreground", Color.DARK_GRAY) : foreground;
-        Color bg = background == null ? color("TextArea.background", Color.WHITE) : background;
+        Color fg = foreground == null ? color("Label.foreground", ThemeColor.of("markdown.text")) : foreground;
+        Color bg = background == null ? color("TextArea.background", ThemeColor.of("comic.fieldBg")) : background;
         Color muted = blend(bg, fg, 0.55f);
-        Color link = color("Component.linkColor", new Color(0x1565C0));
+        Color link = color("Component.linkColor", ThemeColor.of("markdown.linkText"));
         Color codeBackground = blend(bg, fg, 0.10f);
         Color quoteBorder = blend(bg, fg, 0.28f);
         Color separator = blend(bg, fg, 0.20f);
-        Color error = color("Actions.Red", new Color(0xC62828));
+        Color error = color("Actions.Red", ThemeColor.of("markdown.errorText"));
         Font body = labelFont == null ? new Font(Font.SANS_SERIF, Font.PLAIN, 13) : labelFont;
         Font code = textFont == null
                 ? new Font(Font.MONOSPACED, Font.PLAIN, body.getSize())
@@ -81,17 +83,23 @@ public final class MarkdownTheme {
                 quoteBorder, separator, error);
     }
 
-    private static Color color(String key, Color fallback) {
-        Color value = UIManager.getColor(key);
-        return value == null ? fallback : value;
+    /**
+     * A look-and-feel default read LIVE (the theme switch re-installs the UIManager defaults before it repaints),
+     * falling back to the token when the key is not installed.
+     */
+    private static Color color(final String key, final Color fallback) {
+        return ThemeColor.derive("ui:" + key, () -> {
+            Color value = UIManager.getColor(key);
+            return value == null ? fallback : value;
+        });
     }
 
+    /**
+     * The rounded channel blend of {@code first} towards {@code second}, derived LIVE (same arithmetic as
+     * before), so shades derived from themed bubble/token colors follow a theme switch instead of being frozen.
+     */
     private static Color blend(Color first, Color second, float secondWeight) {
-        float firstWeight = 1.0f - secondWeight;
-        return new Color(
-                Math.round(first.getRed() * firstWeight + second.getRed() * secondWeight),
-                Math.round(first.getGreen() * firstWeight + second.getGreen() * secondWeight),
-                Math.round(first.getBlue() * firstWeight + second.getBlue() * secondWeight));
+        return ThemeColor.mix(first, second, secondWeight);
     }
 
     public Font getBodyFont() {
