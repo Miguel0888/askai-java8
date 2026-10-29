@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui.bubble;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.control.ComicControls;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -845,8 +846,9 @@ public class AnimatedThoughtBubblePanel extends JPanel {
         graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
     }
 
+    /** {@code color} with {@code alpha}, derived live (follows theme switches even when stored). */
     private static Color withAlpha(Color color, int alpha) {
-        return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
+        return ThemeColor.withAlpha(color, alpha);
     }
 
     private static String normalize(String value) {

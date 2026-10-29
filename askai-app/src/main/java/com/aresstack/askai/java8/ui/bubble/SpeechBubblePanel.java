@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui.bubble;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.control.ComicControls;
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
@@ -397,8 +398,9 @@ public final class SpeechBubblePanel extends JPanel
                 RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
     }
 
+    /** {@code color} with {@code alpha}, derived live (follows theme switches even when stored). */
     private static Color withAlpha(Color color, int alpha) {
-        return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
+        return ThemeColor.withAlpha(color, alpha);
     }
 
     private static String normalize(String value) {

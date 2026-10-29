@@ -511,4 +511,21 @@ Nur Dinge, die der User NICHT gefordert hat:
   before repainting. Deviation for review: `markdown.viewerCanvasBackground` (the dark letterbox of the Mermaid
   viewer dialog, classic 0x1E1E1E) maps to the dark-side `research.WORKSPACE_SURFACE` in arcane instead of a
   parchment surface (rule 3 literally would turn the dark viewer light).
+- T7d (`ui/bubble`, `notify`, `config`; `video`/`batch` had no literals): bubble `withAlpha` helpers are live
+  `ThemeColor.withAlpha`; the floating-summary accent fallback is `chat.floatingSummaryAccent`; the info-line
+  outcome marks (✔ success / ⟳ retry, HTML) are `chat.infoLineSuccessMark`/`chat.infoLineRetryMark` and are
+  re-rendered in `BubbleTranscriptPanel.updateUI()` — `ThemeSwitcher` calls it on every switch, no listener needed.
+  The tray fallback icon (`DesktopNotifier`) uses `research.ACCENT_BLUE` and `comic.buttonPlate`; the OS keeps an
+  already created tray image until it is recreated (not a Swing component).
+- `RawColorGuardTest` (askai-app, `ui.theme`) scans both modules for `new Color(`, `new java.awt.Color(`, the
+  `Color` constants and `#RGB`/`#RRGGBB` inside string literals. Allowlist: ONE entry —
+  `config/ChatColorSettings.parseHex` (parses the user-chosen chat colors from the settings file, rule 6).
+
+### Verification at the end of T7d
+- Green: `:comic-controls:test`; askai-app tests of `ui.*`, `config.*`, `notify.*` (64 classes incl.
+  `RawSwingGuardTest`, `RawColorGuardTest`, `ThemeSwitcherTest`, `UiThemePersistenceTest`, `ChatColorSettingsTest`);
+  plugin tests of every class touched in T6a/T7a plus the color/pixel tests. No full suites (live Ollama).
+- `:research-agent-ui-plugin:installDevPlugin` ran once; comic-controls is not in any plugin `lib/`.
+- Open: the user GUI gate (Appearance switch live in all windows, `ui.theme` persisted, both themes; the
+  rule-3 judgment calls listed under T7a–T7c for review).
 

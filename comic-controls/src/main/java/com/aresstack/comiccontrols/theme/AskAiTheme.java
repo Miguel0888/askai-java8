@@ -225,6 +225,10 @@ public final class AskAiTheme {
         put(t, "bubble.activityAccent", 0xE39A18);
         put(t, "bubble.failureAccent", 0xC94C4C);
         put(t, "bubble.infoForeground", 0x6B6F76);
+        // app role tokens (T7d): bubble transcript decorations, classic = the former literal
+        put(t, "chat.floatingSummaryAccent", 0x404040);
+        put(t, "chat.infoLineSuccessMark", 0x2E8B57);
+        put(t, "chat.infoLineRetryMark", 0xB03030);
         return new AskAiTheme(CLASSIC, t);
     }
 
@@ -397,6 +401,10 @@ public final class AskAiTheme {
         put(t, "bubble.activityAccent", 0xB9771F);
         put(t, "bubble.failureAccent", 0xC94C4C);
         put(t, "bubble.infoForeground", 0x7A7262);
+        // app role tokens (T7d): arcane value copied from the family representative
+        put(t, "chat.floatingSummaryAccent", 0x24304A); // dark grey text: comic.ink
+        put(t, "chat.infoLineSuccessMark", 0x2A6F6B); // green (success): comic.agentPetrol
+        // chat.infoLineRetryMark: red function color stays classic
         return new AskAiTheme(ARCANE, t);
     }
 
