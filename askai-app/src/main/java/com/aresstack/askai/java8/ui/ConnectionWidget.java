@@ -85,6 +85,122 @@ public final class ConnectionWidget extends JComponent {
         };
         addMouseListener(mouse);
         addMouseMotionListener(mouse);
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent event) {
+                if (compact) {
+                    showHoverPopup();
+                }
+            }
+        });
+        popupCloser.setRepeats(true);
+        buildHoverPopup();
+    }
+
+    // ------------------------------------------------------------------ compact: the hover popup
+
+    /** The CLICKABLE address (opens the connection settings) and the status line, below the dot. */
+    private final javax.swing.JPopupMenu hoverPopup = new javax.swing.JPopupMenu();
+    private final javax.swing.JLabel popupAddress = new javax.swing.JLabel();
+    private final javax.swing.JLabel popupStatus = new javax.swing.JLabel();
+    /** Closes the popup once the pointer has left both the dot and the popup. */
+    private final javax.swing.Timer popupCloser = new javax.swing.Timer(250, event -> closePopupIfLeft());
+
+    private void buildHoverPopup() {
+        hoverPopup.setFocusable(false);
+        javax.swing.JPanel content = new javax.swing.JPanel();
+        content.setLayout(new javax.swing.BoxLayout(content, javax.swing.BoxLayout.Y_AXIS));
+        content.setOpaque(false);
+        content.setBorder(javax.swing.BorderFactory.createEmptyBorder(6, 10, 6, 10));
+        popupAddress.setForeground(LINK);
+        popupAddress.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        popupAddress.setToolTipText("Open the connection settings");
+        popupAddress.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent event) {
+                popupAddress.setText(addressHtml(true));
+            }
+
+            @Override
+            public void mouseExited(MouseEvent event) {
+                popupAddress.setText(addressHtml(false));
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent event) {
+                hoverPopup.setVisible(false);
+                popupCloser.stop();
+                if (openSettings != null) {
+                    openSettings.run();
+                }
+            }
+        });
+        content.add(popupAddress);
+        content.add(javax.swing.Box.createVerticalStrut(3));
+        content.add(popupStatus);
+        hoverPopup.add(content);
+        refreshPopup();
+    }
+
+    private void refreshPopup() {
+        popupAddress.setText(addressHtml(false));
+        popupStatus.setText("Status: " + status.getLabel() + (detail.isEmpty() ? "" : " — " + detail)
+                + " · click the dot to refresh");
+    }
+
+    private String addressHtml(boolean underline) {
+        String text = escape(url.isEmpty() ? "(no address)" : stripScheme(url));
+        return "<html>" + (underline ? "<u>" + text + "</u>" : text) + "</html>";
+    }
+
+    private void showHoverPopup() {
+        if (!isShowing()) {
+            return;
+        }
+        refreshPopup();
+        if (!hoverPopup.isVisible()) {
+            java.awt.Dimension size = hoverPopup.getPreferredSize();
+            // right-aligned under the dot (the dot sits near the window's right edge)
+            hoverPopup.show(this, getWidth() - size.width, getHeight());
+        }
+        popupCloser.restart();
+    }
+
+    private void closePopupIfLeft() {
+        if (!hoverPopup.isVisible()) {
+            popupCloser.stop();
+            return;
+        }
+        java.awt.PointerInfo pointer = java.awt.MouseInfo.getPointerInfo();
+        if (pointer == null) {
+            return;
+        }
+        java.awt.Point at = pointer.getLocation();
+        if (!isShowing() || !hoverPopup.isShowing()) {
+            hoverPopup.setVisible(false);
+            popupCloser.stop();
+            return;
+        }
+        java.awt.Rectangle dot = new Rectangle(getLocationOnScreen(), getSize());
+        java.awt.Rectangle popup = new Rectangle(hoverPopup.getLocationOnScreen(), hoverPopup.getSize());
+        // the bridge between dot and popup counts as "inside" so moving down never closes it
+        dot.grow(4, 6);
+        if (!dot.contains(at) && !popup.contains(at)) {
+            hoverPopup.setVisible(false);
+            popupCloser.stop();
+        }
+    }
+
+    /** The popup's address text (tests). */
+    String popupAddressForTest() {
+        return popupAddress.getText();
+    }
+
+    /** Runs the popup address click (tests). */
+    void clickPopupAddressForTest() {
+        for (java.awt.event.MouseListener listener : popupAddress.getMouseListeners()) {
+            listener.mouseClicked(new MouseEvent(popupAddress, MouseEvent.MOUSE_CLICKED, 0L, 0, 1, 1, 1, false));
+        }
     }
 
     /**
@@ -96,14 +212,15 @@ public final class ConnectionWidget extends JComponent {
         this.status = newStatus == null ? ConnectionStatus.NOT_CHECKED : newStatus;
         this.url = url == null ? "" : url;
         this.detail = detail == null ? "" : detail;
+        refreshPopup();
         revalidate();
         repaint();
         setMaximumSize(getPreferredSize()); // flush right after the menu-bar glue, never stretched
     }
 
     /**
-     * Compact mode (title bar): only the dot, same size; hovering shows the address, status and version
-     * in the popup; a click still refreshes. The connection settings are reached through the gear.
+     * Compact mode (title bar): only the dot, same size; hovering opens a popup with the CLICKABLE
+     * address (opens the connection settings) and the status/version; a click on the dot refreshes.
      */
     public void setCompact(boolean compact) {
         this.compact = compact;
@@ -138,10 +255,7 @@ public final class ConnectionWidget extends JComponent {
     @Override
     public String getToolTipText(MouseEvent event) {
         if (compact) {
-            return "<html><b>Ollama</b> " + escape(url.isEmpty() ? "(no address)" : url)
-                    + "<br>Status: " + escape(status.getLabel())
-                    + (detail.isEmpty() ? "" : " — " + escape(detail))
-                    + "<br>Click to refresh connection, models and audio profiles</html>";
+            return null; // the hover popup (with the clickable address) replaces the tooltip
         }
         if (statusZone().contains(event.getPoint())) {
             return "Status: " + status.getLabel()
