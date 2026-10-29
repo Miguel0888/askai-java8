@@ -1,5 +1,6 @@
 package com.aresstack.comiccontrols.control;
 
+import com.aresstack.comiccontrols.theme.AskAiTheme;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
 import javax.swing.BorderFactory;
@@ -9,7 +10,6 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -77,7 +77,7 @@ public class ComicOverlayPanel extends JPanel {
     protected void paintComponent(Graphics g) {
         Graphics2D g2 = (Graphics2D) g.create();
         try {
-            g2.setColor(new Color(0, 0, 0, 110)); // the dimmed backdrop
+            g2.setColor(AskAiTheme.active().overlayDim()); // the dimmed backdrop
             g2.fillRect(0, 0, getWidth(), getHeight());
         } finally {
             g2.dispose();
@@ -115,13 +115,13 @@ public class ComicOverlayPanel extends JPanel {
                         RenderingHints.VALUE_ANTIALIAS_ON);
                 Ellipse2D chip = new Ellipse2D.Float(2f, 2f, getWidth() - 5f, getHeight() - 5f);
                 boolean hot = getModel().isRollover() || getModel().isPressed();
-                g2.setColor(hot ? palette.getAccentRed() : Color.WHITE);
+                g2.setColor(hot ? palette.getAccentRed() : AskAiTheme.active().buttonPlate());
                 g2.fill(chip);
                 g2.setColor(palette.getInk());
                 g2.setStroke(new BasicStroke(1.6f));
                 g2.draw(chip);
                 // the ✕ strokes
-                g2.setColor(hot ? Color.WHITE : palette.getInk());
+                g2.setColor(hot ? AskAiTheme.active().buttonPlate() : palette.getInk());
                 g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 int cx = getWidth() / 2;
                 int cy = getHeight() / 2;

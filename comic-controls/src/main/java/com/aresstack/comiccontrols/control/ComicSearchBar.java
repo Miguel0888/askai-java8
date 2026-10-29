@@ -1,5 +1,6 @@
 package com.aresstack.comiccontrols.control;
 
+import com.aresstack.comiccontrols.theme.AskAiTheme;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
 import javax.swing.JButton;
@@ -61,9 +62,9 @@ public class ComicSearchBar extends JPanel {
 
     public ComicSearchBar(String placeholder, String tooltip, ComicPalette palette) {
         this(placeholder, tooltip,
-                palette.getSurface(), Color.WHITE,
-                new Color(0xBBBBBB), palette.getNavigationBlue(),
-                new Color(0x888888), new Color(0xAAAAAA), 10, 1.5f);
+                palette.getSurface(), AskAiTheme.active().fieldBg(),
+                AskAiTheme.active().fieldBorder(), palette.getNavigationBlue(),
+                AskAiTheme.active().hintText(), AskAiTheme.active().hintTextSoft(), 10, 1.5f);
     }
 
     /** The full styling seam for the variants (amber find bar, amber-rimmed search tag). */

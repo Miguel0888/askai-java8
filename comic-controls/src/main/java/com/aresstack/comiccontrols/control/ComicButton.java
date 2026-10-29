@@ -1,5 +1,6 @@
 package com.aresstack.comiccontrols.control;
 
+import com.aresstack.comiccontrols.theme.AskAiTheme;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
 import javax.swing.BorderFactory;
@@ -97,6 +98,6 @@ public class ComicButton extends JButton {
         if (model.isRollover()) {
             return accent == Accent.CRITICAL ? palette.getAccentRed() : palette.getAccentYellow();
         }
-        return Color.WHITE; // calm resting plate, slightly lifted off the neutral surface
+        return AskAiTheme.active().buttonPlate(); // calm resting plate, slightly lifted off the neutral surface
     }
 }

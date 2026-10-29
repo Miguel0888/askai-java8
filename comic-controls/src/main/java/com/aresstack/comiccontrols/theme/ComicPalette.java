@@ -42,16 +42,9 @@ public final class ComicPalette {
         this.accentRed = requireColor(accentRed, "accentRed");
     }
 
-    /** The default AskAI comic palette (same family as the Windows-Phone-inspired chat bubbles). */
+    /** The default AskAI comic palette: the one of the active {@link AskAiTheme}. */
     public static ComicPalette defaultPalette() {
-        return new ComicPalette(
-                new Color(0xF4F4F4),
-                new Color(0x252525),
-                new Color(0x1676D2),
-                new Color(0x15827A),
-                new Color(0xF2C94C),
-                new Color(0xE39A18),
-                new Color(0xC94C4C));
+        return AskAiTheme.active().comicPalette();
     }
 
     public Color getSurface() {
