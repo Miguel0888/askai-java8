@@ -363,3 +363,23 @@ Nur Dinge, die der User NICHT gefordert hat:
 - `ResearchPillDropdown` is now identical to the enterprise version (only additions); `ComicOverlayPanel` keeps its
   own `CloseButton` (enterprise extends the non-ported `ComicWindowCloseButton`); only `setPlateLimit`/`closeButton()`
   were merged.
+
+### T2
+- Runtime switching (E1 step 3, `updateComponentTreeUI`) would reset every `setUI(...)` delegate to the look and
+  feel's. The `ComicControls` factories therefore return instances (anonymous subclasses or small package-private
+  subclasses of the Swing type) whose `updateUI()` re-applies the comic delegate; field/parameter types stay the
+  Swing types. Combo boxes keep a caller-installed renderer across `updateUI()`.
+- Text/password fields: `ComicTextFieldUI`/`ComicPasswordFieldUI` + `ComicFieldBorder` (rounded, `fieldBorder`,
+  focus `navigationBlue`); the field is non-opaque and paints a rounded plate; read-only/disabled → `fieldBgQuiet`.
+  Caller-set colors/borders win (only `UIResource` values are replaced). The defaults are applied in `installUI`
+  (after `BasicTextUI` re-applies its own editable/enabled background).
+- `ComicTextArea` (new, as table 1.1 asks): `fieldBg` paper, ink text/caret, yellow selection, no contour (text
+  areas live in scroll panes).
+- `ComicTheme.install` additionally sets `TextField/TextArea/PasswordField/FormattedTextField.inactiveBackground`
+  and `.disabledBackground` = `fieldBgQuiet` (Swing switches to them on `setEditable(false)`/`setEnabled(false)`;
+  without them Metal grey shows through).
+- `ComicListSupport.style` uses the table's selection wash (navigation blue mixed into the paper), as
+  `ComicTableSupport` does, rather than `accentYellow`.
+- Factory overloads mirror the Swing constructors actually used at the call sites plus the remaining standard
+  ones; `checkBox(Icon)` gets the comic glyph (the check box icon is the comic glyph by design).
+

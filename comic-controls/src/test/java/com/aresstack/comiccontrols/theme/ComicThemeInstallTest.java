@@ -51,6 +51,8 @@ public class ComicThemeInstallTest {
             expected.put(k + ".selectionBackground", p.getAccentYellow());
             expected.put(k + ".selectionForeground", p.getInk());
             expected.put(k + ".inactiveForeground", t.hintTextSoft());
+            expected.put(k + ".inactiveBackground", t.fieldBgQuiet());
+            expected.put(k + ".disabledBackground", t.fieldBgQuiet());
         }
         for (String k : new String[]{"CheckBox", "RadioButton"}) {
             expected.put(k + ".background", p.getSurface());

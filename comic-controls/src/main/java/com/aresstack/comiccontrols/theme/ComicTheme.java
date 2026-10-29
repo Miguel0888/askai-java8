@@ -61,6 +61,9 @@ public final class ComicTheme {
             UIManager.put(kind + ".selectionBackground", accentYellow);
             UIManager.put(kind + ".selectionForeground", ink);
             UIManager.put(kind + ".inactiveForeground", color(theme.hintTextSoft()));
+            // read-only / disabled fields rest on the quiet paper (Swing swaps to these on setEditable/setEnabled)
+            UIManager.put(kind + ".inactiveBackground", color(theme.fieldBgQuiet()));
+            UIManager.put(kind + ".disabledBackground", color(theme.fieldBgQuiet()));
         }
         Border fieldLine = BorderFactory.createLineBorder(theme.fieldBorder());
         UIManager.put("TextField.border", new BorderUIResource.CompoundBorderUIResource(

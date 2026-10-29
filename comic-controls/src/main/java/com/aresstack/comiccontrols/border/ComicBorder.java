@@ -2,9 +2,12 @@ package com.aresstack.comiccontrols.border;
 
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
+import javax.swing.UIManager;
 import javax.swing.border.Border;
+import javax.swing.border.TitledBorder;
 import java.awt.BasicStroke;
 import java.awt.Component;
+import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
@@ -40,6 +43,39 @@ public final class ComicBorder implements Border {
         requirePalette(palette);
         return new ComicBorder(palette, 2, 10,
                 new Insets(padding, padding, padding, padding));
+    }
+
+    /** {@link #titled(String, ComicPalette)} with the default (theme) palette. */
+    public static TitledBorder titled(String title) {
+        return titled(title, ComicPalette.defaultPalette());
+    }
+
+    /**
+     * The comic group frame: a rounded 2px ink line with the title in bold ink on its top edge — the
+     * replacement of Swing's etched {@code TitledBorder}. Still a {@link TitledBorder}, so callers keep
+     * using its API (justification, position, {@code setTitle}).
+     */
+    public static TitledBorder titled(String title, ComicPalette palette) {
+        requirePalette(palette);
+        return new ComicTitledBorder(new ComicBorder(palette, 2, 10, new Insets(2, 4, 4, 4)), title, palette);
+    }
+
+    /** The titled variant; the title font is the look and feel's, made bold, resolved at paint time. */
+    static final class ComicTitledBorder extends TitledBorder {
+        private static final long serialVersionUID = 1L;
+
+        ComicTitledBorder(Border line, String title, ComicPalette palette) {
+            super(line, title, LEADING, TOP, null, palette.getInk());
+        }
+
+        @Override
+        public Font getTitleFont() {
+            Font base = super.getTitleFont();
+            if (base == null) {
+                base = UIManager.getFont("TitledBorder.font");
+            }
+            return base == null ? null : base.deriveFont(Font.BOLD);
+        }
     }
 
     @Override
