@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import com.aresstack.askai.java8.hf.convert.SupportDecision;
 import com.aresstack.askai.java8.ui.HuggingFaceModelClassifier.Provenance;
@@ -38,10 +39,10 @@ import java.util.Set;
  */
 public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
 
-    private static final Color OFFICIAL_COLOR = new Color(0x1B, 0x5E, 0x20);
-    private static final Color KNOWN_COLOR = new Color(0x0D, 0x47, 0xA1);
-    private static final Color COMMUNITY_COLOR = new Color(0x61, 0x61, 0x61);
-    private static final Color MUTED_COLOR = new Color(0xA8, 0xA8, 0xA8);
+    private static final Color OFFICIAL_COLOR = ThemeColor.of("models.provenanceOfficial");
+    private static final Color KNOWN_COLOR = ThemeColor.of("models.provenanceKnown");
+    private static final Color COMMUNITY_COLOR = ThemeColor.of("models.provenanceCommunity");
+    private static final Color MUTED_COLOR = ThemeColor.of("models.unsupportedText");
 
     private final Map<String, SupportDecision> statusById = new HashMap<String, SupportDecision>();
 
@@ -129,7 +130,7 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
         ResultRenderer() {
             super(new BorderLayout(10, 0));
             setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0xE3, 0xE6, 0xEB)),
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, ThemeColor.of("models.resultRowDivider")),
                     BorderFactory.createEmptyBorder(5, 8, 5, 8)));
             setOpaque(true);
 
@@ -188,7 +189,7 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
             ownerLabel.setForeground(ownerColor);
             nameLabel.setForeground(foreground);
             statsLabel.setForeground(isSelected ? list.getSelectionForeground()
-                    : (greyed ? MUTED_COLOR : new Color(0x75, 0x75, 0x75)));
+                    : (greyed ? MUTED_COLOR : ThemeColor.of("models.secondaryText")));
             return this;
         }
 
@@ -201,16 +202,16 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
             statusLabel.setFont(base.deriveFont(base.getSize2D() - 2f));
             String prefix = decision.isVerified() ? "" : "~ ";
             if (decision.isChecking()) {
-                statusLabel.setForeground(new Color(0x88, 0x88, 0x88));
+                statusLabel.setForeground(ThemeColor.of("comic.hintText"));
                 statusLabel.setText("⧗ Kompatibilität wird geprüft …");
             } else if (decision.getSupport() == SupportDecision.Support.UNSUPPORTED) {
-                statusLabel.setForeground(new Color(0xB0, 0x50, 0x50));
+                statusLabel.setForeground(ThemeColor.of("models.statusErrorText"));
                 statusLabel.setText(prefix + "kein Importweg — " + shorten(decision.getReason()));
             } else if (decision.isExecutable()) {
-                statusLabel.setForeground(new Color(0x2E, 0x7D, 0x32));
+                statusLabel.setForeground(ThemeColor.of("models.statusSuccessText"));
                 statusLabel.setText(prefix + "importierbar");
             } else {
-                statusLabel.setForeground(new Color(0x8A, 0x6D, 0x00));
+                statusLabel.setForeground(ThemeColor.of("models.statusWarningText"));
                 statusLabel.setText(prefix + "erkannt — Import folgt");
             }
         }
@@ -224,7 +225,7 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
 
         private void configureBadge(Provenance provenance, HuggingFaceModel model, Font base) {
             badgeLabel.setFont(base.deriveFont(Font.BOLD, base.getSize2D() - 2f));
-            badgeLabel.setForeground(Color.WHITE);
+            badgeLabel.setForeground(ThemeColor.of("bubble.userForeground"));
             if (provenance == Provenance.OFFICIAL) {
                 badgeLabel.setText("OFFICIAL");
                 badgeLabel.setBackground(OFFICIAL_COLOR);

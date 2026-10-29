@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.hf.SearchFilterState;
@@ -23,7 +24,6 @@ import javax.swing.JTextField;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -120,10 +120,16 @@ public final class FilterDialog extends JDialog {
         return header;
     }
 
+    /** The catalog error text color as an HTML hex string of its current theme value (built per message). */
+    private static String errorTextHex() {
+        return ThemeColor.toHtmlHex(ThemeColor.of("models.filterErrorText"));
+    }
+
     private void updateOriginLabel() {
         String message = bundle.getMessage();
         originLabel.setText("<html>Quelle: <b>" + bundle.describe() + "</b>"
-                + (message.length() > 0 ? " <span style='color:#a06060'>(" + message + ")</span>" : "") + "</html>");
+                + (message.length() > 0 ? " <span style='color:" + errorTextHex() + "'>(" + message + ")</span>" : "")
+                + "</html>");
     }
 
     private void doRefresh() {
@@ -142,7 +148,7 @@ public final class FilterDialog extends JDialog {
             }
 
             public void failed(String errorMessage) {
-                originLabel.setText("<html>Aktualisierung fehlgeschlagen: <span style='color:#a06060'>"
+                originLabel.setText("<html>Aktualisierung fehlgeschlagen: <span style='color:" + errorTextHex() + "'>"
                         + errorMessage + "</span> — vorherige Daten bleiben.</html>");
                 refreshButton.setEnabled(true);
             }
@@ -292,19 +298,21 @@ public final class FilterDialog extends JDialog {
         JPanel panel = new JPanel(new BorderLayout(0, 2));
         panel.setAlignmentX(Component.LEFT_ALIGNMENT);
         panel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(0xDD, 0xDD, 0xDD)),
+                BorderFactory.createMatteBorder(1, 0, 0, 0, ThemeColor.of("models.sectionDivider")),
                 BorderFactory.createEmptyBorder(6, 0, 6, 0)));
         JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JLabel titleLabel = new JLabel(title);
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
         JLabel badge = new JLabel("Coming Soon");
         badge.setOpaque(true);
-        badge.setBackground(new Color(0x90, 0x90, 0x90));
-        badge.setForeground(Color.WHITE);
+        badge.setBackground(ThemeColor.of("models.unavailableBadge"));
+        badge.setForeground(ThemeColor.of("bubble.userForeground"));
         badge.setBorder(BorderFactory.createEmptyBorder(1, 6, 1, 6));
         header.add(titleLabel);
         header.add(badge);
-        JLabel body = new JLabel("<html><body style='width:500px;color:#666'>" + explanation + "</body></html>");
+        // The text color rides on the label's living foreground (no CSS color), so it follows theme switches.
+        JLabel body = new JLabel("<html><body style='width:500px'>" + explanation + "</body></html>");
+        body.setForeground(ThemeColor.of("models.comingSoonText"));
         panel.add(header, BorderLayout.NORTH);
         panel.add(body, BorderLayout.CENTER);
         return panel;
@@ -454,7 +462,7 @@ public final class FilterDialog extends JDialog {
         }
         if (shown < matches.size()) {
             JLabel more = new JLabel("… und " + (matches.size() - shown) + " weitere — zum Filtern tippen");
-            more.setForeground(new Color(0x80, 0x80, 0x80));
+            more.setForeground(ThemeColor.of("models.mutedText"));
             more.setAlignmentX(Component.LEFT_ALIGNMENT);
             list.add(more);
         }
@@ -516,7 +524,7 @@ public final class FilterDialog extends JDialog {
                                 Runnable updateCount) {
         for (int i = 0; i < orphans.size(); i++) {
             JCheckBox box = catalogCheckbox(group, orphans.get(i), updateCount);
-            box.setForeground(new Color(0x8A, 0x6D, 0x00));
+            box.setForeground(ThemeColor.of("models.statusWarningText"));
             boxes.add(box);
             list.add(box);
         }

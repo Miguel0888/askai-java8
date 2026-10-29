@@ -47,7 +47,8 @@ final class SlashCommandPopup {
         this.list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         this.list.setCellRenderer(new Renderer());
         this.scroll = new JScrollPane(list);
-        this.scroll.setBorder(javax.swing.BorderFactory.createLineBorder(java.awt.Color.GRAY));
+        this.scroll.setBorder(javax.swing.BorderFactory.createLineBorder(
+                com.aresstack.comiccontrols.theme.ThemeColor.of("chat.slashPopupBorder")));
         attach();
     }
 

@@ -1,6 +1,9 @@
 package com.aresstack.askai.java8.ui;
 
 import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.theme.ResearchUiPainter;
+import com.aresstack.comiccontrols.theme.ResearchUiPalette;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -52,22 +55,22 @@ public final class ChatComposerPanel extends JPanel {
 
     private static final int ARC = 18;
     private static final int MIN_EDITOR_HEIGHT = 62;
-    private static final Color BORDER_NORMAL = new Color(0xB8BDC5);
+    private static final Color BORDER_NORMAL = ThemeColor.of("chat.composerBorder");
     // The accent/danger tokens are single-sourced in ResearchUiPalette so the phase selector and
     // the drawer controls use EXACTLY the navigation blue — never a second palette.
     private static final Color BORDER_FOCUSED =
             com.aresstack.comiccontrols.theme.ResearchUiPalette.ACCENT_BLUE;
-    private static final Color BORDER_DICTATION = new Color(0xF57C00);
-    private static final Color BACKGROUND_NORMAL = new Color(0xF5F6F7);
-    private static final Color BACKGROUND_FOCUSED = Color.WHITE;
-    private static final Color BACKGROUND_DICTATION = new Color(0xFFF8E1);
-    private static final Color TEXT_MUTED = new Color(0x777D85);
-    private static final Color PLACEHOLDER = new Color(0x9AA0A6);
+    private static final Color BORDER_DICTATION = ThemeColor.of("chat.composerDictationAccent");
+    private static final Color BACKGROUND_NORMAL = ThemeColor.of("chat.composerRestBackground");
+    private static final Color BACKGROUND_FOCUSED = ThemeColor.of("comic.fieldBg");
+    private static final Color BACKGROUND_DICTATION = ThemeColor.of("comic.warmFocus");
+    private static final Color TEXT_MUTED = ThemeColor.of("chat.composerMutedText");
+    private static final Color PLACEHOLDER = ThemeColor.of("chat.placeholderText");
     private static final Color PRIMARY =
             com.aresstack.comiccontrols.theme.ResearchUiPalette.ACCENT_BLUE;
     private static final Color DANGER =
             com.aresstack.comiccontrols.theme.ResearchUiPalette.DANGER_RED;
-    private static final Color RECORDING = new Color(0xF57C00);
+    private static final Color RECORDING = ThemeColor.of("chat.composerRecordingAccent");
 
     /** Route semantic user actions without exposing the internal buttons. */
     public interface Actions {
@@ -898,11 +901,8 @@ public final class ChatComposerPanel extends JPanel {
     }
 
     private static Color blend(Color first, Color second, float secondWeight) {
-        float firstWeight = 1f - secondWeight;
-        return new Color(
-                Math.round(first.getRed() * firstWeight + second.getRed() * secondWeight),
-                Math.round(first.getGreen() * firstWeight + second.getGreen() * secondWeight),
-                Math.round(first.getBlue() * firstWeight + second.getBlue() * secondWeight));
+        // the same rounding blend as ResearchUiPainter.mix; evaluated at paint time, never stored
+        return ResearchUiPainter.mix(first, second, secondWeight);
     }
 
     private static final class PlaceholderTextArea extends JTextArea {
@@ -974,7 +974,8 @@ public final class ChatComposerPanel extends JPanel {
             boolean pressed = getModel().isPressed();
 
             if (primary || emphasized) {
-                Color fill = isEnabled() ? active : new Color(0xB7BBC1);
+                Color fill = isEnabled() ? active
+                        : ThemeColor.of("chat.composerButtonDisabledFill");
                 if (pressed && isEnabled()) {
                     fill = fill.darker();
                 } else if (hovered && isEnabled()) {
@@ -982,11 +983,11 @@ public final class ChatComposerPanel extends JPanel {
                 }
                 g2.setColor(fill);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
-                setForeground(Color.WHITE);
+                setForeground(ThemeColor.of("bubble.userForeground"));
             } else if (!isEnabled()) {
-                setForeground(new Color(0xA5A9AE));
+                setForeground(ThemeColor.of("chat.composerButtonDisabledText"));
             } else if (hovered) {
-                g2.setColor(new Color(0, 0, 0, 18));
+                g2.setColor(ThemeColor.withAlpha(ThemeColor.of("chat.composerButtonHoverShade"), 18));
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
                 setForeground(resolveButtonForeground());
             } else {
@@ -999,7 +1000,7 @@ public final class ChatComposerPanel extends JPanel {
 
         private static Color resolveButtonForeground() {
             Color foreground = UIManager.getColor("Button.foreground");
-            return foreground == null ? new Color(0x44484D) : foreground;
+            return foreground == null ? ResearchUiPalette.LIGHT_CONTROL_TEXT : foreground;
         }
 
         @Override

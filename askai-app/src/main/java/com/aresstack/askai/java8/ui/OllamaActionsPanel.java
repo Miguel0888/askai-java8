@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.client.OllamaModelInfoView;
@@ -20,7 +21,6 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -67,7 +67,7 @@ public final class OllamaActionsPanel extends JPanel {
     private JComponent buildHeader() {
         JLabel title = new JLabel("Ollama Actions");
         JLabel subtitle = new JLabel("Live operations against the configured Ollama server via ollama4j.");
-        subtitle.setForeground(new Color(0x757575));
+        subtitle.setForeground(ThemeColor.of("models.secondaryText"));
 
         JPanel form = new JPanel(new GridBagLayout());
         GridBagConstraints constraints = new GridBagConstraints();
@@ -133,7 +133,7 @@ public final class OllamaActionsPanel extends JPanel {
             // Not wired yet: don't offer a Run button that would only fail after the click; label the
             // card as experimental so it doesn't read as a usable feature.
             panel.add(experimentalBadge(), BorderLayout.SOUTH);
-            body.setForeground(new Color(0x9E, 0x9E, 0x9E));
+            body.setForeground(ThemeColor.of("models.unavailableText"));
         }
         return panel;
     }
@@ -142,8 +142,8 @@ public final class OllamaActionsPanel extends JPanel {
     private static JComponent experimentalBadge() {
         JLabel badge = new JLabel("Experimental — not available yet");
         badge.setOpaque(true);
-        badge.setForeground(Color.WHITE);
-        badge.setBackground(new Color(0x90, 0x90, 0x90));
+        badge.setForeground(ThemeColor.of("bubble.userForeground"));
+        badge.setBackground(ThemeColor.of("models.unavailableBadge"));
         badge.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 8));
         JPanel wrap = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         wrap.setOpaque(false);

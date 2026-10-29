@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.client.OllamaModelInfo;
 import com.aresstack.askai.java8.client.OllamaRunningModelInfo;
@@ -9,7 +10,6 @@ import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -40,9 +40,9 @@ final class OllamaModelCard extends JPanel {
                             final Runnable testRerankerAction) {
         setLayout(new BorderLayout(12, 0));
         setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(210, 215, 224)),
+                BorderFactory.createLineBorder(ThemeColor.of("models.cardBorder")),
                 BorderFactory.createEmptyBorder(10, 12, 10, 12)));
-        setBackground(new Color(250, 251, 253));
+        setBackground(ThemeColor.of("models.cardBackground"));
         setMaximumSize(new Dimension(Integer.MAX_VALUE, 96));
 
         JPanel text = new JPanel(new GridLayout(0, 1, 0, 3));
@@ -67,7 +67,7 @@ final class OllamaModelCard extends JPanel {
                 testReranker.setToolTipText(
                         "Run a sample query against this local reranker (loads the model)");
                 testReranker.setFont(testReranker.getFont().deriveFont(Font.BOLD));
-                testReranker.setForeground(new Color(0x0D, 0x47, 0xA1));
+                testReranker.setForeground(ThemeColor.of("models.primaryActionText"));
                 testReranker.addActionListener(event -> testRerankerAction.run());
                 right.add(testReranker);
             }
@@ -76,7 +76,7 @@ final class OllamaModelCard extends JPanel {
                 JButton useInChat = new ComicButton("Use in chat");
                 useInChat.setToolTipText("Open the Chat and select this model (keeps the current conversation)");
                 useInChat.setFont(useInChat.getFont().deriveFont(Font.BOLD));
-                useInChat.setForeground(new Color(0x0D, 0x47, 0xA1));
+                useInChat.setForeground(ThemeColor.of("models.primaryActionText"));
                 useInChat.addActionListener(event -> useInChatAction.run());
                 right.add(useInChat);
             }
@@ -103,14 +103,14 @@ final class OllamaModelCard extends JPanel {
             // Destructive action last and clearly marked.
             JButton deleteButton = new ComicButton("Delete");
             deleteButton.setToolTipText("Delete this model from the Ollama server");
-            deleteButton.setForeground(new Color(0xC6, 0x28, 0x28));
+            deleteButton.setForeground(ThemeColor.of("models.destructiveActionText"));
             deleteButton.addActionListener(event -> deleteAction.run());
             right.add(deleteButton);
         } else {
             JLabel status = new JLabel(running ? "RUNNING" : "INSTALLED");
             status.setOpaque(true);
-            status.setForeground(Color.WHITE);
-            status.setBackground(running ? new Color(46, 125, 50) : new Color(84, 110, 122));
+            status.setForeground(ThemeColor.of("bubble.userForeground"));
+            status.setBackground(running ? ThemeColor.of("models.runningBadge") : ThemeColor.of("models.installedBadge"));
             status.setBorder(BorderFactory.createEmptyBorder(6, 10, 6, 10));
             right.add(status);
         }

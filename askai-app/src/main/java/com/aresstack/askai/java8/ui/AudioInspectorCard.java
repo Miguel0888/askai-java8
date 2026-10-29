@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.Timer;
@@ -125,8 +127,8 @@ final class AudioInspectorCard extends JPanel {
         Graphics2D g = (Graphics2D) graphics.create();
         try {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            Color fill = uiColor("Panel.background", Color.WHITE);
-            Color border = uiColor("Component.borderColor", uiColor("controlShadow", Color.GRAY));
+            Color fill = uiColor("Panel.background", ThemeColor.of("comic.buttonPlate"));
+            Color border = uiColor("Component.borderColor", uiColor("controlShadow", ThemeColor.of("audio.cardBorder")));
             int top = CARET_HEIGHT;
             int width = getWidth();
             int height = getHeight() - CARET_HEIGHT;

@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.comiccontrols.control.ComicToggleButton;
 import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.comiccontrols.control.ComicButton;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion;
@@ -51,7 +52,6 @@ import javax.swing.SwingUtilities;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -592,13 +592,13 @@ public final class OllamaInstallPanel extends JPanel {
         tokenShowToggle.addActionListener(event ->
                 tokenField.setEchoChar(tokenShowToggle.isSelected() ? (char) 0 : defaultEcho));
         tokenClearButton.setToolTipText("Remove the stored Hugging Face token");
-        tokenClearButton.setForeground(new Color(0xC6, 0x28, 0x28));
+        tokenClearButton.setForeground(ThemeColor.of("models.destructiveActionText"));
         tokenClearButton.addActionListener(event -> {
             tokenField.setText("");
             saveTokenToConfiguration();
             updateTokenStatus();
         });
-        tokenStatusLabel.setForeground(new Color(0x75, 0x75, 0x75));
+        tokenStatusLabel.setForeground(ThemeColor.of("models.secondaryText"));
         tokenField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             public void insertUpdate(javax.swing.event.DocumentEvent e) { updateTokenStatus(); }
             public void removeUpdate(javax.swing.event.DocumentEvent e) { updateTokenStatus(); }
@@ -910,15 +910,13 @@ public final class OllamaInstallPanel extends JPanel {
         private static java.awt.Color readableOn(java.awt.Color background) {
             double luminance = (0.299 * background.getRed() + 0.587 * background.getGreen()
                     + 0.114 * background.getBlue()) / 255.0;
-            return luminance > 0.6 ? java.awt.Color.BLACK : java.awt.Color.WHITE;
+            return luminance > 0.6 ? ThemeColor.of("models.localBadgeDarkText")
+                    : ThemeColor.of("bubble.userForeground");
         }
 
+        /** {@code base} mixed towards {@code other} by {@code ratio}, derived live (same rounding as before). */
         private static java.awt.Color blend(java.awt.Color base, java.awt.Color other, float ratio) {
-            float inverse = 1f - ratio;
-            return new java.awt.Color(
-                    Math.round(base.getRed() * inverse + other.getRed() * ratio),
-                    Math.round(base.getGreen() * inverse + other.getGreen() * ratio),
-                    Math.round(base.getBlue() * inverse + other.getBlue() * ratio));
+            return ThemeColor.mix(base, other, ratio);
         }
     }
 
@@ -1040,9 +1038,9 @@ public final class OllamaInstallPanel extends JPanel {
         });
         JPanel banner = new JPanel(new BorderLayout(8, 0));
         banner.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new java.awt.Color(0xE3, 0x9A, 0x18)),
+                BorderFactory.createLineBorder(ThemeColor.of("comic.accentOrange")),
                 BorderFactory.createEmptyBorder(4, 8, 4, 8)));
-        banner.setBackground(new java.awt.Color(0xFF, 0xF6, 0xDF));
+        banner.setBackground(ThemeColor.of("models.addOnBannerBackground"));
         banner.setOpaque(true);
         banner.add(addOnBannerLabel, BorderLayout.CENTER);
         banner.add(cancel, BorderLayout.EAST);
@@ -1484,7 +1482,7 @@ public final class OllamaInstallPanel extends JPanel {
         importStatusLabel.setText(text.length() == 0 ? " "
                 : (enabled ? "✓ " : "✕ ") + text);
         importStatusLabel.setForeground(text.length() == 0 ? importStatusLabel.getForeground()
-                : (enabled ? new Color(0x2E, 0x7D, 0x32) : new Color(0xB0, 0x50, 0x50)));
+                : (enabled ? ThemeColor.of("models.statusSuccessText") : ThemeColor.of("models.statusErrorText")));
     }
 
     private void loadFiles() {
@@ -2040,7 +2038,7 @@ public final class OllamaInstallPanel extends JPanel {
                 ? "Install this downloaded model"
                 : "This file failed GGUF validation (truncated or corrupt) — delete it and re-download");
         if (!valid) {
-            installButton.setForeground(new java.awt.Color(0xB0, 0x2E, 0x2E));
+            installButton.setForeground(ThemeColor.of("models.invalidFileText"));
         }
         installButton.addActionListener(event -> {
             menu.setVisible(false);
@@ -2713,8 +2711,8 @@ public final class OllamaInstallPanel extends JPanel {
             try {
                 g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
                         java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
-                g.setColor(component.isEnabled() ? new java.awt.Color(0xC0, 0x2E, 0x2E)
-                        : new java.awt.Color(0x9E, 0x9E, 0x9E));
+                g.setColor(component.isEnabled() ? ThemeColor.of("models.cancelIconGlyph")
+                        : ThemeColor.of("app.iconGlyphDisabled"));
                 g.setStroke(new java.awt.BasicStroke(2f, java.awt.BasicStroke.CAP_ROUND,
                         java.awt.BasicStroke.JOIN_ROUND));
                 int pad = 2;

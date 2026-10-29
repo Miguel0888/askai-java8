@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+
 import javax.swing.JComponent;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -25,7 +27,7 @@ import java.awt.event.MouseEvent;
 public final class ConnectionWidget extends JComponent {
 
     /** The address link colour (matches the previous bare-URL link); never green. */
-    private static final Color LINK = new Color(0x0D47A1);
+    private static final Color LINK = ThemeColor.of("app.connectionLinkText");
     private static final int DOT_ZONE = 20;
     private static final int GAP = 4;
     private static final int PAD_LEFT = 8;
@@ -140,9 +142,8 @@ public final class ConnectionWidget extends JComponent {
             if (statusHovered) {
                 // The dot GROWS a purpose on hover: the comic refresh glyph — a circular arrow
                 // in the status colour, dimmed while a refresh is already running.
-                Color color = new Color(status.getColorRgb());
-                g2.setColor(refreshEnabled ? color
-                        : new Color(color.getRed(), color.getGreen(), color.getBlue(), 110));
+                Color color = ThemeColor.of(status.getColorToken());
+                g2.setColor(refreshEnabled ? color : ThemeColor.withAlpha(color, 110));
                 g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 int r = 6;
                 g2.drawArc(cx - r, cy - r, 2 * r, 2 * r, 30, 290); // open circle
@@ -152,7 +153,7 @@ public final class ConnectionWidget extends JComponent {
                 g2.drawLine(hx, hy, hx + 4, hy - 1);
                 g2.drawLine(hx, hy, hx - 1, hy - 5);
             } else {
-                g2.setColor(new Color(status.getColorRgb()));
+                g2.setColor(ThemeColor.of(status.getColorToken()));
                 g2.fillOval(cx - 4, cy - 4, 9, 9);
             }
 

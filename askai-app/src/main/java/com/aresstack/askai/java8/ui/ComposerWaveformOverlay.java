@@ -1,5 +1,8 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ResearchUiPalette;
+import com.aresstack.comiccontrols.theme.ThemeColor;
+
 import javax.swing.JComponent;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -22,10 +25,10 @@ import java.awt.event.MouseEvent;
 public final class ComposerWaveformOverlay extends JComponent {
 
     /** Comic dark green — clearly "recording", distinct from the blue/red accent families. */
-    private static final Color WAVE = new Color(0x2E7D32);
-    private static final Color WAVE_BELOW = new Color(0x2E7D32);
+    private static final Color WAVE = ThemeColor.of("chat.waveformSpeechBar");
+    private static final Color WAVE_BELOW = ThemeColor.of("chat.waveformNoiseBar");
     /** The voice-activation line is RED: the classic "below this is ignored" gate colour. */
-    private static final Color GATE = new Color(0xD32F2F);
+    private static final Color GATE = ResearchUiPalette.DANGER_RED;
     private static final int BAR_WIDTH = 3;
     private static final int BAR_GAP = 3;
     private static final int PAD_V = 6;
@@ -175,6 +178,6 @@ public final class ComposerWaveformOverlay extends JComponent {
     }
 
     private static Color withAlpha(Color color, int alpha) {
-        return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
+        return ThemeColor.withAlpha(color, alpha);
     }
 }

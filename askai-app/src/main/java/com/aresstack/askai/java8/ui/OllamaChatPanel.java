@@ -2,6 +2,7 @@ package com.aresstack.askai.java8.ui;
 
 import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.comiccontrols.control.ComicButton;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.audio.AudioProfileRepository;
 import com.aresstack.askai.java8.audio.format.SupportedAudioFormats;
@@ -2041,7 +2042,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             java.awt.Graphics2D g2 = (java.awt.Graphics2D) graphics.create();
             g2.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING,
                     java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            g2.setColor(new Color(0x9AA0A6));
+            g2.setColor(ThemeColor.of("chat.placeholderText"));
             g2.setFont(getFont().deriveFont(java.awt.Font.ITALIC));
             java.awt.FontMetrics metrics = g2.getFontMetrics();
             java.awt.Insets insets = getInsets();
@@ -2124,7 +2125,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             public void paintIcon(Component c, Graphics g, int x, int y) {
                 g.setColor(color);
                 g.fillRect(x, y, 14, 14);
-                g.setColor(Color.GRAY);
+                g.setColor(ThemeColor.of("chat.colorSwatchBorder"));
                 g.drawRect(x, y, 14, 14);
             }
 

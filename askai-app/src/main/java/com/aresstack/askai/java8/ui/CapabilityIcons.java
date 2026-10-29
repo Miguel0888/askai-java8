@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
+
 import javax.swing.Icon;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -22,15 +24,15 @@ final class CapabilityIcons {
     private static final int SLOT_SIZE = 16;
     private static final int GAP = 2;
 
-    private static final Color TEXT_COLOR = new Color(0x60, 0x7D, 0x8B);
-    private static final Color VISION_COLOR = new Color(0x15, 0x65, 0xC0);
-    private static final Color AUDIO_COLOR = new Color(0x2E, 0x7D, 0x32);
-    private static final Color TOOLS_COLOR = new Color(0x6D, 0x4C, 0x41);
-    private static final Color THINKING_COLOR = new Color(0x8E, 0x24, 0xAA);
-    private static final Color EMBEDDING_COLOR = new Color(0xEF, 0x6C, 0x00);
-    private static final Color IMAGE_COLOR = new Color(0xAD, 0x14, 0x57);
-    private static final Color INSERT_COLOR = new Color(0x00, 0x83, 0x8F);
-    private static final Color CLOUD_COLOR = new Color(0x54, 0x6E, 0x7A);
+    private static final Color TEXT_COLOR = ThemeColor.of("models.capabilityText");
+    private static final Color VISION_COLOR = ThemeColor.of("models.capabilityVision");
+    private static final Color AUDIO_COLOR = ThemeColor.of("models.capabilityAudio");
+    private static final Color TOOLS_COLOR = ThemeColor.of("models.capabilityTools");
+    private static final Color THINKING_COLOR = ThemeColor.of("models.capabilityThinking");
+    private static final Color EMBEDDING_COLOR = ThemeColor.of("models.capabilityEmbedding");
+    private static final Color IMAGE_COLOR = ThemeColor.of("models.capabilityImage");
+    private static final Color INSERT_COLOR = ThemeColor.of("models.capabilityInsert");
+    private static final Color CLOUD_COLOR = ThemeColor.of("models.capabilityCloud");
 
     private CapabilityIcons() {
     }

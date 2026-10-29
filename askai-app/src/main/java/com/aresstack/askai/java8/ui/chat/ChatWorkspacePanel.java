@@ -12,9 +12,9 @@ import com.aresstack.comiccontrols.control.ComicSplitPane;
 import com.aresstack.comiccontrols.control.ResearchIconButton;
 import com.aresstack.comiccontrols.control.ResearchPillButton;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
-import com.aresstack.comiccontrols.theme.ResearchUiPainter;
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -789,11 +789,13 @@ public final class ChatWorkspacePanel extends JPanel {
         deleteAll.setFont(ResearchUiTypography.regular(12.5f));
         deleteAll.setToolTipText("Delete every saved chat (asks for confirmation)");
         deleteAll.setFills(ResearchUiPalette.LIGHT_CONTROL_BG, ResearchUiPalette.DANGER_RED,
-                ResearchUiPainter.mix(ResearchUiPalette.DANGER_RED, java.awt.Color.BLACK, 0.18f));
+                ThemeColor.mix(ResearchUiPalette.DANGER_RED,
+                        ThemeColor.of("chat.deleteAllPressedShade"), 0.18f));
         deleteAll.setBorders(ResearchUiPalette.LIGHT_CONTROL_BORDER, ResearchUiPalette.DANGER_RED,
-                ResearchUiPainter.mix(ResearchUiPalette.DANGER_RED, java.awt.Color.BLACK, 0.18f));
-        deleteAll.setForegrounds(ResearchUiPalette.LIGHT_CONTROL_TEXT, java.awt.Color.WHITE,
-                java.awt.Color.WHITE);
+                ThemeColor.mix(ResearchUiPalette.DANGER_RED,
+                        ThemeColor.of("chat.deleteAllPressedShade"), 0.18f));
+        deleteAll.setForegrounds(ResearchUiPalette.LIGHT_CONTROL_TEXT,
+                ThemeColor.of("bubble.assistantForeground"), ThemeColor.of("bubble.assistantForeground"));
         deleteAll.addActionListener(event -> deleteAllChats());
         JPanel deleteWrap = new JPanel(new java.awt.GridBagLayout());
         deleteWrap.setOpaque(false);
@@ -961,7 +963,7 @@ public final class ChatWorkspacePanel extends JPanel {
     private JComponent projectHeader(String project) {
         JLabel header = new JLabel("▪ " + project);
         header.setFont(ResearchUiTypography.semiBold(11f));
-        header.setForeground(new java.awt.Color(0x15827A)); // the design language's petrol role
+        header.setForeground(ThemeColor.of("comic.agentPetrol")); // the design language's petrol role
         header.setBorder(BorderFactory.createEmptyBorder(14, 10, 4, 8));
         return header;
     }
@@ -1085,8 +1087,8 @@ public final class ChatWorkspacePanel extends JPanel {
         final javax.swing.JTextField field = ComicControls.textField(title);
         field.setFont(ResearchUiTypography.regular(13f));
         field.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(ResearchUiPainter.mix(
-                        ResearchUiPalette.ACCENT_BLUE, java.awt.Color.WHITE, 0.5f)),
+                BorderFactory.createLineBorder(ThemeColor.mix(
+                        ResearchUiPalette.ACCENT_BLUE, ThemeColor.of("comic.fieldBg"), 0.5f)),
                 BorderFactory.createEmptyBorder(4, 8, 4, 8)));
         final Runnable cancel = () -> {
             renamingChatId = null;

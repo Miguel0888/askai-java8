@@ -7,6 +7,7 @@ import com.aresstack.audio.pipeline.AudioParameterChoice;
 import com.aresstack.audio.pipeline.AudioParameterDescriptor;
 import com.aresstack.audio.profile.AudioBlockDefinition;
 import com.aresstack.audio.profile.AudioBlockType;
+import com.aresstack.comiccontrols.theme.ResearchUiPalette;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -202,7 +203,7 @@ public final class AudioBlockInspectorPanel extends JPanel {
 
     private static Color errorColor() {
         Color color = UIManager.getColor("Actions.Red");
-        return color == null ? new Color(0xD3, 0x2F, 0x2F) : color;
+        return color == null ? ResearchUiPalette.DANGER_RED : color;
     }
 
     /** Create the editor for one parameter from its descriptor and the block's current value. */

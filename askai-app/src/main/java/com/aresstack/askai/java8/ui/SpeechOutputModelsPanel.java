@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.tts.PiperInstaller;
@@ -146,7 +147,7 @@ public final class SpeechOutputModelsPanel extends JPanel {
         final java.awt.Color original = row.getBackground();
         final boolean wasOpaque = row.isOpaque();
         row.setOpaque(true);
-        row.setBackground(new java.awt.Color(0xDCE9FF)); // calm AskAI-blue tint, not an alarm
+        row.setBackground(ThemeColor.of("models.voiceHighlightBackground")); // calm highlight tint, not an alarm
         row.repaint();
         javax.swing.Timer restore = new javax.swing.Timer(1800, event -> {
             row.setOpaque(wasOpaque);

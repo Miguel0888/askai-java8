@@ -5,6 +5,7 @@ import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.ResearchUiPainter;
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.JComponent;
 import javax.swing.JPopupMenu;
@@ -37,9 +38,9 @@ final class ChatHistoryRow extends JComponent {
     }
 
     private static final Color HOVER_WASH =
-            ResearchUiPainter.mix(ResearchUiPalette.ACCENT_BLUE, Color.WHITE, 0.94f);
+            ThemeColor.mix(ResearchUiPalette.ACCENT_BLUE, ThemeColor.of("comic.fieldBg"), 0.94f);
     private static final Color SELECTED_WASH =
-            ResearchUiPainter.mix(ResearchUiPalette.ACCENT_BLUE, Color.WHITE, 0.88f);
+            ThemeColor.mix(ResearchUiPalette.ACCENT_BLUE, ThemeColor.of("comic.fieldBg"), 0.88f);
 
     private final String title;
     private final String meta;
@@ -204,7 +205,7 @@ final class ChatHistoryRow extends JComponent {
                 Rectangle hit = menuHit();
                 if (menuHovered) {
                     g2.setColor(ResearchUiPainter.mix(
-                            ResearchUiPalette.ACCENT_BLUE, Color.WHITE, 0.82f));
+                            ResearchUiPalette.ACCENT_BLUE, ThemeColor.of("comic.fieldBg"), 0.82f));
                     g2.fillOval(hit.x, hit.y, hit.width, hit.height);
                 }
                 g2.setColor(ResearchUiPalette.LIGHT_CONTROL_TEXT);
@@ -221,7 +222,7 @@ final class ChatHistoryRow extends JComponent {
                 Rectangle hit = menuHit();
                 if (menuHovered) {
                     g2.setColor(ResearchUiPainter.mix(
-                            ResearchUiPalette.ACCENT_BLUE, Color.WHITE, 0.82f));
+                            ResearchUiPalette.ACCENT_BLUE, ThemeColor.of("comic.fieldBg"), 0.82f));
                     g2.fillOval(hit.x, hit.y, hit.width, hit.height);
                 }
                 g2.setColor(ResearchUiPalette.LIGHT_CONTROL_TEXT);
@@ -246,7 +247,7 @@ final class ChatHistoryRow extends JComponent {
                 g2.setFont(ResearchUiTypography.regular(11f));
                 FontMetrics metaMetrics = g2.getFontMetrics();
                 g2.setColor(deleted
-                        ? ResearchUiPainter.mix(ResearchUiPalette.DANGER_RED, Color.WHITE, 0.25f)
+                        ? ResearchUiPainter.mix(ResearchUiPalette.DANGER_RED, ThemeColor.of("comic.fieldBg"), 0.25f)
                         : ResearchUiPalette.LIGHT_TEXT_MUTED);
                 g2.drawString(ellipsize(meta, metaMetrics, rightEdge - textX), textX,
                         getHeight() - 9);

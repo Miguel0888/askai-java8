@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
@@ -78,7 +79,7 @@ public final class RepositoryDetailDialog extends JDialog {
 
                 public void onError(String message) {
                     statusValue.setText("Analyse fehlgeschlagen");
-                    statusValue.setForeground(new Color(0xB0, 0x50, 0x50));
+                    statusValue.setForeground(ThemeColor.of("models.statusErrorText"));
                     reasonValue.setText(message == null ? "" : message);
                 }
             });
@@ -197,7 +198,7 @@ public final class RepositoryDetailDialog extends JDialog {
 
     private void showPending() {
         statusValue.setText("wird geprüft …");
-        statusValue.setForeground(new Color(0x88, 0x88, 0x88));
+        statusValue.setForeground(ThemeColor.of("comic.hintText"));
         reasonValue.setText("Analyse läuft …");
         strategyValue.setText("—");
         formatsValue.setText("Analyse läuft …");
@@ -210,16 +211,16 @@ public final class RepositoryDetailDialog extends JDialog {
         Color color;
         if (decision.isChecking()) {
             statusWord = "wird geprüft";
-            color = new Color(0x88, 0x88, 0x88);
+            color = ThemeColor.of("comic.hintText");
         } else if (decision.isExecutable()) {
             statusWord = "importierbar";
-            color = new Color(0x2E, 0x7D, 0x32);
+            color = ThemeColor.of("models.statusSuccessText");
         } else if (decision.isSupported()) {
             statusWord = "erkannt — Import folgt";
-            color = new Color(0x8A, 0x6D, 0x00);
+            color = ThemeColor.of("models.statusWarningText");
         } else {
             statusWord = "kein Importweg";
-            color = new Color(0xB0, 0x50, 0x50);
+            color = ThemeColor.of("models.statusErrorText");
         }
         statusValue.setText(statusWord + (decision.isVerified() ? "" : " (vorläufig)"));
         statusValue.setForeground(color);

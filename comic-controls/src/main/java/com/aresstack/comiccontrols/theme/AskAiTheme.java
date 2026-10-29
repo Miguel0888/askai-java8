@@ -124,6 +124,85 @@ public final class AskAiTheme {
         put(t, "research.flagUnionCross", 0xFFFFFF);
         put(t, "research.flagUnionCrossCenter", 0xC8102E);
 
+        // app role tokens (T7b part 1): chat window, composer, audio pipeline, app chrome
+        put(t, "chat.composerBorder", 0xB8BDC5);
+        put(t, "chat.composerDictationAccent", 0xF57C00);
+        put(t, "chat.composerRecordingAccent", 0xF57C00);
+        put(t, "chat.composerRestBackground", 0xF5F6F7);
+        put(t, "chat.composerMutedText", 0x777D85);
+        put(t, "chat.placeholderText", 0x9AA0A6);
+        put(t, "chat.composerButtonDisabledFill", 0xB7BBC1);
+        put(t, "chat.composerButtonDisabledText", 0xA5A9AE);
+        put(t, "chat.composerButtonHoverShade", 0x000000);
+        put(t, "chat.deleteAllPressedShade", 0x000000);
+        put(t, "chat.waveformSpeechBar", 0x2E7D32);
+        put(t, "chat.waveformNoiseBar", 0x2E7D32);
+        put(t, "chat.colorSwatchBorder", 0x808080);
+        put(t, "chat.mentionLoadedBackground", 0xDFF3DF);
+        put(t, "chat.mentionLoadedSelected", 0x8FCF8F);
+        put(t, "chat.imagePlaceholderFill", 0xD7DBE0);
+        put(t, "chat.imagePlaceholderGlyph", 0x9AA0A6);
+        put(t, "chat.attachmentChipBackground", 0xECEFF3);
+        put(t, "chat.attachmentChipBorder", 0xC5CAD2);
+        put(t, "chat.slashPopupBorder", 0x808080);
+        put(t, "audio.disabledForeground", 0x808080);
+        put(t, "audio.blockBackground", 0xF5F5F5);
+        put(t, "audio.blockForeground", 0x404040);
+        put(t, "audio.blockAccent", 0x4678BE);
+        put(t, "audio.warningSeverity", 0xF9A825);
+        put(t, "audio.cardBorder", 0x808080);
+        put(t, "app.connectionLinkText", 0x0D47A1);
+        put(t, "app.connectionNotCheckedDot", 0x757575);
+        put(t, "app.connectionConnectingDot", 0xF9A825);
+        put(t, "app.connectionConnectedDot", 0x2E7D32);
+        put(t, "app.connectionFailedDot", 0xC62828);
+        put(t, "app.collapsibleHeaderText", 0x37474F);
+        put(t, "app.iconGlyph", 0x426077);
+        put(t, "app.iconGlyphDisabled", 0x9E9E9E);
+
+        // app role tokens (T7b part 2): model browser, install, library, repository, filter, actions, about
+        put(t, "models.secondaryText", 0x757575);
+        put(t, "models.mutedText", 0x808080);
+        put(t, "models.variantDetailText", 0x707070);
+        put(t, "models.unsupportedText", 0xA8A8A8);
+        put(t, "models.unavailableText", 0x9E9E9E);
+        put(t, "models.descriptionText", 0x505050);
+        put(t, "models.aboutDescriptionText", 0x555555);
+        put(t, "models.aboutProjectText", 0x777777);
+        put(t, "models.comingSoonText", 0x666666);
+        put(t, "models.parameterBadgeBackground", 0xEDEDED);
+        put(t, "models.parameterBadgeText", 0x555555);
+        put(t, "models.resultRowDivider", 0xE3E6EB);
+        put(t, "models.sectionDivider", 0xDDDDDD);
+        put(t, "models.cardBorder", 0xD2D7E0);
+        put(t, "models.cardBackground", 0xFAFBFD);
+        put(t, "models.primaryActionText", 0x0D47A1);
+        put(t, "models.destructiveActionText", 0xC62828);
+        put(t, "models.invalidFileText", 0xB02E2E);
+        put(t, "models.cancelIconGlyph", 0xC02E2E);
+        put(t, "models.statusSuccessText", 0x2E7D32);
+        put(t, "models.statusWarningText", 0x8A6D00);
+        put(t, "models.statusErrorText", 0xB05050);
+        put(t, "models.filterErrorText", 0xA06060);
+        put(t, "models.runningBadge", 0x2E7D32);
+        put(t, "models.installedBadge", 0x546E7A);
+        put(t, "models.unavailableBadge", 0x909090);
+        put(t, "models.provenanceOfficial", 0x1B5E20);
+        put(t, "models.provenanceKnown", 0x0D47A1);
+        put(t, "models.provenanceCommunity", 0x616161);
+        put(t, "models.localBadgeDarkText", 0x000000);
+        put(t, "models.addOnBannerBackground", 0xFFF6DF);
+        put(t, "models.voiceHighlightBackground", 0xDCE9FF);
+        put(t, "models.capabilityText", 0x607D8B);
+        put(t, "models.capabilityVision", 0x1565C0);
+        put(t, "models.capabilityAudio", 0x2E7D32);
+        put(t, "models.capabilityTools", 0x6D4C41);
+        put(t, "models.capabilityThinking", 0x8E24AA);
+        put(t, "models.capabilityEmbedding", 0xEF6C00);
+        put(t, "models.capabilityImage", 0xAD1457);
+        put(t, "models.capabilityInsert", 0x00838F);
+        put(t, "models.capabilityCloud", 0x546E7A);
+
         // bubble group: exactly BubblePalette.windowsPhoneInspired()
         put(t, "bubble.transcriptBackground", 0xF4F4F4);
         put(t, "bubble.userBackground", 0x1676D2);
@@ -207,6 +286,82 @@ public final class AskAiTheme {
         put(t, "research.engineListSelectionForeground", 0x24304A); // black text: comic.ink
         put(t, "research.flagIconFrame", 0x24304A); // black line: comic.ink
         // research.flag* stripes: national flag colors are identity, not theme — they stay classic
+
+        // app role tokens (T7b part 1): arcane value copied from the family representative
+        put(t, "chat.composerBorder", 0xCDBE9E); // grey line: comic.fieldBorder
+        put(t, "chat.composerDictationAccent", 0xD08A2C); // orange: comic.accentOrange
+        put(t, "chat.composerRecordingAccent", 0xD08A2C); // orange: comic.accentOrange
+        put(t, "chat.composerRestBackground", 0xF8F1E2); // quiet input paper: comic.fieldBgQuiet
+        put(t, "chat.composerMutedText", 0x857A63); // mid-grey secondary text: comic.hintText
+        put(t, "chat.placeholderText", 0xA89C82); // light grey hint: comic.hintTextSoft
+        put(t, "chat.composerButtonDisabledFill", 0xCDBE9E); // mid-grey plate: comic.fieldBorder
+        put(t, "chat.composerButtonDisabledText", 0xA89C82); // light grey text: comic.hintTextSoft
+        put(t, "chat.composerButtonHoverShade", 0x24304A); // black: comic.ink
+        put(t, "chat.deleteAllPressedShade", 0x24304A); // black: comic.ink
+        put(t, "chat.waveformSpeechBar", 0x2A6F6B); // green: comic.agentPetrol
+        put(t, "chat.waveformNoiseBar", 0x2A6F6B); // green: comic.agentPetrol
+        put(t, "chat.colorSwatchBorder", 0xCDBE9E); // grey line: comic.fieldBorder
+        // chat.mentionLoaded*: light green washes behind ink text have no light petrol representative —
+        // they stay classic (agentPetrol as a wash would make the handle text unreadable)
+        put(t, "chat.imagePlaceholderFill", 0xEFE4CF); // grey surface: comic.surface
+        put(t, "chat.imagePlaceholderGlyph", 0xA89C82); // light grey glyph: comic.hintTextSoft
+        put(t, "chat.attachmentChipBackground", 0xEFE4CF); // grey surface: comic.surface
+        put(t, "chat.attachmentChipBorder", 0xCDBE9E); // grey line: comic.fieldBorder
+        put(t, "chat.slashPopupBorder", 0xCDBE9E); // grey line: comic.fieldBorder
+        put(t, "audio.disabledForeground", 0x857A63); // mid-grey text: comic.hintText
+        put(t, "audio.blockBackground", 0xEFE4CF); // grey surface: comic.surface
+        put(t, "audio.blockForeground", 0x24304A); // dark grey text: comic.ink
+        put(t, "audio.blockAccent", 0x2D4F86); // blue: comic.navigationBlue
+        put(t, "audio.warningSeverity", 0xE9B949); // amber warning: comic.accentYellow
+        put(t, "audio.cardBorder", 0xCDBE9E); // grey line: comic.fieldBorder
+        put(t, "app.connectionLinkText", 0x2D4F86); // blue: comic.navigationBlue
+        put(t, "app.connectionNotCheckedDot", 0x857A63); // mid grey: comic.hintText
+        put(t, "app.connectionConnectingDot", 0xE9B949); // amber warning: comic.accentYellow
+        put(t, "app.connectionConnectedDot", 0x2A6F6B); // green success: comic.agentPetrol
+        // app.connectionFailedDot: red function color stays classic
+        put(t, "app.collapsibleHeaderText", 0x24304A); // dark slate text: comic.ink
+        put(t, "app.iconGlyph", 0x24304A); // dark slate glyph: comic.ink
+        put(t, "app.iconGlyphDisabled", 0xA89C82); // light grey glyph: comic.hintTextSoft
+
+        // app role tokens (T7b part 2): arcane value copied from the family representative
+        put(t, "models.secondaryText", 0x857A63); // mid-grey secondary text: comic.hintText
+        put(t, "models.mutedText", 0x857A63); // mid-grey secondary text: comic.hintText
+        put(t, "models.variantDetailText", 0x857A63); // mid-grey secondary text: comic.hintText
+        put(t, "models.unsupportedText", 0xA89C82); // light grey text: comic.hintTextSoft
+        put(t, "models.unavailableText", 0xA89C82); // light grey text: comic.hintTextSoft
+        put(t, "models.descriptionText", 0x24304A); // dark grey text: comic.ink
+        put(t, "models.aboutDescriptionText", 0x24304A); // dark grey text: comic.ink
+        put(t, "models.aboutProjectText", 0x857A63); // mid-grey secondary text: comic.hintText
+        put(t, "models.comingSoonText", 0x857A63); // mid-grey secondary text: comic.hintText
+        put(t, "models.parameterBadgeBackground", 0xEFE4CF); // grey surface: comic.surface
+        put(t, "models.parameterBadgeText", 0x24304A); // dark grey text: comic.ink
+        put(t, "models.resultRowDivider", 0xCDBE9E); // grey line: comic.fieldBorder
+        put(t, "models.sectionDivider", 0xCDBE9E); // grey line: comic.fieldBorder
+        put(t, "models.cardBorder", 0xCDBE9E); // grey line: comic.fieldBorder
+        put(t, "models.cardBackground", 0xFBF6EA); // white lifted plate: comic.buttonPlate
+        put(t, "models.primaryActionText", 0x2D4F86); // blue: comic.navigationBlue
+        // models.destructiveActionText, models.invalidFileText, models.cancelIconGlyph: red stays classic
+        put(t, "models.statusSuccessText", 0x2A6F6B); // green success: comic.agentPetrol
+        // models.statusWarningText: dark amber text stays classic — the gold representatives
+        // (accentYellow/accentOrange) are unreadable as text on parchment
+        // models.statusErrorText, models.filterErrorText: red function colors stay classic
+        put(t, "models.runningBadge", 0x2A6F6B); // green: comic.agentPetrol
+        put(t, "models.installedBadge", 0x24304A); // dark blue-grey plate under white text: comic.ink
+        put(t, "models.unavailableBadge", 0x857A63); // mid-grey plate under white text: comic.hintText
+        put(t, "models.provenanceOfficial", 0x2A6F6B); // green: comic.agentPetrol
+        put(t, "models.provenanceKnown", 0x2D4F86); // blue: comic.navigationBlue
+        put(t, "models.provenanceCommunity", 0x24304A); // dark grey text/plate: comic.ink
+        put(t, "models.localBadgeDarkText", 0x24304A); // black text: comic.ink
+        put(t, "models.addOnBannerBackground", 0xFFF3D6); // amber wash: comic.warmFocus
+        put(t, "models.voiceHighlightBackground", 0xFFF3D6); // light highlight wash: comic.warmFocus
+        put(t, "models.capabilityText", 0x857A63); // blue-grey glyph: comic.hintText
+        put(t, "models.capabilityVision", 0x2D4F86); // blue: comic.navigationBlue
+        put(t, "models.capabilityAudio", 0x2A6F6B); // green: comic.agentPetrol
+        // models.capabilityTools (brown) and models.capabilityImage (crimson): no family — stay classic
+        put(t, "models.capabilityThinking", 0xC08A2E); // purple: gold like research.PURPLE_PRIMARY
+        put(t, "models.capabilityEmbedding", 0xD08A2C); // orange: comic.accentOrange
+        put(t, "models.capabilityInsert", 0x2A6F6B); // teal: comic.agentPetrol
+        put(t, "models.capabilityCloud", 0x857A63); // blue-grey glyph: comic.hintText
 
         put(t, "bubble.transcriptBackground", 0xF6EEDD);
         put(t, "bubble.userBackground", 0x24406E);

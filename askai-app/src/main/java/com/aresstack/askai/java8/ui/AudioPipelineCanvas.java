@@ -2,6 +2,8 @@ package com.aresstack.askai.java8.ui;
 
 import com.aresstack.audio.pipeline.AudioValidationSeverity;
 import com.aresstack.audio.profile.AudioBlockDefinition;
+import com.aresstack.comiccontrols.theme.ResearchUiPalette;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.JPanel;
 import javax.swing.UIManager;
@@ -137,13 +139,13 @@ public final class AudioPipelineCanvas extends JPanel {
             paintBlock(g, blocks.get(i), i, x, y);
         }
         if (blocks.isEmpty()) {
-            g.setColor(uiColor("Label.disabledForeground", Color.GRAY));
+            g.setColor(uiColor("Label.disabledForeground", ThemeColor.of("audio.disabledForeground")));
             g.drawString("Add a block to build the processing pipeline.", MARGIN, MARGIN + 20);
         }
     }
 
     private void paintConnector(Graphics2D g, int x1, int y1, int x2, int y2) {
-        Color foreground = uiColor("Label.disabledForeground", Color.GRAY);
+        Color foreground = uiColor("Label.disabledForeground", ThemeColor.of("audio.disabledForeground"));
         g.setColor(foreground);
         g.setStroke(new BasicStroke(2.0f));
         int arrowX = x2 - 10;
@@ -153,10 +155,10 @@ public final class AudioPipelineCanvas extends JPanel {
     }
 
     private void paintBlock(Graphics2D g, AudioBlockDefinition block, int index, int x, int y) {
-        Color background = uiColor("Panel.background", new Color(245, 245, 245));
-        Color foreground = uiColor("Label.foreground", Color.DARK_GRAY);
-        Color accent = uiColor("Component.accentColor", new Color(70, 120, 190));
-        Color disabled = uiColor("Label.disabledForeground", Color.GRAY);
+        Color background = uiColor("Panel.background", ThemeColor.of("audio.blockBackground"));
+        Color foreground = uiColor("Label.foreground", ThemeColor.of("audio.blockForeground"));
+        Color accent = uiColor("Component.accentColor", ThemeColor.of("audio.blockAccent"));
+        Color disabled = uiColor("Label.disabledForeground", ThemeColor.of("audio.disabledForeground"));
 
         AudioValidationSeverity severity = blockSeverities.get(index);
 
@@ -189,7 +191,7 @@ public final class AudioPipelineCanvas extends JPanel {
     private void paintSeverityBadge(Graphics2D g, int x, int y, AudioValidationSeverity severity) {
         g.setColor(severityColor(severity));
         g.fillOval(x, y, 10, 10);
-        g.setColor(uiColor("Panel.background", Color.WHITE));
+        g.setColor(uiColor("Panel.background", ThemeColor.of("comic.buttonPlate")));
         g.setStroke(new BasicStroke(1.0f));
         g.drawOval(x, y, 10, 10);
     }
@@ -197,9 +199,9 @@ public final class AudioPipelineCanvas extends JPanel {
     /** Theme-aware status colors (FlatLaf action colors when present), never hardcoded light-only tones. */
     private static Color severityColor(AudioValidationSeverity severity) {
         if (severity == AudioValidationSeverity.ERROR) {
-            return uiColor("Actions.Red", new Color(0xD3, 0x2F, 0x2F));
+            return uiColor("Actions.Red", ResearchUiPalette.DANGER_RED);
         }
-        return uiColor("Actions.Yellow", new Color(0xF9, 0xA8, 0x25));
+        return uiColor("Actions.Yellow", ThemeColor.of("audio.warningSeverity"));
     }
 
     private void paintWaveIcon(Graphics2D g, int x, int y, Color color) {

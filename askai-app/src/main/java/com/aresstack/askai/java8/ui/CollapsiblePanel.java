@@ -1,12 +1,12 @@
 package com.aresstack.askai.java8.ui;
 
 import com.aresstack.comiccontrols.control.ComicButton;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Font;
 
@@ -42,7 +42,7 @@ public final class CollapsiblePanel extends JPanel {
         header.setFocusPainted(false);
         header.setBorderPainted(false);
         header.setContentAreaFilled(false);
-        header.setForeground(new Color(0x37, 0x47, 0x4F));
+        header.setForeground(ThemeColor.of("app.collapsibleHeaderText"));
         header.setFont(header.getFont().deriveFont(Font.BOLD));
         header.setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
         header.addActionListener(event -> setExpanded(!this.expanded));

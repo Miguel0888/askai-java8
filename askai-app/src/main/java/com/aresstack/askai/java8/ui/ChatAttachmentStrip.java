@@ -2,6 +2,7 @@ package com.aresstack.askai.java8.ui;
 
 import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.java8.vision.ImageAttachment;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -37,8 +38,8 @@ final class ChatAttachmentStrip extends JPanel {
     }
 
     private static final int THUMB = 44;
-    private static final Color CHIP_BG = new Color(0xECEFF3);
-    private static final Color CHIP_BORDER = new Color(0xC5CAD2);
+    private static final Color CHIP_BG = ThemeColor.of("chat.attachmentChipBackground");
+    private static final Color CHIP_BORDER = ThemeColor.of("chat.attachmentChipBorder");
 
     private final List<ImageAttachment> attachments = new ArrayList<ImageAttachment>();
     private final ChangeListener changeListener;

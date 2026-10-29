@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.comiccontrols.control.ComicButton;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -7,7 +8,6 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Toolkit;
@@ -64,7 +64,7 @@ public final class OllamaAboutPanel extends JPanel {
         content.add(title);
 
         JLabel description = new JLabel(DESCRIPTION);
-        description.setForeground(new Color(0x55, 0x55, 0x55));
+        description.setForeground(ThemeColor.of("models.aboutDescriptionText"));
         description.setAlignmentX(LEFT_ALIGNMENT);
         description.setBorder(BorderFactory.createEmptyBorder(4, 0, 12, 0));
         content.add(description);
@@ -78,7 +78,7 @@ public final class OllamaAboutPanel extends JPanel {
         content.add(infoRow("OS", System.getProperty("os.name") + " " + System.getProperty("os.version")));
 
         JLabel project = new JLabel(PROJECT_LINE);
-        project.setForeground(new Color(0x77, 0x77, 0x77));
+        project.setForeground(ThemeColor.of("models.aboutProjectText"));
         project.setAlignmentX(LEFT_ALIGNMENT);
         project.setBorder(BorderFactory.createEmptyBorder(12, 0, 0, 0));
         content.add(project);

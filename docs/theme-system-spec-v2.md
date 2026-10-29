@@ -481,4 +481,28 @@ Nur Dinge, die der User NICHT gefordert hat:
     only reached when the UIManager has no list selection colors (practically never, `ComicTheme` installs them).
   - `research.conceptCardMutedText` (0x999999, between hint and soft hint) → `comic.hintTextSoft`.
   - E8 cache fixed: `ResearchStateView` inactive title `ink.brighter()` is now `ThemeColor.derive(...)`.
+- T7b (`askai-app/ui` without markdown/bubble; 123 literals + 5 HTML hex in 27 files, grep at zero, no allowlist).
+  Groups `chat.*` (chat window, composer, workspace, history, attachments, popups, waveform), `audio.*` (pipeline
+  canvas/inspector fallbacks), `app.*` (connection widget/status, collapsible header, icons), `models.*` (model
+  browser, install, library, repository, filter, actions, about, speech-output models). The colors kept in T6d/T6e
+  are tokens now. `ConnectionStatus` carries a token key (`getColorToken()`) instead of an int RGB. Stored mixes
+  (history-row washes, delete-all pressed fill, rename border) are live `ThemeColor.mix`. HTML colors are built at
+  render time via `ThemeColor.toHtmlHex`; the filter "coming soon" text uses the label's living foreground instead
+  of a CSS color so it follows a live switch.
+  Rule-3 deviations / judgment calls for review (all arcane values, classic untouched):
+  - `chat.mentionLoaded*` (light green highlight behind ink text) keep the classic values: `agentPetrol` as a
+    background would make the handles unreadable and no light-petrol token exists.
+  - `models.statusWarningText` keeps the classic dark amber: the gold representatives reach only ~2.8–3.6:1 as text
+    on parchment (classic ~4.8:1).
+  - `models.capabilityTools` (brown) and `models.capabilityImage` (crimson) keep classic: no rule-3 family fits.
+  - Readability substitutes instead of the literal family: `models.voiceHighlightBackground` and
+    `models.addOnBannerBackground` (light tint washes) → `comic.warmFocus`; `models.unavailableBadge` (under white
+    text) → `comic.hintText`; `models.installedBadge` (under white text) → `comic.ink`;
+    `chat.composerRestBackground` → `comic.fieldBgQuiet` (stays distinguishable from the focused `fieldBg`);
+    `chat.composerButtonDisabledFill` (under white text) → `comic.fieldBorder`.
+  - `app.iconGlyph` (slate 0x426077) → `comic.ink`; black shade tokens (`chat.composerButtonHoverShade`,
+    `chat.deleteAllPressedShade`) → `comic.ink`, so the pressed delete-all red gets a slight navy tint in arcane.
+  - Arcane collisions: capability icons Audio/Insert both petrol, Text/Cloud both hint grey (shapes differ).
+  - Literals equal by VALUE to a token of another role got their own role token (rule 2 over rule 1 when the role
+    differs), e.g. model status green vs. connection dot green.
 
