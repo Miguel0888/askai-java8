@@ -40,6 +40,8 @@ public final class AskAiTitleBar extends JPanel {
     /** Controls right-aligned directly LEFT of the close chip (e.g. connection dot, settings gear). */
     private final JPanel trailingControls = new JPanel();
     private final JPanel searchSlot = new JPanel(new GridBagLayout());
+    /** The app's main navigation (Chat, Batch), centered between the title and the search. */
+    private final JPanel navigationSlot = new JPanel();
     private AgentSearchContribution boundSearch;
     private Supplier<AgentSession> sessionSource;
     private ComicSearchTag searchField;
@@ -66,7 +68,25 @@ public final class AskAiTitleBar extends JPanel {
 
         searchSlot.setOpaque(false);
         searchSlot.setVisible(false);
-        add(searchSlot, BorderLayout.CENTER);
+        // CENTER: the navigation (Chat, Batch) centered in the space between title and search, then the
+        // search, then a filler of the same weight, so the search stays near the middle of the window.
+        JPanel middle = new JPanel(new GridBagLayout());
+        middle.setOpaque(false);
+        navigationSlot.setOpaque(false);
+        navigationSlot.setLayout(new BoxLayout(navigationSlot, BoxLayout.X_AXIS));
+        java.awt.GridBagConstraints c = new java.awt.GridBagConstraints();
+        c.gridy = 0;
+        c.gridx = 0;
+        c.weightx = 1;
+        c.anchor = java.awt.GridBagConstraints.CENTER;
+        middle.add(navigationSlot, c);
+        c.gridx = 1;
+        c.weightx = 0;
+        middle.add(searchSlot, c);
+        c.gridx = 2;
+        c.weightx = 1;
+        middle.add(Box.createHorizontalStrut(1), c);
+        add(middle, BorderLayout.CENTER);
 
         right.setLayout(new BoxLayout(right, BoxLayout.X_AXIS));
         right.setOpaque(false);
@@ -86,6 +106,16 @@ public final class AskAiTitleBar extends JPanel {
         control.setAlignmentY(CENTER_ALIGNMENT);
         trailingControls.add(control);
         trailingControls.revalidate();
+    }
+
+    /** Adds a navigation control (e.g. "Chat"), centered between the title and the search. */
+    public void addNavigation(JComponent control) {
+        if (navigationSlot.getComponentCount() > 0) {
+            navigationSlot.add(Box.createHorizontalStrut(6));
+        }
+        control.setAlignmentY(CENTER_ALIGNMENT);
+        navigationSlot.add(control);
+        navigationSlot.revalidate();
     }
 
     /** The title shown next to the icon (follows the frame title). */

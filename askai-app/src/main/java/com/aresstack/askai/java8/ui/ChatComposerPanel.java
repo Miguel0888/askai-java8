@@ -608,6 +608,11 @@ public final class ChatComposerPanel extends JPanel {
      * The bare gear GLYPH (paints with the owning component's foreground) — for buttons that manage
      * their own surface, e.g. the dark chats-footer settings button.
      */
+    public static Icon createModelsGlyphIcon() {
+        return new ModelsIcon();
+    }
+
+    /** The back glyph (same contract as {@link #createGearGlyphIcon()}). */
     public static Icon createBackGlyphIcon() {
         return new BackIcon();
     }
@@ -1081,6 +1086,18 @@ public final class ChatComposerPanel extends JPanel {
             g2.drawLine(2, 5, 8, 5);
             g2.drawLine(12, 9, 12, 14);
             g2.drawLine(9, 12, 14, 12);
+        }
+    }
+
+    /** The MODELS glyph: an isometric cube (a packaged model), stroke-drawn like every composer glyph. */
+    private static final class ModelsIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            g2.drawPolygon(new int[]{7, 13, 7, 1}, new int[]{1, 4, 7, 4}, 4); // top face
+            g2.drawLine(1, 4, 1, 10);
+            g2.drawLine(13, 4, 13, 10);
+            g2.drawLine(7, 7, 7, 13);
+            g2.drawLine(1, 10, 7, 13);
+            g2.drawLine(13, 10, 7, 13);
         }
     }
 

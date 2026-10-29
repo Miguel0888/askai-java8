@@ -32,7 +32,6 @@ import com.aresstack.askai.java8.ui.chat.ChatSessionId;
 import com.aresstack.askai.java8.ui.chat.ChatWorkspacePanel;
 import com.aresstack.audio.profile.AudioProcessingProfile;
 import com.aresstack.audio.application.DefaultAudioProcessingPreviewService;
-import com.aresstack.comiccontrols.control.ComicHoverMenu;
 import com.aresstack.comiccontrols.theme.AskAiTheme;
 import com.aresstack.comiccontrols.theme.ComicTheme;
 
@@ -45,8 +44,6 @@ import java.util.function.Supplier;
 import javax.swing.Box;
 import javax.swing.JButton;
 import javax.swing.JFrame;
-import javax.swing.JMenu;
-import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
@@ -277,16 +274,18 @@ public final class AskAiFrame extends JFrame {
         JPanel header = new JPanel();
         header.setLayout(new javax.swing.BoxLayout(header, javax.swing.BoxLayout.Y_AXIS));
         header.setOpaque(false);
-        JMenuBar menuBar = createMenuBar();
         titleBar.setAlignmentX(LEFT_ALIGNMENT);
-        menuBar.setAlignmentX(LEFT_ALIGNMENT);
         // Right-aligned in the title bar, left of the close chip: the connection dot (address, status
         // and version in its hover popup; click refreshes) and the settings gear (same size as the chip).
         connectionStatusView.setCompact(true);
         titleBar.addTrailingControl(connectionStatusView);
+        titleBar.addTrailingControl(createModelsButton());
         titleBar.addTrailingControl(createSettingsGear());
+        titleBar.addTrailingControl(createHelpButton());
+        // The only remaining main functions, centered between the logo and the search (no menu bar).
+        titleBar.addNavigation(createNavigationButton("Chat", CHAT_VIEW));
+        titleBar.addNavigation(createNavigationButton("Batch", BATCH_VIEW));
         header.add(titleBar);
-        header.add(menuBar);
         JPanel windowSurface = new JPanel(new BorderLayout());
         windowSurface.add(header, BorderLayout.NORTH);
         windowSurface.add(createContentPanel(), BorderLayout.CENTER);
@@ -313,13 +312,73 @@ public final class AskAiFrame extends JFrame {
         }
     }
 
-    private JMenuBar createMenuBar() {
-        JMenuBar menuBar = new JMenuBar();
-        menuBar.add(createTopLevelMenu("Chat", CHAT_VIEW));
-        menuBar.add(createTopLevelMenu("Batch", BATCH_VIEW));
-        menuBar.add(createModelsMenu());
-        menuBar.add(createHelpMenu());
-        return menuBar;
+    /** Title-bar navigation buttons by screen; the shown screen's button carries the plate. */
+    private final java.util.Map<String, com.aresstack.comiccontrols.control.ComicButton> navigationButtons =
+            new java.util.LinkedHashMap<String, com.aresstack.comiccontrols.control.ComicButton>();
+
+    /** A main-function button of the title bar (Chat, Batch): flat at rest, a plate while its screen shows. */
+    private javax.swing.JComponent createNavigationButton(String title, final String screenName) {
+        com.aresstack.comiccontrols.control.ComicButton button = new com.aresstack.comiccontrols.control.ComicButton(title);
+        button.setFocusable(false);
+        button.setMargin(new java.awt.Insets(3, 12, 3, 12));
+        button.addActionListener(event -> showScreen(screenName));
+        navigationButtons.put(screenName, button);
+        markNavigation(screenName);
+        return button;
+    }
+
+    private void markNavigation(String screenName) {
+        for (java.util.Map.Entry<String, com.aresstack.comiccontrols.control.ComicButton> entry
+                : navigationButtons.entrySet()) {
+            entry.getValue().setContentAreaFilled(entry.getKey().equals(screenName));
+        }
+    }
+
+    /** The round blue "?" (MainframeMate's help button): the help entries as a menu. */
+    private javax.swing.JComponent createHelpButton() {
+        final com.aresstack.comiccontrols.control.ComicHelpButton help =
+                new com.aresstack.comiccontrols.control.ComicHelpButton(24, "Help");
+        help.addActionListener(event -> {
+            javax.swing.JPopupMenu menu = createHelpPopup();
+            menu.show(help, help.getWidth() - menu.getPreferredSize().width, help.getHeight());
+        });
+        return help;
+    }
+
+    private javax.swing.JPopupMenu createHelpPopup() {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        menu.add(createScreenItem("Actions", ACTIONS_VIEW));
+        JMenuItem recordVideo = new JMenuItem("Record Video...");
+        recordVideo.addActionListener(event -> openRecordVideoDialog());
+        menu.add(recordVideo);
+        menu.addSeparator();
+        menu.add(createScreenItem("About", ABOUT_VIEW));
+        return menu;
+    }
+
+    /** The models button (cube glyph, the gear's size): Setup / Installed / Running Models as a menu. */
+    private javax.swing.JComponent createModelsButton() {
+        final com.aresstack.comiccontrols.control.ComicButton models = new com.aresstack.comiccontrols.control.ComicButton(
+                new ScaledIcon(com.aresstack.askai.java8.ui.ChatComposerPanel.createModelsGlyphIcon(), 20));
+        models.setContentAreaFilled(false);
+        models.setFocusable(false);
+        models.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        models.setPreferredSize(new Dimension(24, 24));
+        models.setToolTipText("Models");
+        models.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        models.addActionListener(event -> {
+            javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+            menu.add(createScreenItem("Setup", INSTALL_VIEW));
+            JMenuItem installed = new JMenuItem("Installed");
+            installed.addActionListener(e -> showModels(true));
+            menu.add(installed);
+            JMenuItem running = new JMenuItem("Running Models");
+            running.addActionListener(e -> showModels(false));
+            menu.add(running);
+            menu.show(models, models.getWidth() - menu.getPreferredSize().width, models.getHeight());
+        });
+        models.setMaximumSize(models.getPreferredSize());
+        return models;
     }
 
     /** The gear's menu: chat settings first, then the configuration screens. */
@@ -504,45 +563,6 @@ public final class AskAiFrame extends JFrame {
         } else {
             javax.swing.SwingUtilities.invokeLater(runnable);
         }
-    }
-
-    private JMenu createTopLevelMenu(String title, String screenName) {
-        final JMenu menu = new ComicHoverMenu(title);
-        menu.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent event) {
-                showScreen(screenName);
-                menu.setSelected(false);
-            }
-        });
-        return menu;
-    }
-
-    private JMenu createModelsMenu() {
-        JMenu modelsMenu = new ComicHoverMenu("Models");
-        JMenuItem installedItem = new JMenuItem("Installed");
-        installedItem.addActionListener(event -> showModels(true));
-        JMenuItem runningItem = new JMenuItem("Running Models");
-        runningItem.addActionListener(event -> showModels(false));
-        modelsMenu.add(createScreenItem("Setup", INSTALL_VIEW));
-        modelsMenu.add(installedItem);
-        modelsMenu.add(runningItem);
-        return modelsMenu;
-    }
-
-    private JMenu createHelpMenu() {
-        JMenu helpMenu = new ComicHoverMenu("Help");
-        helpMenu.add(createScreenItem("Actions", ACTIONS_VIEW));
-        JMenuItem recordVideo = new JMenuItem("Record Video...");
-        recordVideo.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent event) {
-                openRecordVideoDialog();
-            }
-        });
-        helpMenu.add(recordVideo);
-        helpMenu.addSeparator();
-        helpMenu.add(createScreenItem("About", ABOUT_VIEW));
-        return helpMenu;
     }
 
     /** The general-purpose video recorder (first entry point: Help). Works over the abstract recording layer. */
@@ -1334,6 +1354,7 @@ public final class AskAiFrame extends JFrame {
             installSearchPanel.leaveAddOnMode();
         }
         contentLayout.show(contentPanel, screenName);
+        markNavigation(screenName); // the title bar's Chat/Batch plate follows the shown screen
         refreshConnectionStatus();
         // Re-check speech-to-text readiness when returning to the chat (server/model may have changed).
         if (CHAT_VIEW.equals(screenName)) {

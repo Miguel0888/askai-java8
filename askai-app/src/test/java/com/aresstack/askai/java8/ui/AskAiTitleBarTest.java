@@ -33,6 +33,18 @@ public class AskAiTitleBarTest {
     }
 
     @Test
+    public void navigationAndTrailingControlsHaveTheirSlots() {
+        AskAiTitleBar bar = new AskAiTitleBar("AskAI", NOTHING, NOTHING);
+        javax.swing.JButton chat = new javax.swing.JButton("Chat");
+        javax.swing.JButton help = new com.aresstack.comiccontrols.control.ComicHelpButton(24, "Help");
+        bar.addNavigation(chat);
+        bar.addTrailingControl(help);
+        assertTrue("navigation sits in the bar", javax.swing.SwingUtilities.isDescendingFrom(chat, bar));
+        assertTrue("trailing control sits in the bar", javax.swing.SwingUtilities.isDescendingFrom(help, bar));
+        assertEquals(new java.awt.Dimension(24, 24), help.getPreferredSize());
+    }
+
+    @Test
     public void theSearchIsHiddenWithoutAnAgentContribution() {
         AskAiTitleBar bar = new AskAiTitleBar("AskAI", NOTHING, NOTHING);
         assertNull(bar.searchField());
