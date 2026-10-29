@@ -30,13 +30,10 @@ public final class OllamaAboutPanel extends JPanel {
     private static final String PROJECT_LINE =
             "Java 8 desktop client · see the project repository for licensing and source.";
 
-    private final Runnable back;
-
-    /** @param back where the footer's "Back" button returns to (null: no button) */
-    public OllamaAboutPanel(Runnable back) {
-        this.back = back;
+    /** The footer (Back, Copy diagnostics, copyright) comes from the {@link FooterScreen} around it. */
+    public OllamaAboutPanel() {
         setLayout(new BorderLayout());
-        setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        setBorder(BorderFactory.createEmptyBorder(16, 16, 0, 16));
         JPanel header = new JPanel(new BorderLayout(HEADER_GAP, 0));
         JComponent logo = buildLogo();
         if (logo != null) {
@@ -52,7 +49,6 @@ public final class OllamaAboutPanel extends JPanel {
         add(new com.aresstack.askai.java8.ui.about.OpenSourceLibrariesView(
                 new com.aresstack.askai.java8.ui.about.ClasspathOssLicenseRepository(),
                 logo != null ? logo.getPreferredSize().width : LOGO_SIZE, HEADER_GAP), BorderLayout.CENTER);
-        add(buildActions(), BorderLayout.SOUTH);
     }
 
     /** The app icon at full About size — so the user can see what the tiny taskbar version shows. */
@@ -99,38 +95,13 @@ public final class OllamaAboutPanel extends JPanel {
         return content;
     }
 
-    private JComponent buildActions() {
+    /** "Copy diagnostics" — the About footer's centered action. */
+    public static JButton createCopyDiagnosticsButton() {
         JButton copy = new ComicButton("Copy diagnostics");
         copy.setToolTipText("Copy version and environment details to the clipboard (no secrets included)");
         copy.addActionListener(event -> Toolkit.getDefaultToolkit().getSystemClipboard()
                 .setContents(new StringSelection(diagnostics()), null));
-        // the footer in three equal thirds: "Back" left, Copy diagnostics exactly centered, the copyright
-        // right-aligned (as in the Enterprise AI Client)
-        JPanel footer = new JPanel(new java.awt.GridLayout(1, 3));
-        footer.setOpaque(false);
-        footer.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
-        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        left.setOpaque(false);
-        if (back != null) {
-            JButton backButton = new ComicButton("Back", ChatComposerPanel.createBackGlyphIcon());
-            backButton.setIconTextGap(8);
-            backButton.setFocusable(false);
-            backButton.addActionListener(event -> back.run());
-            left.add(backButton);
-        }
-        footer.add(left);
-        JPanel center = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
-        center.setOpaque(false);
-        center.add(copy);
-        footer.add(center);
-        JPanel copyright = new JPanel(new java.awt.GridBagLayout());
-        copyright.setOpaque(false);
-        java.awt.GridBagConstraints c = new java.awt.GridBagConstraints();
-        c.weightx = 1;
-        c.anchor = java.awt.GridBagConstraints.EAST;
-        copyright.add(new com.aresstack.askai.java8.ui.about.CopyrightFooter(), c);
-        footer.add(copyright);
-        return footer;
+        return copy;
     }
 
     private JComponent infoRow(String label, String value) {

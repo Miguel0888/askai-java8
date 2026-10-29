@@ -1242,7 +1242,7 @@ public final class AskAiFrame extends JFrame {
         });
         modelsScreen().addPage(PAGE_INSTALLED, modelsPanel, () -> showModelsPage(true));
         modelsScreen().addPage(PAGE_RUNNING, modelsPanel, () -> showModelsPage(false));
-        contentPanel.add(new OllamaActionsPanel(featureActionService, ollamaService), ACTIONS_VIEW);
+        contentPanel.add(withFooter(new OllamaActionsPanel(featureActionService, ollamaService)), ACTIONS_VIEW);
         // Java 8 port: model search with two sources in tabs — HuggingFace (search/analyze/import)
         // and the Ollama Library (scrape ollama.com, pull a tag on the remote server).
         // The curated OpenNLP sentence-detection models live in their own store; the Model Browser gets an NLP
@@ -1292,27 +1292,34 @@ public final class AskAiFrame extends JFrame {
         });
         this.installSearchPanel = modelSearchPanel;
         this.configPanel = new OllamaConfigPanel(model, ollamaService);
-        contentPanel.add(configPanel, CONNECTIONS_VIEW);
+        contentPanel.add(withFooter(configPanel), CONNECTIONS_VIEW);
         // Central AI-model selection (reranker + embeddings) owned by AskAI for all plugins. The reranker
         // catalog needs the local runtime; when there is none, the panel simply offers no rerank models.
-        contentPanel.add(new AiModelsPanel(model,
+        contentPanel.add(withFooter(new AiModelsPanel(model,
                 askAiService.localRuntimeManager() == null ? null
                         : new com.aresstack.askai.java8.localmodels.LocalRerankerModelCatalog(
                                 askAiService.localRuntimeManager()),
                 nlpModelCatalog,
-                (VirtualOllamaContainerService) ollamaService), AI_MODELS_VIEW);
+                (VirtualOllamaContainerService) ollamaService)), AI_MODELS_VIEW);
         // Java 8 port: the extended proxy panel (WScript discovery, TLS trust, HTTP client, IPv6).
-        contentPanel.add(new ProxyPanel(configurationRepository), NETWORK_VIEW);
-        contentPanel.add(new OllamaAboutPanel(() -> showScreen(lastMainScreen)), ABOUT_VIEW);
+        contentPanel.add(withFooter(new ProxyPanel(configurationRepository)), NETWORK_VIEW);
+        contentPanel.add(withFooter(new OllamaAboutPanel())
+                .withCenter(OllamaAboutPanel.createCopyDiagnosticsButton())
+                .withTrailing(new com.aresstack.askai.java8.ui.about.CopyrightFooter()), ABOUT_VIEW);
         // Java2D pipeline editor for audio-processing profiles (shared repository instance).
         this.audioProcessingPanel = new AudioProcessingPanel(audioProfileRepository, applicationState);
         audioScreen().addPage(PAGE_AUDIO_PROCESSING, audioProcessingPanel, null);
         // Configuration → Plugins: the real PF4J catalog (enable/disable, details), built after the host so
         // pluginService/enablement exist.
-        contentPanel.add(new com.aresstack.askai.plugin.host.PluginManagementPanel(
-                pluginService, pluginEnablement, pluginsDirectory), PLUGINS_VIEW);
+        contentPanel.add(withFooter(new com.aresstack.askai.plugin.host.PluginManagementPanel(
+                pluginService, pluginEnablement, pluginsDirectory)), PLUGINS_VIEW);
         wireBatchComponent();
         return contentPanel;
+    }
+
+    /** The uniform screen container: the content, below it the footer with "Back" to the last Text/Audio screen. */
+    private FooterScreen withFooter(javax.swing.JComponent content) {
+        return new FooterScreen(content, () -> showScreen(lastMainScreen));
     }
 
     /**
