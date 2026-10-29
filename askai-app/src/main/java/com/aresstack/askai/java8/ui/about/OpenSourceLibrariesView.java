@@ -26,6 +26,7 @@ public final class OpenSourceLibrariesView extends JPanel {
 
     private static final long serialVersionUID = 1L;
 
+    private static final int LICENSE_TEXT_INSET = 24;
     private final int licenseWidth;
     private final int gap;
 
@@ -93,7 +94,8 @@ public final class OpenSourceLibrariesView extends JPanel {
 
     private JLabel license(OssLicenseEntry entry) {
         // HTML wraps long license names inside the logo-wide column
-        JLabel label = new JLabel("<html><div style='width:" + licenseWidth + "px'>"
+        // (a little narrower than the column: the HTML view adds its own margins and would clip the right edge)
+        JLabel label = new JLabel("<html><div style='width:" + (licenseWidth - LICENSE_TEXT_INSET) + "px'>"
                 + escape(entry.getLicense()) + "</div></html>");
         label.setFont(ResearchUiTypography.regular(12f));
         label.setVerticalAlignment(JLabel.TOP);

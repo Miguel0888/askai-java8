@@ -1303,7 +1303,7 @@ public final class AskAiFrame extends JFrame {
                 (VirtualOllamaContainerService) ollamaService), AI_MODELS_VIEW);
         // Java 8 port: the extended proxy panel (WScript discovery, TLS trust, HTTP client, IPv6).
         contentPanel.add(new ProxyPanel(configurationRepository), NETWORK_VIEW);
-        contentPanel.add(new OllamaAboutPanel(), ABOUT_VIEW);
+        contentPanel.add(new OllamaAboutPanel(() -> showScreen(lastMainScreen)), ABOUT_VIEW);
         // Java2D pipeline editor for audio-processing profiles (shared repository instance).
         this.audioProcessingPanel = new AudioProcessingPanel(audioProfileRepository, applicationState);
         audioScreen().addPage(PAGE_AUDIO_PROCESSING, audioProcessingPanel, null);

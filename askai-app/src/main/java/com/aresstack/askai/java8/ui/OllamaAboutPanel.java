@@ -30,7 +30,11 @@ public final class OllamaAboutPanel extends JPanel {
     private static final String PROJECT_LINE =
             "Java 8 desktop client · see the project repository for licensing and source.";
 
-    public OllamaAboutPanel() {
+    private final Runnable back;
+
+    /** @param back where the footer's "Back" button returns to (null: no button) */
+    public OllamaAboutPanel(Runnable back) {
+        this.back = back;
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
         JPanel header = new JPanel(new BorderLayout(HEADER_GAP, 0));
@@ -38,7 +42,10 @@ public final class OllamaAboutPanel extends JPanel {
         if (logo != null) {
             header.add(logo, BorderLayout.WEST);
         }
-        header.add(buildContent(), BorderLayout.CENTER);
+        // NORTH-pinned: the info rows keep their natural spacing instead of spreading over the logo's height
+        JPanel contentTop = new JPanel(new BorderLayout());
+        contentTop.add(buildContent(), BorderLayout.NORTH);
+        header.add(contentTop, BorderLayout.CENTER);
         add(header, BorderLayout.NORTH);
         // The third-party libraries: the license column right under the logo (same width), the library
         // details in the column of the text above.
@@ -93,20 +100,36 @@ public final class OllamaAboutPanel extends JPanel {
     }
 
     private JComponent buildActions() {
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 8));
         JButton copy = new ComicButton("Copy diagnostics");
         copy.setToolTipText("Copy version and environment details to the clipboard (no secrets included)");
         copy.addActionListener(event -> Toolkit.getDefaultToolkit().getSystemClipboard()
                 .setContents(new StringSelection(diagnostics()), null));
-        actions.add(copy);
-        // the footer: Copy diagnostics left, the copyright right-aligned (as in the Enterprise AI Client)
-        JPanel footer = new JPanel(new BorderLayout());
+        // the footer in three equal thirds: "Back" left, Copy diagnostics exactly centered, the copyright
+        // right-aligned (as in the Enterprise AI Client)
+        JPanel footer = new JPanel(new java.awt.GridLayout(1, 3));
         footer.setOpaque(false);
-        footer.add(actions, BorderLayout.WEST);
+        footer.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        left.setOpaque(false);
+        if (back != null) {
+            JButton backButton = new ComicButton("Back", ChatComposerPanel.createBackGlyphIcon());
+            backButton.setIconTextGap(8);
+            backButton.setFocusable(false);
+            backButton.addActionListener(event -> back.run());
+            left.add(backButton);
+        }
+        footer.add(left);
+        JPanel center = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+        center.setOpaque(false);
+        center.add(copy);
+        footer.add(center);
         JPanel copyright = new JPanel(new java.awt.GridBagLayout());
         copyright.setOpaque(false);
-        copyright.add(new com.aresstack.askai.java8.ui.about.CopyrightFooter());
-        footer.add(copyright, BorderLayout.EAST);
+        java.awt.GridBagConstraints c = new java.awt.GridBagConstraints();
+        c.weightx = 1;
+        c.anchor = java.awt.GridBagConstraints.EAST;
+        copyright.add(new com.aresstack.askai.java8.ui.about.CopyrightFooter(), c);
+        footer.add(copyright);
         return footer;
     }
 
