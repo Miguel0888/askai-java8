@@ -137,6 +137,17 @@ def ossReportTask = rootProject.tasks.register('generateOssLicenseReport') {
             }
         }
 
+        // Components AskAI downloads at RUNTIME (not on any Gradle classpath), listed by hand.
+        def runtimeDownloads = [
+                [group: 'github.com/daijro', artifact: 'camoufox', version: 'downloaded at runtime',
+                 license: 'MPL-2.0', module: 'browser (runtime download)']
+        ]
+        runtimeDownloads.each { download ->
+            if (seen.add("${download.group}:${download.artifact}:${download.version}".toString())) {
+                entries << download
+            }
+        }
+
         // Sort the report deterministically before writing it to resources.
         entries.sort { left, right ->
             def groupOrder = left.group <=> right.group

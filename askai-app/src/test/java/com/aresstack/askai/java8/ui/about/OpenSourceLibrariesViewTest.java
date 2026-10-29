@@ -30,8 +30,13 @@ public class OpenSourceLibrariesViewTest {
 
     @Test
     public void theBuildShipsTheReport() throws IOException {
-        assertTrue("generateOssLicenseReport runs before processResources",
-                new ClasspathOssLicenseRepository().findAll().size() > 0);
+        List<OssLicenseEntry> all = new ClasspathOssLicenseRepository().findAll();
+        assertTrue("generateOssLicenseReport runs before processResources", all.size() > 0);
+        boolean camoufox = false;
+        for (OssLicenseEntry entry : all) {
+            camoufox |= "camoufox".equals(entry.getArtifact()) && "MPL-2.0".equals(entry.getLicense());
+        }
+        assertTrue("Camoufox (downloaded at runtime) is listed", camoufox);
     }
 
     @Test

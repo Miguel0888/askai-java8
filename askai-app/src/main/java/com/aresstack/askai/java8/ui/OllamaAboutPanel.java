@@ -99,7 +99,15 @@ public final class OllamaAboutPanel extends JPanel {
         copy.addActionListener(event -> Toolkit.getDefaultToolkit().getSystemClipboard()
                 .setContents(new StringSelection(diagnostics()), null));
         actions.add(copy);
-        return actions;
+        // the footer: Copy diagnostics left, the copyright right-aligned (as in the Enterprise AI Client)
+        JPanel footer = new JPanel(new BorderLayout());
+        footer.setOpaque(false);
+        footer.add(actions, BorderLayout.WEST);
+        JPanel copyright = new JPanel(new java.awt.GridBagLayout());
+        copyright.setOpaque(false);
+        copyright.add(new com.aresstack.askai.java8.ui.about.CopyrightFooter());
+        footer.add(copyright, BorderLayout.EAST);
+        return footer;
     }
 
     private JComponent infoRow(String label, String value) {
