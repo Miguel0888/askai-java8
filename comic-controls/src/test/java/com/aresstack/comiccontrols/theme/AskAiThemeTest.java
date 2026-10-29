@@ -26,8 +26,21 @@ public class AskAiThemeTest {
     }
 
     @Test
-    public void defaultThemeIsClassic() {
-        assertEquals("classic", AskAiTheme.DEFAULT_THEME);
+    public void defaultThemeIsArcane() {
+        assertEquals("arcane", AskAiTheme.DEFAULT_THEME);
+        assertEquals("arcane", AskAiTheme.resolve(null).name());
+    }
+
+    @Test
+    public void classicStaysReachableByPropertyValueWithIdenticalTokens() {
+        AskAiTheme viaProperty = AskAiTheme.resolve("classic");
+        AskAiTheme classic = AskAiTheme.classic();
+        assertEquals(classic.researchTokens(), viaProperty.researchTokens());
+        assertEquals(classic.comicPalette().getSurface(), viaProperty.comicPalette().getSurface());
+        assertEquals(classic.comicPalette().getInk(), viaProperty.comicPalette().getInk());
+        assertEquals(classic.comicPalette().getAccentYellow(), viaProperty.comicPalette().getAccentYellow());
+        assertEquals(classic.buttonPlate(), viaProperty.buttonPlate());
+        assertEquals(classic.fieldBorder(), viaProperty.fieldBorder());
     }
 
     @Test

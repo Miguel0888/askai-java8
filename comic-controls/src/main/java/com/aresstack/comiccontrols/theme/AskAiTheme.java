@@ -27,7 +27,7 @@ public final class AskAiTheme {
     public static final String ARCANE = "arcane";
 
     /** The theme used when the property is missing or unknown. */
-    static final String DEFAULT_THEME = CLASSIC;
+    static final String DEFAULT_THEME = ARCANE;
 
     private static volatile AskAiTheme active;
 
@@ -156,7 +156,7 @@ public final class AskAiTheme {
         if (ARCANE.equals(key)) {
             return arcane();
         }
-        return CLASSIC.equals(DEFAULT_THEME) ? classic() : arcane();
+        return ARCANE.equals(DEFAULT_THEME) ? arcane() : classic();
     }
 
     /** The theme of this JVM: resolved once from {@value #PROPERTY}, then cached. */
