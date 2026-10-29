@@ -157,7 +157,12 @@ public class ResearchStateViewTest {
             public void run() {
                 ResearchStateView view = acceptingView();
                 view.setSnapshot(s);
-                assertTrue(view.clickablePhasesForTest().isEmpty());
+                java.util.Map<String, ResearchCommandType> clickable = view.clickablePhasesForTest();
+                assertTrue("the agent-internal advance stays no control",
+                        !clickable.containsKey(ResearchStateIds.RESEARCH));
+                assertTrue("only the way BACK is a control (always possible)",
+                        clickable.size() == 1
+                                && clickable.get(ResearchStateIds.SCOPING) == ResearchCommandType.REOPEN_CONCEPT);
             }
         });
     }
