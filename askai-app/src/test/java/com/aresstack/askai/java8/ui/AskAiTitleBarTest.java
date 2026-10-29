@@ -116,6 +116,9 @@ public class AskAiTitleBarTest {
         // many controls on the right: the free space is far left of the bar's center
         for (int i = 0; i < 6; i++) {
             javax.swing.JButton control = new javax.swing.JButton("control " + i);
+            // font-independent width: with the platform font the six buttons got so wide on Linux CI
+            // that the (intended) no-overlap clamp moved the search — the test must pin centering only
+            control.setPreferredSize(new java.awt.Dimension(70, 24));
             bar.addTrailingControl(control);
         }
         bar.bindSearch(search, () -> session);
