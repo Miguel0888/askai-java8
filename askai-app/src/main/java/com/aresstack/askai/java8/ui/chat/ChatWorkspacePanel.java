@@ -529,7 +529,7 @@ public final class ChatWorkspacePanel extends JPanel {
         // The MODE pill (Yapping / agent / Partying) is configured here and placed centered in the
         // Chats footer (between New chat and the trash).
         modePill.setFont(ResearchUiTypography.regular(12.5f));
-        modePill.setToolTipText("Chat-Modus: Yapping, Questing (Agent) oder Partying");
+        modePill.setToolTipText("Chat mode: Yapping, Questing (agent) or Partying");
         modePill.addActionListener(event -> {
             ChatSessionComponent active = activeSession();
             if (active instanceof OllamaChatPanel) {

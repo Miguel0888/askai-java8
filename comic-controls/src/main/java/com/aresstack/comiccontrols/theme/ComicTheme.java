@@ -110,7 +110,8 @@ public final class ComicTheme {
                 new BorderUIResource.LineBorderUIResource(p.getInk()));
 
         UIManager.put("MenuBar.background", surface);
-        for (String kind : new String[]{"Menu", "MenuItem", "PopupMenu"}) {
+        // every popup entry kind on the same plate (radio/check items too, e.g. the chat mode menu)
+        for (String kind : new String[]{"Menu", "MenuItem", "PopupMenu", "RadioButtonMenuItem", "CheckBoxMenuItem"}) {
             UIManager.put(kind + ".background", buttonPlate);
         }
 
@@ -142,5 +143,6 @@ public final class ComicTheme {
             UIManager.put(kind + ".selectionForeground", selectionForeground);
         }
         UIManager.put("MenuItem.acceleratorSelectionForeground", selectionForeground);
+        UIManager.put("RadioButtonMenuItem.checkIcon", new ComicMenuRadioIcon());
     }
 }

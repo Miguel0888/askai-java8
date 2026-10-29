@@ -87,7 +87,7 @@ public class ComicThemeInstallTest {
         expected.put("ToolTip.background", t.warmFocus());
         expected.put("ToolTip.foreground", p.getInk());
         expected.put("MenuBar.background", p.getSurface());
-        for (String k : new String[]{"Menu", "MenuItem", "PopupMenu"}) {
+        for (String k : new String[]{"Menu", "MenuItem", "PopupMenu", "RadioButtonMenuItem", "CheckBoxMenuItem"}) {
             expected.put(k + ".background", t.buttonPlate());
         }
 
@@ -116,5 +116,6 @@ public class ComicThemeInstallTest {
 
         // the menu part is still installed
         assertEquals(p.getAccentYellow(), UIManager.getColor("MenuItem.selectionBackground"));
+        assertTrue("menu radios are comic", UIManager.get("RadioButtonMenuItem.checkIcon") instanceof ComicMenuRadioIcon);
     }
 }
