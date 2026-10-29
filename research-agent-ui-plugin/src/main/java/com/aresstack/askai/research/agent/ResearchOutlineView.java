@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.agent;
 
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.plugin.api.service.MarkdownView;
 import com.aresstack.askai.plugin.api.service.MarkdownViewFactory;
 import com.aresstack.askai.plugin.api.service.MarkdownViewOptions;
@@ -28,12 +29,12 @@ public final class ResearchOutlineView extends JPanel {
     private static final String STALE_NOTE = "Veraltet — Quellen oder Passagen haben sich geändert.";
 
     private final JLabel staleNote = new JLabel();
-    private final JButton generateButton = new JButton("Inhaltsverzeichnis erzeugen");
+    private final JButton generateButton = new ComicButton("Inhaltsverzeichnis erzeugen");
     private final MarkdownView markdownView;
     // #43 slice 8: the graphical numbered chapter tree is the DEFAULT face of the outline;
     // the markdown stays reachable behind the toggle (and remains the face of meta states).
     private final OutlineTreeView treeView = new OutlineTreeView();
-    private final JButton viewToggle = new JButton("Text");
+    private final JButton viewToggle = new ComicButton("Text");
     private final JPanel center = new JPanel(new java.awt.CardLayout());
     private boolean showingTree = true;
 

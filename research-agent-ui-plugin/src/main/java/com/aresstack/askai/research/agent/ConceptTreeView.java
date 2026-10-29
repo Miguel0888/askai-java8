@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.agent;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
 
@@ -123,7 +124,7 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
     private static final int GLYPH_GAP = 6;
 
     private final ComicPalette palette = ComicPalette.defaultPalette();
-    private final JTextField inlineEditor = new JTextField();
+    private final JTextField inlineEditor = ComicControls.textField();
 
     private List<Row> rows = new ArrayList<Row>();
     private String documentJson = "";

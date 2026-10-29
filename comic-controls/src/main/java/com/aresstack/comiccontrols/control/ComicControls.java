@@ -175,14 +175,7 @@ public final class ComicControls {
     }
 
     public static JTextField textField(Document document, String text, int columns) {
-        return new JTextField(document, text, columns) {
-            private static final long serialVersionUID = 1L;
-
-            @Override
-            public void updateUI() {
-                setUI(new ComicTextFieldUI());
-            }
-        };
+        return new ComicTextField(document, text, columns);
     }
 
     public static JPasswordField passwordField() {
@@ -202,14 +195,7 @@ public final class ComicControls {
     }
 
     public static JPasswordField passwordField(Document document, String text, int columns) {
-        return new JPasswordField(document, text, columns) {
-            private static final long serialVersionUID = 1L;
-
-            @Override
-            public void updateUI() {
-                setUI(new ComicPasswordFieldUI());
-            }
-        };
+        return new ComicPasswordField(document, text, columns);
     }
 
     // ------------------------------------------------------------------ text area

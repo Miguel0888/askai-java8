@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.agent;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.comiccontrols.paint.SkyClouds;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.ResearchUiPainter;
@@ -60,7 +61,7 @@ final class ResearchOutOfScopeSky extends JPanel {
     private final JScrollPane cloudScroll;
     private final MoreCloud moreCloud = new MoreCloud();
     private final AddCloud addCloud = new AddCloud();
-    private final JTextField addField = new JTextField(16);
+    private final JTextField addField = ComicControls.textField(16);
     /** Field + the shared comic ✕ ({@link com.aresstack.comiccontrols.control.ComicOverlayPanel.CloseButton}) as ONE flow entry. */
     private final JPanel addFieldRow = new JPanel(new java.awt.BorderLayout(2, 0)) {
         @Override

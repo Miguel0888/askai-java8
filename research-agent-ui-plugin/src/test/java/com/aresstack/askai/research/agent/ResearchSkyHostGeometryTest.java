@@ -1,6 +1,9 @@
 package com.aresstack.askai.research.agent;
 
+import com.aresstack.comiccontrols.theme.AskAiTheme;
+import org.junit.After;
 import org.junit.Assume;
+import org.junit.Before;
 import org.junit.Test;
 
 import javax.swing.JFrame;
@@ -26,6 +29,20 @@ import static org.junit.Assert.assertTrue;
  * really tints the top of the transcript while the bottom stays untouched.
  */
 public class ResearchSkyHostGeometryTest {
+
+    /** The paint-chain proofs read classic colors (white wash, cool blue bar): pin the classic theme. */
+    private AskAiTheme themeBefore;
+
+    @Before
+    public void pinClassicTheme() {
+        themeBefore = AskAiTheme.active();
+        AskAiTheme.setActive(AskAiTheme.classic());
+    }
+
+    @After
+    public void restoreTheme() {
+        AskAiTheme.setActive(themeBefore);
+    }
 
     /** Replica of {@code OllamaChatPanel.transcriptLayers}' layout contract. */
     private static JLayeredPane transcriptLayersReplica() {

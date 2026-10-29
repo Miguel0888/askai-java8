@@ -1,5 +1,7 @@
 package com.aresstack.askai.research.host;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.browser.search.engine.BrowserSearchEngine;
 import com.aresstack.askai.browser.search.engine.BrowserSearchEngineCatalog;
 import com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection;
@@ -62,12 +64,12 @@ final class SearchEngineOrderEditor extends JPanel {
     private final JPanel rowsPanel = new JPanel();
 
     /** Result pages of the SELECTED engine — shown inline in its row. */
-    private final javax.swing.JSpinner pagesSpinner = new javax.swing.JSpinner(
+    private final javax.swing.JSpinner pagesSpinner = ComicControls.spinner(
             new javax.swing.SpinnerNumberModel(
                     BrowserSearchEngineSelection.Entry.DEFAULT_RESULT_PAGES, 1, 10, 1));
 
     /** Request delay of the SELECTED engine, in seconds (0 = off, no upper bound imposed here). */
-    private final javax.swing.JSpinner delaySpinner = new javax.swing.JSpinner(
+    private final javax.swing.JSpinner delaySpinner = ComicControls.spinner(
             new javax.swing.SpinnerNumberModel(Double.valueOf(0), Double.valueOf(0), null,
                     Double.valueOf(0.1)));
 
@@ -123,7 +125,7 @@ final class SearchEngineOrderEditor extends JPanel {
     }
 
     private JButton moveButton(String label, final int delta) {
-        JButton button = new JButton(label);
+        JButton button = new ComicButton(label);
         button.setMargin(new java.awt.Insets(1, 6, 1, 6));
         button.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
@@ -171,7 +173,7 @@ final class SearchEngineOrderEditor extends JPanel {
         panel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
         Color foreground = selected ? selectionForeground() : UIManager.getColor("List.foreground");
 
-        final JCheckBox box = new JCheckBox(selected ? row.displayName : summaryFor(row));
+        final JCheckBox box = ComicControls.checkBox(selected ? row.displayName : summaryFor(row));
         box.setSelected(row.enabled);
         box.setOpaque(false);
         box.setForeground(foreground);

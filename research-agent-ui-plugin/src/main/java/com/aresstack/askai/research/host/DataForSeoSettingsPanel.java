@@ -1,5 +1,7 @@
 package com.aresstack.askai.research.host;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.research.search.config.DataForSeoSettingsDraft;
 import com.aresstack.askai.research.search.dataforseo.DataForSeoDevice;
 import com.aresstack.askai.research.search.dataforseo.DataForSeoOperatingSystem;
@@ -51,34 +53,34 @@ public final class DataForSeoSettingsPanel extends JPanel {
     private final DataForSeoPlayground playground;
     private final com.aresstack.askai.research.search.security.SecretValueService secrets;
 
-    private final JCheckBox enabled = new JCheckBox("Use DataForSEO for the initial search");
-    private final JTextField username = new JTextField(28);
-    private final JPasswordField password = new JPasswordField(28);
+    private final JCheckBox enabled = ComicControls.checkBox("Use DataForSEO for the initial search");
+    private final JTextField username = ComicControls.textField(28);
+    private final JPasswordField password = ComicControls.passwordField(28);
     private final JLabel passwordHint = new JLabel(" ");
-    private final JTextField endpointBase = new JTextField(28);
+    private final JTextField endpointBase = ComicControls.textField(28);
 
     private final JComboBox<DataForSeoSearchEngine> engine =
-            new JComboBox<DataForSeoSearchEngine>(ENGINES);
-    private final JTextField locationName = new JTextField(20);
+            ComicControls.<DataForSeoSearchEngine>comboBox(ENGINES);
+    private final JTextField locationName = ComicControls.textField(20);
     private final JSpinner locationCode =
-            new JSpinner(new SpinnerNumberModel(2276, 1, 9_999_999, 1));
-    private final JTextField languageName = new JTextField(12);
-    private final JTextField languageCode = new JTextField(6);
-    private final JComboBox<String> device = new JComboBox<String>(new String[]{"Desktop", "Mobile"});
-    private final JComboBox<String> operatingSystem = new JComboBox<String>();
-    private final JSpinner depth = new JSpinner(new SpinnerNumberModel(10, 1, 200, 1));
-    private final JCheckBox groupOrganic = new JCheckBox(
+            ComicControls.spinner(new SpinnerNumberModel(2276, 1, 9_999_999, 1));
+    private final JTextField languageName = ComicControls.textField(12);
+    private final JTextField languageCode = ComicControls.textField(6);
+    private final JComboBox<String> device = ComicControls.<String>comboBox(new String[]{"Desktop", "Mobile"});
+    private final JComboBox<String> operatingSystem = ComicControls.<String>comboBox();
+    private final JSpinner depth = ComicControls.spinner(new SpinnerNumberModel(10, 1, 200, 1));
+    private final JCheckBox groupOrganic = ComicControls.checkBox(
             "Group organic results from the same domain");
     private final DefaultTableModel removeFromUrl = new DefaultTableModel(
             new Object[]{"URL parameter to remove"}, 0);
 
-    private final JTextField playgroundTerm = new JTextField("wearables", 24);
-    private final JButton runPlayground = new JButton("Run search");
+    private final JTextField playgroundTerm = ComicControls.textField("wearables", 24);
+    private final JButton runPlayground = new ComicButton("Run search");
     private final JLabel playgroundStatus = new JLabel(" ");
     private final DefaultTableModel playgroundResults = new DefaultTableModel(
             new Object[]{"Rank", "Title", "Domain", "URL"}, 0);
-    private final JTextArea requestPreview = new JTextArea(8, 40);
-    private final JTextArea rawResponse = new JTextArea(8, 40);
+    private final JTextArea requestPreview = ComicControls.textArea(8, 40);
+    private final JTextArea rawResponse = ComicControls.textArea(8, 40);
 
     public DataForSeoSettingsPanel(DataForSeoSettingsDraft draft, DataForSeoPlayground playground,
                                    com.aresstack.askai.research.search.security.SecretValueService secrets) {
@@ -86,7 +88,7 @@ public final class DataForSeoSettingsPanel extends JPanel {
         this.draft = draft;
         this.playground = playground;
         this.secrets = secrets;
-        JTabbedPane tabs = new JTabbedPane();
+        JTabbedPane tabs = ComicControls.tabbedPane();
         tabs.addTab("Account", scroll(buildAccount()));
         tabs.addTab("SERP", scroll(buildSerp()));
         tabs.addTab("Advanced", scroll(buildAdvanced()));
@@ -163,7 +165,7 @@ public final class DataForSeoSettingsPanel extends JPanel {
 
         JTable results = new JTable(playgroundResults);
         results.setFillsViewportHeight(true);
-        JTabbedPane detail = new JTabbedPane();
+        JTabbedPane detail = ComicControls.tabbedPane();
         requestPreview.setEditable(false);
         rawResponse.setEditable(false);
         detail.addTab("Organic results", new JScrollPane(results));
@@ -181,8 +183,8 @@ public final class DataForSeoSettingsPanel extends JPanel {
         JScrollPane scroll = new JScrollPane(table);
         p.add(scroll, BorderLayout.CENTER);
         JPanel buttons = new JPanel(new BorderLayout(4, 0));
-        JButton add = new JButton("Add");
-        JButton remove = new JButton("Remove");
+        JButton add = new ComicButton("Add");
+        JButton remove = new ComicButton("Remove");
         add.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 if (removeFromUrl.getRowCount() < 10) {
@@ -421,7 +423,7 @@ public final class DataForSeoSettingsPanel extends JPanel {
     }
 
     private static JComponent readOnly(String value) {
-        JTextField field = new JTextField(value);
+        JTextField field = ComicControls.textField(value);
         field.setEditable(false);
         return field;
     }

@@ -1,5 +1,9 @@
 package com.aresstack.askai.research.host;
 
+import com.aresstack.comiccontrols.control.ComicTextField;
+import com.aresstack.comiccontrols.control.ComicPasswordField;
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.plugin.api.service.WorkspaceStateStore;
 import com.aresstack.askai.research.acp.ResearchBackendMode;
 
@@ -37,68 +41,68 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     private final JLabel backendStatus = new JLabel(" ");
     /** DEFAULT language for NEW research sessions (English default, German translation) — persisted. */
     private final JComboBox<String> agentLanguage =
-            new JComboBox<String>(new String[]{"English", "Deutsch"});
+            ComicControls.<String>comboBox(new String[]{"English", "Deutsch"});
     /** LLM narration (default off): milestone texts phrased by the main model, validated, with fallback. */
-    private final JCheckBox llmNarration = new JCheckBox(
+    private final JCheckBox llmNarration = ComicControls.checkBox(
             "AI-phrased guidance (uses the main model; applies to new sessions)", false);
     /** Scoping orientation tags (default off = long-standing behaviour): suggestions on every broad turn. */
-    private final JCheckBox alwaysSuggest = new JCheckBox(
+    private final JCheckBox alwaysSuggest = ComicControls.checkBox(
             "Immer Suchvorschläge anbieten (Orientierungs-Tags; applies to new sessions)", false);
     /** Answer budget per agent model turn (tokens) — the longest contracted answer is the source review. */
-    private final JTextField agentMaxTokens = new JTextField(6);
+    private final JTextField agentMaxTokens = ComicControls.textField(6);
     // Konzeptpapier tool-round loop: work budget and error tolerance, deliberately separate.
-    private final JTextField conceptToolRounds = new JTextField(4);
-    private final JTextField conceptRepairAttempts = new JTextField(4);
+    private final JTextField conceptToolRounds = ComicControls.textField(4);
+    private final JTextField conceptRepairAttempts = ComicControls.textField(4);
     // Search-run limits: the completion target + the safety limits. Every bound is a setting.
-    private final JTextField searchTargetSources = new JTextField(4);
-    private final JTextField searchMaxPages = new JTextField(4);
-    private final JTextField searchMaxToolCalls = new JTextField(4);
-    private final JTextField searchMaxMinutes = new JTextField(4);
-    private final JTextField browserToolTimeout = new JTextField(4);
-    private final JTextField searchMaxErrors = new JTextField(4);
+    private final JTextField searchTargetSources = ComicControls.textField(4);
+    private final JTextField searchMaxPages = ComicControls.textField(4);
+    private final JTextField searchMaxToolCalls = ComicControls.textField(4);
+    private final JTextField searchMaxMinutes = ComicControls.textField(4);
+    private final JTextField browserToolTimeout = ComicControls.textField(4);
+    private final JTextField searchMaxErrors = ComicControls.textField(4);
     // Review-context bounds: how many sources one review reads, and how much of each.
-    private final JTextField reviewMaxSources = new JTextField(4);
-    private final JTextField reviewMaxChars = new JTextField(6);
+    private final JTextField reviewMaxSources = ComicControls.textField(4);
+    private final JTextField reviewMaxChars = ComicControls.textField(6);
     // Z4c Scope-Pruefung: the normal knobs of the explicit "Themenraum pruefen" check…
-    private final JTextField scopeCheckTargetProbes = new JTextField(4);
-    private final JTextField scopeCheckControlsPerAnchor = new JTextField(3);
-    private final JTextField scopeCheckMaxTopics = new JTextField(3);
-    private final JTextField scopeCheckTimeout = new JTextField(4);
+    private final JTextField scopeCheckTargetProbes = ComicControls.textField(4);
+    private final JTextField scopeCheckControlsPerAnchor = ComicControls.textField(3);
+    private final JTextField scopeCheckMaxTopics = ComicControls.textField(3);
+    private final JTextField scopeCheckTimeout = ComicControls.textField(4);
     // …and the ADVANCED ones (hidden by default): model knobs plus the deliberately provisional
     // calibration spike values — configurable so productive measurements never need a code
     // change, but not presented as mature user options.
-    private final JTextField scopeCheckGenTemperature = new JTextField(4);
-    private final JTextField scopeCheckGenMaxTokens = new JTextField(5);
-    private final JTextField scopeCheckChooserTemperature = new JTextField(4);
-    private final JTextField scopeCheckChooserMaxTokens = new JTextField(5);
-    private final JTextField scopeCheckChoiceTimeout = new JTextField(4);
-    private final JTextField scopeCheckNearSimilarity = new JTextField(4);
-    private final JTextField scopeCheckHintBoundaryMargin = new JTextField(4);
-    private final JTextField scopeCheckMissionQuantile = new JTextField(4);
-    private final JTextField scopeCheckMissionMargin = new JTextField(4);
-    private final JTextField scopeCheckNeighborQuantile = new JTextField(4);
-    private final JTextField scopeCheckNeighborMargin = new JTextField(4);
-    private final JTextField scopeCheckMinNegotiated = new JTextField(3);
-    private final JTextField scopeCheckMinNeighbors = new JTextField(3);
-    private final JTextField scopeCheckBoundaryMargin = new JTextField(4);
-    private final JTextField scopeCheckNoveltyGap = new JTextField(4);
-    private final JTextField scopeCheckNoveltyWeight = new JTextField(4);
-    private final JTextField scopeCheckDuplicateCeiling = new JTextField(4);
+    private final JTextField scopeCheckGenTemperature = ComicControls.textField(4);
+    private final JTextField scopeCheckGenMaxTokens = ComicControls.textField(5);
+    private final JTextField scopeCheckChooserTemperature = ComicControls.textField(4);
+    private final JTextField scopeCheckChooserMaxTokens = ComicControls.textField(5);
+    private final JTextField scopeCheckChoiceTimeout = ComicControls.textField(4);
+    private final JTextField scopeCheckNearSimilarity = ComicControls.textField(4);
+    private final JTextField scopeCheckHintBoundaryMargin = ComicControls.textField(4);
+    private final JTextField scopeCheckMissionQuantile = ComicControls.textField(4);
+    private final JTextField scopeCheckMissionMargin = ComicControls.textField(4);
+    private final JTextField scopeCheckNeighborQuantile = ComicControls.textField(4);
+    private final JTextField scopeCheckNeighborMargin = ComicControls.textField(4);
+    private final JTextField scopeCheckMinNegotiated = ComicControls.textField(3);
+    private final JTextField scopeCheckMinNeighbors = ComicControls.textField(3);
+    private final JTextField scopeCheckBoundaryMargin = ComicControls.textField(4);
+    private final JTextField scopeCheckNoveltyGap = ComicControls.textField(4);
+    private final JTextField scopeCheckNoveltyWeight = ComicControls.textField(4);
+    private final JTextField scopeCheckDuplicateCeiling = ComicControls.textField(4);
     /** AI reranker opt-in (default OFF = lexical BM25 scoring, no model load). */
-    private final JCheckBox useAiReranker = new JCheckBox(
+    private final JCheckBox useAiReranker = ComicControls.checkBox(
             "KI-Reranker verwenden (semantisches Modell statt BM25; gilt für neue Sessions)", false);
     /** Bot-control MCP (default ON): run_command/session_state/chat_history + service-endpoint.json. */
-    private final JCheckBox botControlMcp = new JCheckBox(
+    private final JCheckBox botControlMcp = ComicControls.checkBox(
             "Bot control via MCP (applies to new sessions)", true);
     /** Square, margin-less info button (Unicode \u24D8): opens the live connection/tool details. */
-    private final javax.swing.JButton botTools = new javax.swing.JButton("\u24D8");
+    private final javax.swing.JButton botTools = new ComicButton("\u24D8");
     /** The live session behind this settings page (nullable: store-only construction in tests). */
     private final com.aresstack.askai.research.agent.ResearchAgentSession session;
     /** ChatGPT connector (default OFF): AskAI as its own public MCP+OAuth face behind the TLS proxy. */
-    private final JCheckBox chatGptConnector = new JCheckBox(
+    private final JCheckBox chatGptConnector = ComicControls.checkBox(
             "ChatGPT connector (public endpoint behind the reverse proxy; applies to new sessions)", false);
     private final JTextField connectorOrigin = placeholderField("https://askai.example.com", 38);
-    private final JTextField connectorPort = new JTextField(6);
+    private final JTextField connectorPort = ComicControls.textField(6);
     private final JTextField connectorClientId =
             placeholderField(com.aresstack.askai.research.connector.ConnectorConfig.DEFAULT_CLIENT_ID, 12);
     private final javax.swing.JPasswordField connectorClientSecret = placeholderPasswordField(
@@ -116,20 +120,20 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     // decision — the ONE configurable runtime is the Java >= 21 for the browser sidecar (GraalJS),
     // and even that is auto-discovered (or unnecessary when AskAI itself runs on >= 21).
     private String agentJavaOverride = "";
-    private final JTextField agentJar = new JTextField(38);
-    private final JTextField sidecarJava = new JTextField(38);
-    private final JTextField sidecarJar = new JTextField(38);
-    private final JComboBox<String> browserChannel = new JComboBox<String>(new String[]{"chrome", "msedge"});
+    private final JTextField agentJar = ComicControls.textField(38);
+    private final JTextField sidecarJava = ComicControls.textField(38);
+    private final JTextField sidecarJar = ComicControls.textField(38);
+    private final JComboBox<String> browserChannel = ComicControls.<String>comboBox(new String[]{"chrome", "msedge"});
     // The reranker model is chosen centrally in AskAI (Configuration → AI models), NOT here. Any previously
     // persisted plugin-side selection is carried through unchanged so it is never lost on save.
     private String carriedRerankerModel = "";
-    private final JCheckBox headless = new JCheckBox("Run the browser headless", true);
-    private final JCheckBox allowPrivate = new JCheckBox(
+    private final JCheckBox headless = ComicControls.checkBox("Run the browser headless", true);
+    private final JCheckBox allowPrivate = ComicControls.checkBox(
             "Allow private/loopback targets (development only)", false);
-    private final JButton save = new JButton("Save");
-    private final JButton check = new JButton("Check requirements");
+    private final JButton save = new ComicButton("Save");
+    private final JButton check = new ComicButton("Check requirements");
     private final JLabel busy = new JLabel(" ");
-    private final JTextArea results = new JTextArea(8, 48);
+    private final JTextArea results = ComicControls.textArea(8, 48);
 
     public ResearchRuntimeSettingsPanel(WorkspaceStateStore store) {
         this(store, null);
@@ -185,7 +189,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         scopeCheckRow.add(labelled("Timeout (s)", scopeCheckTimeout));
         scopeCheckRow.add(javax.swing.Box.createHorizontalStrut(10));
         final javax.swing.JButton scopeCheckAdvancedToggle =
-                new javax.swing.JButton("Erweitert…");
+                new ComicButton("Erweitert…");
         scopeCheckRow.add(scopeCheckAdvancedToggle);
         form.add(row("Scope-Prüfung:", scopeCheckRow));
         JPanel scopeCheckModelRow = new JPanel(
@@ -483,7 +487,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
 
     /** A text field with a gray in-field placeholder, shown while the field is empty. */
     private static JTextField placeholderField(final String placeholder, int columns) {
-        final JTextField field = new JTextField(columns) {
+        final JTextField field = new ComicTextField(columns) {
             protected void paintComponent(java.awt.Graphics g) {
                 super.paintComponent(g);
                 if (getText().isEmpty()) {
@@ -504,7 +508,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     /** A password field with a gray in-field placeholder (the effective default), shown while empty. */
     private static javax.swing.JPasswordField placeholderPasswordField(final String placeholder,
                                                                        int columns) {
-        return new javax.swing.JPasswordField(columns) {
+        return new ComicPasswordField(columns) {
             protected void paintComponent(java.awt.Graphics g) {
                 super.paintComponent(g);
                 if (getPassword().length == 0) {
@@ -788,7 +792,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     /** A path field with a working Browse button (file chooser preset to the current value). */
     private JPanel pathRow(String label, final JTextField field) {
         JPanel row = row(label, field);
-        JButton browse = new JButton("…");
+        JButton browse = new ComicButton("…");
         browse.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
@@ -849,13 +853,13 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     private javax.swing.JComponent copyableValue(final String text) {
         JPanel value = new JPanel(new BorderLayout(6, 0));
         value.setOpaque(false);
-        final javax.swing.JTextField field = new javax.swing.JTextField(text == null ? "" : text);
+        final javax.swing.JTextField field = ComicControls.textField(text == null ? "" : text);
         field.setEditable(false);
         field.setBorder(null);
         field.setOpaque(false);
         field.setCaretPosition(0);
         value.add(field, java.awt.BorderLayout.CENTER);
-        javax.swing.JButton copy = new javax.swing.JButton("Copy");
+        javax.swing.JButton copy = new ComicButton("Copy");
         copy.setMargin(new java.awt.Insets(0, 6, 0, 6));
         copy.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {

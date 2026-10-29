@@ -428,3 +428,23 @@ Nur Dinge, die der User NICHT gefordert hat:
   plugin `ResearchOutOfScopeSky` and `SkyClouds.paintSky` use it. Classic (`SKY_MID == SKY_TOP`) yields the historic
   stops exactly (pinned); the faint background clouds use the light plate (white in classic).
 
+### T6 (all groups)
+- Migration is a script-driven 1:1 constructor swap (same arguments): `new JButton(` → `new ComicButton(`,
+  `new JToggleButton(` → `new ComicToggleButton(`, the other types → `ComicControls.<factory>(` (explicit generic
+  witness `ComicControls.<T>comboBox(`/`list(` where the call site named the type argument), titled borders →
+  `ComicControls.titledBorder(`. Anonymous field subclasses → `new ComicTextField(..) {..}` /
+  `new ComicPasswordField(..) {..}` (new public subclasses that pin the comic delegate; the factories return them too).
+- So that the swap does not change layout or behavior, `ComicButton` got (in the T6a commit): a no-arg and an
+  `Icon` constructor; an explicit caller `setMargin(...)` drives its padding (default stays 5/14); a caller's
+  `setContentAreaFilled(false)` makes it a FLAT button without plate (as for a plain `JButton`); a caller-set
+  background is used as the resting plate.
+- Rule "hardcoded color on a converted control": removed where it only rebuilt the Swing default; kept (listed
+  here, tokenized in T7) where it carries meaning.
+  - T6a removed: `ResearchSourcesView` `commentArea.setBackground(WHITE)`.
+  - T6a kept: `LegacyBrowserSearchSettingsPanel.problems` red/green status foreground (error/success meaning);
+    `ResearchOutOfScopeSky.addField` cloud text/caret colors (tokens, not literals) and its empty border/opaque=false
+    (the field sits inside a cloud-styled row by design).
+- T6a also pins `ResearchSkyHostGeometryTest` to the classic theme: its paint-chain proofs assert classic colors
+  ("white wash", "cool blue bar"), which the T3 arcane default (sunset sky) legitimately changed; the plugin tests
+  of the changed classes ran for the first time in T6a.
+

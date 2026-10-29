@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.agent;
 
+import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.askai.research.concept.ConceptProjection;
 import com.aresstack.askai.research.concept.ConceptTopicScanner;
 import com.aresstack.comiccontrols.control.ComicButton;
@@ -62,7 +63,7 @@ public final class ConceptPaperView extends JPanel {
     private static final String EMPTY =
             "_No concept yet. Describe in the chat what you want to research._";
 
-    private final JTextArea editor = new JTextArea();
+    private final JTextArea editor = ComicControls.textArea();
     private final JLabel statusLabel = new JLabel(" ");
     private final ComicButton saveButton = new ComicButton("Save");
     private final ComicButton discardButton = new ComicButton("Discard");
@@ -100,7 +101,7 @@ public final class ConceptPaperView extends JPanel {
     private final JScrollPane editorScroll = new JScrollPane(editor);
     private final com.aresstack.comiccontrols.control.ComicSectionPanel errorOverlay =
             new com.aresstack.comiccontrols.control.ComicSectionPanel();
-    private final JTextArea errorText = new JTextArea();
+    private final JTextArea errorText = ComicControls.textArea();
     private final javax.swing.Timer errorHideTimer =
             new javax.swing.Timer(ERROR_OVERLAY_MILLIS, new ActionListener() {
                 public void actionPerformed(ActionEvent event) {

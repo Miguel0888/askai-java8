@@ -1,5 +1,7 @@
 package com.aresstack.askai.research.document;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.askai.plugin.api.agent.AgentSession;
 import com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore;
 import com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent;
@@ -48,7 +50,7 @@ public final class ResearchDocumentViewContribution implements ArtifactViewContr
         final AgentArtifactStore store = context.getArtifactStore();
         final String artifactId = context.getArtifact().getId();
         final DocumentPageView page = new DocumentPageView();
-        final JTextArea editor = new JTextArea();
+        final JTextArea editor = ComicControls.textArea();
         editor.setLineWrap(true);
         editor.setWrapStyleWord(true);
         final JLabel status = new JLabel(" ");
@@ -64,9 +66,9 @@ public final class ResearchDocumentViewContribution implements ArtifactViewContr
         center.add(new JScrollPane(editor), "edit");
 
         final boolean[] editing = {false};
-        final JButton toggle = new JButton("Edit");
-        final JButton save = new JButton("Save");
-        final JButton reload = new JButton("Reload");
+        final JButton toggle = new ComicButton("Edit");
+        final JButton save = new ComicButton("Save");
+        final JButton reload = new ComicButton("Reload");
 
         final Runnable load = new Runnable() {
             public void run() {

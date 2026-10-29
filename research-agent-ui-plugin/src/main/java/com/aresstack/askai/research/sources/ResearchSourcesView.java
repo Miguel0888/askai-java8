@@ -1,5 +1,7 @@
 package com.aresstack.askai.research.sources;
 
+import com.aresstack.comiccontrols.control.ComicControls;
+import com.aresstack.comiccontrols.control.ComicButton;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -57,21 +59,21 @@ public final class ResearchSourcesView extends JPanel {
             new com.aresstack.comiccontrols.control.ComicSearchBar(
                     "Titel/URL filtern…", "Filtert nach Titel/URL — Enter wendet an");
 
-    private final JTextField titleField = new JTextField();
-    private final JTextField urlField = new JTextField();
-    private final JTextField authorField = new JTextField();
-    private final JTextField sectionsField = new JTextField();
-    private final JTextArea commentArea = new JTextArea(3, 20);
+    private final JTextField titleField = ComicControls.textField();
+    private final JTextField urlField = ComicControls.textField();
+    private final JTextField authorField = ComicControls.textField();
+    private final JTextField sectionsField = ComicControls.textField();
+    private final JTextArea commentArea = ComicControls.textArea(3, 20);
     // Pipeline-filled, read-only: the reranker score, the search excerpt and the visited page's full text.
     private final JTextField scoreField = readOnlyField();
     private final JTextArea excerptArea = readOnlyArea(2);
     private final JTextArea fullTextArea = readOnlyArea(6);
-    private final JComboBox<SourceStatus> statusCombo = new JComboBox<SourceStatus>(SourceStatus.values());
-    private final JComboBox<SourceRelevance> relevanceCombo = new JComboBox<SourceRelevance>(SourceRelevance.values());
+    private final JComboBox<SourceStatus> statusCombo = ComicControls.<SourceStatus>comboBox(SourceStatus.values());
+    private final JComboBox<SourceRelevance> relevanceCombo = ComicControls.<SourceRelevance>comboBox(SourceRelevance.values());
     private final JComboBox<SourceReliability> reliabilityCombo =
-            new JComboBox<SourceReliability>(SourceReliability.values());
+            ComicControls.<SourceReliability>comboBox(SourceReliability.values());
     /** The user-relevant (⭐) toggle — the same reversible signal the HUD ⭐ sets, editable here for any source. */
-    private final javax.swing.JCheckBox relevantCheck = new javax.swing.JCheckBox("Relevant (⭐)");
+    private final javax.swing.JCheckBox relevantCheck = ComicControls.checkBox("Relevant (⭐)");
     private final JLabel status = new JLabel(" ");
 
     private String selectedId;
@@ -93,7 +95,7 @@ public final class ResearchSourcesView extends JPanel {
         top.add(filterField, BorderLayout.CENTER);
         filterField.addSearchAction(e -> reloadTable());
         // #39: the user-import entrance — HTML/text through the canonical acceptance boundary.
-        JButton addSource = new JButton("Add source");
+        JButton addSource = new ComicButton("Add source");
         addSource.setToolTipText(
                 "Add your own source (raw HTML or plain text) to the research corpus");
         addSource.addActionListener(e -> openImportDialog());
@@ -249,8 +251,7 @@ public final class ResearchSourcesView extends JPanel {
         fullTextArea.setRows(8);
         styleReadOnlyArea(fullTextArea);
         styleReadOnlyArea(excerptArea);
-        commentArea.setBackground(java.awt.Color.WHITE);
-        JTabbedPane texts = new JTabbedPane();
+        JTabbedPane texts = ComicControls.tabbedPane();
         texts.setOpaque(false);
         texts.addTab("Volltext", quietScroll(fullTextArea));
         texts.addTab("Suchausschnitt", quietScroll(excerptArea));
@@ -436,7 +437,7 @@ public final class ResearchSourcesView extends JPanel {
                 String sourceId);
     }
 
-    private final javax.swing.JTextArea passagesArea = new javax.swing.JTextArea();
+    private final javax.swing.JTextArea passagesArea = ComicControls.textArea();
     private PassagesProvider passagesProvider;
 
     public void setPassagesProvider(PassagesProvider provider) {
@@ -492,12 +493,12 @@ public final class ResearchSourcesView extends JPanel {
             return;
         }
         javax.swing.JComboBox<String> kind =
-                new javax.swing.JComboBox<String>(
+                ComicControls.<String>comboBox(
                         new String[] {"Plain text", "Raw HTML", "PDF file"});
-        javax.swing.JTextField title = new javax.swing.JTextField();
-        javax.swing.JTextField origin = new javax.swing.JTextField();
+        javax.swing.JTextField title = ComicControls.textField();
+        javax.swing.JTextField origin = ComicControls.textField();
         origin.setToolTipText("Optional: source URL / base URI (HTML) or a path label");
-        javax.swing.JTextArea content = new javax.swing.JTextArea(12, 60);
+        javax.swing.JTextArea content = ComicControls.textArea(12, 60);
         content.setLineWrap(true);
         content.setWrapStyleWord(true);
         JPanel form = new JPanel(new BorderLayout(4, 4));
@@ -763,13 +764,13 @@ public final class ResearchSourcesView extends JPanel {
     }
 
     private static JTextField readOnlyField() {
-        JTextField f = new JTextField();
+        JTextField f = ComicControls.textField();
         f.setEditable(false);
         return f;
     }
 
     private static JTextArea readOnlyArea(int rows) {
-        JTextArea a = new JTextArea(rows, 20);
+        JTextArea a = ComicControls.textArea(rows, 20);
         a.setEditable(false);
         a.setLineWrap(true);
         a.setWrapStyleWord(true);
