@@ -137,7 +137,10 @@ public final class AskAiFrame extends JFrame {
 
     public AskAiFrame(AppConfigurationRepository configurationRepository, final AskAiService askAiService) {
         super("AskAI");
-        AppIcon.apply(this); // the AskAI robot everywhere the Java cup used to be
+        // Frameless: AskAI draws its own title bar (icon + title left like Windows, the active agent's
+        // search in the middle, the comic window control right) — see buildUserInterface.
+        setUndecorated(true);
+        AppIcon.apply(this); // the AskAI robot everywhere the Java cup used to be (taskbar, Alt-Tab)
         this.configurationRepository = configurationRepository;
         this.askAiService = askAiService;
         this.model = new AskAiModel(configurationRepository);
@@ -265,9 +268,42 @@ public final class AskAiFrame extends JFrame {
         // Swing components (surfaces, fields, tables, tabs, …), the comic button/scrollbar
         // delegates, and the menu/popup contours (issue #36).
         ComicTheme.install(AskAiTheme.active());
-        setJMenuBar(createMenuBar());
-        getContentPane().setLayout(new BorderLayout());
-        getContentPane().add(createContentPanel(), BorderLayout.CENTER);
+        this.titleBar = new AskAiTitleBar(getTitle(),
+                () -> setState(java.awt.Frame.ICONIFIED),
+                () -> dispatchEvent(new java.awt.event.WindowEvent(this, java.awt.event.WindowEvent.WINDOW_CLOSING)));
+        // Title bar ABOVE the menu bar, both inside the frameless window's ink contour.
+        JPanel header = new JPanel();
+        header.setLayout(new javax.swing.BoxLayout(header, javax.swing.BoxLayout.Y_AXIS));
+        header.setOpaque(false);
+        JMenuBar menuBar = createMenuBar();
+        titleBar.setAlignmentX(LEFT_ALIGNMENT);
+        menuBar.setAlignmentX(LEFT_ALIGNMENT);
+        header.add(titleBar);
+        header.add(menuBar);
+        JPanel windowSurface = new JPanel(new BorderLayout());
+        windowSurface.add(header, BorderLayout.NORTH);
+        windowSurface.add(createContentPanel(), BorderLayout.CENTER);
+        setContentPane(windowSurface);
+        com.aresstack.comiccontrols.control.ComicWindowShape.install(this, windowSurface,
+                com.aresstack.comiccontrols.theme.ComicPalette.defaultPalette(), WINDOW_PADDING,
+                com.aresstack.comiccontrols.theme.ResearchUiMetrics.RADIUS_WINDOW);
+        com.aresstack.comiccontrols.control.ComicWindowResizer.install(windowSurface, RESIZE_GRIP);
+        com.aresstack.comiccontrols.control.ComicWindowDragger.install(titleBar);
+    }
+
+    /** The frameless window's ink-contour padding (doubles as the resize grip zone). */
+    private static final int WINDOW_PADDING = 4;
+    private static final int RESIZE_GRIP = 6;
+
+    /** AskAI's own title bar (the window is frameless). */
+    private AskAiTitleBar titleBar;
+
+    @Override
+    public void setTitle(String title) {
+        super.setTitle(title);
+        if (titleBar != null) {
+            titleBar.setTitle(title);
+        }
     }
 
     private JMenuBar createMenuBar() {
@@ -878,6 +914,11 @@ public final class AskAiFrame extends JFrame {
         agentCoordinator.addChangeListener(() -> uiExecutor.execute(() ->
                 chatTabs.setMenuOverrideIcon(brandingCoordinator.getActiveMenuIcon())));
         chatTabs.setMenuOverrideIcon(agentCoordinator.getActiveMenuIcon());
+        // The title-bar search follows the active agent: its contribution defines the search, no agent = hidden.
+        final Runnable bindTitleSearch = () -> titleBar.bindSearch(
+                brandingCoordinator.getActiveSearchContribution(), brandingCoordinator::getActiveSession);
+        agentCoordinator.addChangeListener(() -> uiExecutor.execute(bindTitleSearch));
+        bindTitleSearch.run();
         chatTabs.setWorkspaceModeController(host); // the host panel IS the mode controller
         return host;
     }

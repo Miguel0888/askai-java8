@@ -22,7 +22,7 @@ public final class ResearchVisualizeButtons {
 
     /** "Visualize concept": the concept snapshot as the host's diagram overlay. */
     public static JComponent concept(final ResearchAgentSession session, final ArtifactViewContext context) {
-        ComicButton button = iconButton(new ResearchWebSearchToolbarContribution.MindmapIcon(),
+        ComicButton button = iconButton(new MindmapIcon(),
                 "Visualize concept");
         button.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
@@ -42,7 +42,7 @@ public final class ResearchVisualizeButtons {
 
     /** "Visualize sources": the sources mindmap (red core, tag leaves) as the host's diagram overlay. */
     public static JComponent sources(final ResearchAgentSession session, final ArtifactViewContext context) {
-        ComicButton button = iconButton(new ResearchWebSearchToolbarContribution.MindmapIcon(true),
+        ComicButton button = iconButton(new MindmapIcon(true),
                 "Visualize sources");
         button.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {

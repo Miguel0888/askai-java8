@@ -84,6 +84,11 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
     }
 
     @Override
+    public com.aresstack.askai.plugin.api.agent.search.AgentSearchContribution getSearchContribution() {
+        return new com.aresstack.askai.research.agent.ResearchWebSearchContribution();
+    }
+
+    @Override
     public javax.swing.Icon getMenuIcon() {
         // The research flask BRANDS the workspace hamburger while this agent is active; the host
         // shows the plain hamburger again on hover so the click's function stays obvious.
@@ -93,12 +98,11 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
     @Override
     public List<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>
             getToolbarContributions() {
-        // The "Websuche" tag holds the CENTER; the icon-only language switch trails at the far right.
-        // The phase selector lives in the State pane footer, the Visualize buttons in the Concept and
-        // Sources pane footers (ResearchVisualizeButtons).
-        return java.util.Arrays
-                .<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>asList(
-                        new com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution(),
-                        new com.aresstack.askai.research.agent.ResearchWebSearchToolbarContribution());
+        // The icon-only language switch trails at the far right; the web search lives in the host's
+        // TITLE BAR (getSearchContribution); the phase selector in the State pane footer; the Visualize
+        // buttons in the Concept and Sources pane footers (ResearchVisualizeButtons).
+        return java.util.Collections
+                .<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>singletonList(
+                        new com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution());
     }
 }
