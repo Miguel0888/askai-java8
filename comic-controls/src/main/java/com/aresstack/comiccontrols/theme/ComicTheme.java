@@ -25,6 +25,7 @@ public final class ComicTheme {
     /** Fully qualified class names of the global delegates registered by {@link #install}. */
     public static final String BUTTON_UI = "com.aresstack.comiccontrols.control.ComicButtonUI";
     public static final String SCROLL_BAR_UI = "com.aresstack.comiccontrols.control.ComicScrollBarUI";
+    public static final String SPLIT_PANE_UI = "com.aresstack.comiccontrols.control.ComicSplitPaneUI";
 
     /**
      * Installs the theme into the {@link UIManager} defaults: surfaces, text, fields, tables, lists,
@@ -53,6 +54,7 @@ public final class ComicTheme {
         UIManager.put("ButtonUI", BUTTON_UI);
         UIManager.put("Button.foreground", ink);
         UIManager.put("ScrollBarUI", SCROLL_BAR_UI);
+        UIManager.put("SplitPaneUI", SPLIT_PANE_UI);
 
         for (String kind : new String[]{"TextField", "TextArea", "PasswordField", "FormattedTextField"}) {
             UIManager.put(kind + ".background", fieldBg);

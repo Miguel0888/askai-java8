@@ -20,11 +20,13 @@ public class ComicThemeInstallTest {
 
     private Object previousButtonUi;
     private Object previousScrollBarUi;
+    private Object previousSplitPaneUi;
 
     @Before
     public void rememberDelegates() {
         previousButtonUi = UIManager.get("ButtonUI");
         previousScrollBarUi = UIManager.get("ScrollBarUI");
+        previousSplitPaneUi = UIManager.get("SplitPaneUI");
     }
 
     @After
@@ -32,6 +34,7 @@ public class ComicThemeInstallTest {
         // keep other tests in this JVM independent of the global delegates
         UIManager.put("ButtonUI", previousButtonUi);
         UIManager.put("ScrollBarUI", previousScrollBarUi);
+        UIManager.put("SplitPaneUI", previousSplitPaneUi);
     }
 
     @Test
@@ -97,6 +100,8 @@ public class ComicThemeInstallTest {
         }
         assertEquals(ComicTheme.BUTTON_UI, UIManager.get("ButtonUI"));
         assertEquals(ComicTheme.SCROLL_BAR_UI, UIManager.get("ScrollBarUI"));
+        assertEquals(ComicTheme.SPLIT_PANE_UI, UIManager.get("SplitPaneUI"));
+        assertEquals("com.aresstack.comiccontrols.control.ComicSplitPaneUI", ComicTheme.SPLIT_PANE_UI);
         assertEquals("com.aresstack.comiccontrols.control.ComicButtonUI", ComicTheme.BUTTON_UI);
         assertEquals("com.aresstack.comiccontrols.control.ComicScrollBarUI", ComicTheme.SCROLL_BAR_UI);
 
