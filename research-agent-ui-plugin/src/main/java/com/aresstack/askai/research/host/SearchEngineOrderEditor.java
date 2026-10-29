@@ -2,6 +2,7 @@ package com.aresstack.askai.research.host;
 
 import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.comiccontrols.control.ComicButton;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.askai.browser.search.engine.BrowserSearchEngine;
 import com.aresstack.askai.browser.search.engine.BrowserSearchEngineCatalog;
 import com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection;
@@ -229,17 +230,17 @@ final class SearchEngineOrderEditor extends JPanel {
 
     private static Color listBackground() {
         Color color = UIManager.getColor("List.background");
-        return color == null ? Color.WHITE : color;
+        return color == null ? ThemeColor.of("comic.fieldBg") : color;
     }
 
     private static Color selectionBackground() {
         Color color = UIManager.getColor("List.selectionBackground");
-        return color == null ? new Color(184, 207, 229) : color;
+        return color == null ? ThemeColor.of("research.engineListSelectionBackground") : color;
     }
 
     private static Color selectionForeground() {
         Color color = UIManager.getColor("List.selectionForeground");
-        return color == null ? Color.BLACK : color;
+        return color == null ? ThemeColor.of("research.engineListSelectionForeground") : color;
     }
 
     /** The flat form the settings codec stores: {@code "duckduckgo:on:3,bing:off:3"}, order significant. */

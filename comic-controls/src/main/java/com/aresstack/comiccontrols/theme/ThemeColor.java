@@ -4,6 +4,7 @@ import java.awt.Color;
 import java.awt.color.ColorSpace;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.Supplier;
 
 /**
  * A LIVING color: {@link #getRGB()} returns the value of its token in the CURRENTLY active
@@ -73,6 +74,44 @@ public class ThemeColor extends Color {
                 return ResearchUiPainter.mix(base, target, amount);
             }
         };
+    }
+
+    /**
+     * The channel-wise average of two colors with integer truncation ({@code (a + b) / 2}), derived live —
+     * the exact arithmetic of the historic hand-written blends, so classic pixels stay identical.
+     */
+    public static ThemeColor average(final Color first, final Color second) {
+        return derive("avg(" + describe(first) + "," + describe(second) + ")", new Supplier<Color>() {
+            @Override
+            public Color get() {
+                return new Color((first.getRed() + second.getRed()) / 2,
+                        (first.getGreen() + second.getGreen()) / 2,
+                        (first.getBlue() + second.getBlue()) / 2);
+            }
+        });
+    }
+
+    /**
+     * Any color derived from tokens by {@code formula}, evaluated LIVE on every read (e.g.
+     * {@code ink.brighter()}), so a derived color can be stored in a component without freezing it.
+     */
+    public static ThemeColor derive(String description, final Supplier<Color> formula) {
+        return new ThemeColor(description, formula.get()) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            protected Color current() {
+                return formula.get();
+            }
+        };
+    }
+
+    /**
+     * The color as an HTML/CSS hex string ({@code #RRGGBB}) of its CURRENT value — for colors inside HTML
+     * text; call it when the HTML is built (render time), never cache the string across theme switches.
+     */
+    public static String toHtmlHex(Color color) {
+        return String.format("#%06X", color.getRGB() & 0xFFFFFF);
     }
 
     /** The token key or derivation this color stands for. */

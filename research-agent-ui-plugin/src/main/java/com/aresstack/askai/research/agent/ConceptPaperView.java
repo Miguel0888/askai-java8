@@ -8,6 +8,7 @@ import com.aresstack.comiccontrols.control.ComicSearchBar;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
@@ -166,7 +167,7 @@ public final class ConceptPaperView extends JPanel {
     }
 
     private void buildErrorOverlay() {
-        errorOverlay.setPlateFill(java.awt.Color.WHITE);
+        errorOverlay.setPlateFill(ThemeColor.of("comic.buttonPlate"));
         errorOverlay.setAccentStripe(ComicPalette.defaultPalette().getAccentRed());
         errorOverlay.setLayout(new BorderLayout());
         errorText.setEditable(false);

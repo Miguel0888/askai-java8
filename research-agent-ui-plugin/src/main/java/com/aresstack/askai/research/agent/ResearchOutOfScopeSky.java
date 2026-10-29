@@ -6,6 +6,7 @@ import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
 import com.aresstack.comiccontrols.theme.ResearchUiPainter;
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
@@ -544,7 +545,7 @@ final class ResearchOutOfScopeSky extends JPanel {
     private void styleAddField() {
         addFieldRow.setVisible(false);
         addFieldRow.setOpaque(true);
-        addFieldRow.setBackground(Color.WHITE);
+        addFieldRow.setBackground(ResearchUiPalette.LIGHT_CONTROL_BG);
         addFieldRow.setBorder(BorderFactory.createLineBorder(ResearchUiPalette.CLOUD_BORDER));
         addField.setFont(ResearchUiTypography.regular(12.5f));
         addField.setOpaque(false);
@@ -1012,7 +1013,7 @@ final class ResearchOutOfScopeSky extends JPanel {
                 java.awt.Rectangle speak = speakHit();
                 if (speakHovered) {
                     g2.setColor(ResearchUiPainter.mix(ResearchUiPalette.SKY_BAR_SURFACE,
-                            java.awt.Color.WHITE, 0.4f));
+                            ThemeColor.of("comic.buttonPlate"), 0.4f));
                     g2.fillOval(speak.x, speak.y, speak.width, speak.height);
                 }
                 g2.setColor(ResearchUiPalette.CLOUD_TEXT);
@@ -1149,7 +1150,7 @@ final class ResearchOutOfScopeSky extends JPanel {
             try {
                 if (hovered) {
                     g2.setColor(ResearchUiPainter.mix(ResearchUiPalette.SKY_BAR_SURFACE,
-                            java.awt.Color.WHITE, 0.35f));
+                            ThemeColor.of("comic.buttonPlate"), 0.35f));
                     g2.fillOval(0, 0, getWidth(), getHeight());
                 }
                 ResearchUiPainter.paintChevronUp(g2, getWidth() / 2, getHeight() / 2, 5,

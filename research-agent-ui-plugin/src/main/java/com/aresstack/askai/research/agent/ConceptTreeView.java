@@ -3,6 +3,7 @@ package com.aresstack.askai.research.agent;
 import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 
 import javax.swing.JComponent;
 import javax.swing.JOptionPane;
@@ -435,7 +436,7 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
                     RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             if (rows.isEmpty()) {
                 g2.setFont(ResearchUiTypography.regular(12.5f));
-                g2.setColor(new Color(0x888888));
+                g2.setColor(ThemeColor.of("comic.hintText"));
                 g2.drawString("No concept cards yet — describe in the chat what you want to "
                         + "research, or add the first card below.", MARGIN, MARGIN + 16);
             }
@@ -493,9 +494,12 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
     private void paintRow(Graphics2D g2, int index) {
         Row row = rows.get(index);
         boolean hovered = index == hoverRow;
-        Color plateFill = hovered ? new Color(0xFFF8E1) : Color.WHITE;
-        Color border = row.suppressed ? new Color(0xBBBBBB) : palette.getInk();
-        Color text = row.suppressed ? new Color(0x999999) : palette.getInk();
+        Color plateFill = hovered ? ThemeColor.of("comic.warmFocus")
+                : ThemeColor.of("comic.buttonPlate");
+        Color border = row.suppressed ? ThemeColor.of("research.conceptCardMutedOutline")
+                : palette.getInk();
+        Color text = row.suppressed ? ThemeColor.of("research.conceptCardMutedText")
+                : palette.getInk();
 
         g2.setColor(plateFill);
         g2.fillRoundRect(row.plate.x, row.plate.y, row.plate.width, row.plate.height,
@@ -516,7 +520,7 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
                     row.plate.x + row.plate.width - PLATE_PAD_H, mid);
             // An explicit badge: dimming alone reads like a disabled row (GPT's #5 note).
             g2.setFont(ResearchUiTypography.regular(10f));
-            g2.setColor(new Color(0x999999));
+            g2.setColor(ThemeColor.of("research.conceptCardMutedText"));
             g2.drawString("excluded", row.plate.x + row.plate.width + 6, baseline - 1);
         }
         if (hovered && !editorOpen && !preview) {
@@ -529,7 +533,7 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
     /** The open inline editor rides a comic plate of its own, with a painted cancel ✕. */
     private void paintInlineEditorPlate(Graphics2D g2) {
         Rectangle b = inlineEditor.getBounds();
-        g2.setColor(Color.WHITE);
+        g2.setColor(ThemeColor.of("comic.buttonPlate"));
         g2.fillRoundRect(b.x - 2, b.y - 2, b.width + 4, b.height + 4, PLATE_ARC, PLATE_ARC);
         g2.setColor(palette.getInk());
         g2.setStroke(new BasicStroke(1.4f));
@@ -541,10 +545,12 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
 
     /** The dashed ghost plate: click → inline field → a new TOP-LEVEL card (addChild([])). */
     private void paintRootAddPlate(Graphics2D g2) {
-        g2.setColor(rootAddHovered ? new Color(0xFFF8E1) : new Color(0xFAFAFA));
+        g2.setColor(rootAddHovered ? ThemeColor.of("comic.warmFocus")
+                : ThemeColor.of("comic.fieldBgQuiet"));
         g2.fillRoundRect(rootAddPlate.x, rootAddPlate.y, rootAddPlate.width,
                 rootAddPlate.height, PLATE_ARC, PLATE_ARC);
-        g2.setColor(rootAddHovered ? palette.getInk() : new Color(0x999999));
+        g2.setColor(rootAddHovered ? palette.getInk()
+                : ThemeColor.of("research.conceptCardMutedText"));
         g2.setStroke(new BasicStroke(1.1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND,
                 1f, new float[] {4f, 3f}, 0f));
         g2.drawRoundRect(rootAddPlate.x, rootAddPlate.y, rootAddPlate.width,
@@ -562,7 +568,7 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
      * whose shape and metrics vary per platform (the live screenshot showed tofu boxes).
      */
     private void paintGlyph(Graphics2D g2, Rectangle rect, int icon, boolean hot) {
-        g2.setColor(hot ? palette.getAccentYellow() : Color.WHITE);
+        g2.setColor(hot ? palette.getAccentYellow() : ThemeColor.of("comic.buttonPlate"));
         g2.fillOval(rect.x, rect.y, rect.width, rect.height);
         g2.setColor(palette.getInk());
         g2.setStroke(new BasicStroke(1.2f));
@@ -838,7 +844,7 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
             paintDropLabel(g2, MARGIN, y - 6, "→ top level, end");
         } else if (zoneRow >= 0 && zoneRow == dragRow) {
             Row self = rows.get(zoneRow);
-            g2.setColor(new Color(0xBBBBBB));
+            g2.setColor(ThemeColor.of("research.conceptCardMutedOutline"));
             g2.setStroke(new BasicStroke(2.2f));
             g2.drawRoundRect(self.plate.x - 2, self.plate.y - 2,
                     self.plate.width + 4, self.plate.height + 4, PLATE_ARC, PLATE_ARC);
@@ -851,7 +857,7 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
         g2.setFont(ResearchUiTypography.semiBold(11f));
         FontMetrics metrics = g2.getFontMetrics();
         int width = metrics.stringWidth(text) + 12;
-        g2.setColor(Color.WHITE);
+        g2.setColor(ThemeColor.of("comic.buttonPlate"));
         g2.fillRoundRect(x, y - metrics.getAscent() - 3, width, metrics.getHeight() + 6, 8, 8);
         g2.setColor(palette.getInk());
         g2.setStroke(new BasicStroke(1f));
@@ -869,7 +875,7 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
                 java.awt.AlphaComposite.SRC_OVER, 0.65f));
         int x = dragPoint.x + 10;
         int y = dragPoint.y - PLATE_HEIGHT / 2;
-        g2.setColor(Color.WHITE);
+        g2.setColor(ThemeColor.of("comic.buttonPlate"));
         g2.fillRoundRect(x, y, source.plate.width, PLATE_HEIGHT, PLATE_ARC, PLATE_ARC);
         g2.setColor(palette.getInk());
         g2.setStroke(new BasicStroke(1.4f));

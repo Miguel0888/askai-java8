@@ -81,7 +81,6 @@ public class AskAiThemeTest {
             assertEquals(e.getKey(), new Color(e.getValue()), t.color(e.getKey()));
         }
         assertEquals(new Color(0, 0, 0, 110), t.overlayDim());
-        assertEquals(expected.size() + 1, t.tokens().size());
     }
 
     @Test

@@ -56,6 +56,23 @@ public class ThemeColorTest {
         assertTrue(classicWash != wash.getRGB());
     }
 
+    @Test
+    public void averageTruncatesLikeTheHistoricBlendsAndDeriveIsLive() {
+        AskAiTheme.setActive(AskAiTheme.classic());
+        ThemeColor average = ThemeColor.average(ThemeColor.of("comic.accentYellow"), ThemeColor.of("comic.buttonPlate"));
+        // (0xF2 + 0xFF) / 2 = 0xF8, (0xC9 + 0xFF) / 2 = 0xE4, (0x4C + 0xFF) / 2 = 0xA5 — truncated
+        assertEquals(0xF8E4A5, average.getRGB() & 0xFFFFFF);
+        ThemeColor brighter = ThemeColor.derive("ink.brighter", new java.util.function.Supplier<Color>() {
+            @Override
+            public Color get() {
+                return ThemeColor.of("comic.ink").brighter();
+            }
+        });
+        assertEquals(new Color(0x252525).brighter(), new Color(brighter.getRGB()));
+        AskAiTheme.setActive(AskAiTheme.arcane());
+        assertEquals(new Color(0x24304A).brighter(), new Color(brighter.getRGB()));
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void unknownKeyIsRejectedImmediately() {
         ThemeColor.of("comic.doesNotExist");

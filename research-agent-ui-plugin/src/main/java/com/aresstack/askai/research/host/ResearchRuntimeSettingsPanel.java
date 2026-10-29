@@ -4,6 +4,7 @@ import com.aresstack.comiccontrols.control.ComicTextField;
 import com.aresstack.comiccontrols.control.ComicPasswordField;
 import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.comiccontrols.control.ComicButton;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import com.aresstack.askai.plugin.api.service.WorkspaceStateStore;
 import com.aresstack.askai.research.acp.ResearchBackendMode;
 
@@ -494,7 +495,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                     java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
                     g2.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING,
                             java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-                    g2.setColor(java.awt.Color.GRAY);
+                    g2.setColor(ThemeColor.of("research.fieldPlaceholderText"));
                     g2.setFont(getFont());
                     g2.drawString(placeholder, getInsets().left + 2,
                             getBaseline(getWidth(), getHeight()));
@@ -515,7 +516,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                     java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
                     g2.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING,
                             java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-                    g2.setColor(java.awt.Color.GRAY);
+                    g2.setColor(ThemeColor.of("research.fieldPlaceholderText"));
                     g2.setFont(getFont());
                     g2.drawString(placeholder, getInsets().left + 2,
                             getBaseline(getWidth(), getHeight()));

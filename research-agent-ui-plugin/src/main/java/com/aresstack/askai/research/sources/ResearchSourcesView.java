@@ -2,6 +2,7 @@ package com.aresstack.askai.research.sources;
 
 import com.aresstack.comiccontrols.control.ComicControls;
 import com.aresstack.comiccontrols.control.ComicButton;
+import com.aresstack.comiccontrols.theme.ThemeColor;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -119,7 +120,7 @@ public final class ResearchSourcesView extends JPanel {
 
         JScrollPane tableScroll = new com.aresstack.comiccontrols.control.ComicScrollPane(table,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        tableScroll.getViewport().setBackground(java.awt.Color.WHITE);
+        tableScroll.getViewport().setBackground(ThemeColor.of("comic.fieldBg"));
         // The overview sits on ONE quiet plate (like the State tab's sections) — search on top,
         // table below; no loud extra background panel.
         com.aresstack.comiccontrols.control.ComicSectionPanel tablePlate =
@@ -178,7 +179,7 @@ public final class ResearchSourcesView extends JPanel {
                 boolean read = String.valueOf(value).startsWith("✓");
                 component.setForeground(read ? palette.getAgentPetrol()
                         : com.aresstack.comiccontrols.theme.ResearchUiPainter.mix(
-                                palette.getInk(), java.awt.Color.WHITE, 0.45f));
+                                palette.getInk(), ThemeColor.of("comic.fieldBg"), 0.45f));
                 return component;
             }
         });
@@ -344,16 +345,14 @@ public final class ResearchSourcesView extends JPanel {
     }
 
     private java.awt.Color mutedInk() {
-        return com.aresstack.comiccontrols.theme.ResearchUiPainter.mix(
-                palette.getInk(), java.awt.Color.WHITE, 0.35f);
+        return ThemeColor.mix(palette.getInk(), ThemeColor.of("comic.fieldBg"), 0.35f);
     }
 
     /** Editable fields: a thin derived line + breathing room instead of the LaF bevel. */
     private void styleField(JTextField field) {
         field.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(
-                        com.aresstack.comiccontrols.theme.ResearchUiPainter.mix(
-                                palette.getInk(), java.awt.Color.WHITE, 0.75f)),
+                        ThemeColor.mix(palette.getInk(), ThemeColor.of("comic.fieldBg"), 0.75f)),
                 BorderFactory.createEmptyBorder(3, 6, 3, 6)));
     }
 

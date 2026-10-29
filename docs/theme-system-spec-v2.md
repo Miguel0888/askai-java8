@@ -462,3 +462,23 @@ Nur Dinge, die der User NICHT gefordert hat:
   - `RawSwingGuardTest` (askai-app, `ui.theme`) scans `askai-app/src/main` and `research-agent-ui-plugin/src/main`
     (root found by walking up from `user.dir`); the allowlist is EMPTY — no raw control is left.
 
+### T7 (all groups)
+- Group naming: plugin role tokens are `research.<lowerCamelRole>`; UPPER_SNAKE names under `research.` stay
+  reserved for the `ResearchUiPalette` constants (`AskAiTheme.researchTokens()` lists only those). App groups:
+  `chat.*`, `models.*`, `markdown.*`, `settings.*`, ... per area (see the token blocks in `AskAiTheme`). Every new
+  token: classic = the former literal exactly; arcane = COPY of the arcane value of the family representative
+  (rule 3), commented with the representative in `AskAiTheme.arcane()`.
+- `ThemeColor` gained (T7a) `average(a, b)` (truncating, the exact arithmetic of the historic hand-written blends, so
+  classic stays pixel-identical where `mix` would round 1 bit differently), `derive(description, supplier)` (any
+  live formula, e.g. `ink.brighter()`), and `toHtmlHex(color)` for colors inside HTML strings (built at render time).
+- T7a (plugin, 55 literals in 13 files, grep at zero, no allowlist):
+  - National flag colors of the language flag icons (`research.flagGermany*`, `research.flagUnion*`) got their own
+    tokens with arcane = classic: rule 3 would recolor the flags (navy/gold/petrol) and destroy their identity —
+    deviation from rule 3, listed here for review (alternative: allowlist the flag painter).
+  - White text on accent fills (petrol/red plates) maps to `bubble.assistantForeground` (the classic-white text role
+    of the theme); white mix targets map to `comic.buttonPlate` (lifting a chip) or `comic.fieldBg` (fading to paper).
+  - `research.engineListSelectionBackground/Foreground` follow rule 3 literally (navy/ink, weak contrast in arcane);
+    only reached when the UIManager has no list selection colors (practically never, `ComicTheme` installs them).
+  - `research.conceptCardMutedText` (0x999999, between hint and soft hint) → `comic.hintTextSoft`.
+  - E8 cache fixed: `ResearchStateView` inactive title `ink.brighter()` is now `ThemeColor.derive(...)`.
+

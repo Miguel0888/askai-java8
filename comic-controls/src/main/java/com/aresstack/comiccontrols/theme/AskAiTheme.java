@@ -103,6 +103,27 @@ public final class AskAiTheme {
         put(t, "research.CLOUD_CLOSE", 0x72879A);
         put(t, "research.SKY_MID", 0xF5FAFE); // == SKY_TOP: the classic sky is a single tone
 
+        // research plugin role tokens (T7a): lowerCamel roles, classic = the former literal
+        put(t, "research.conceptCardMutedOutline", 0xBBBBBB);
+        put(t, "research.conceptCardMutedText", 0x999999);
+        put(t, "research.documentAccent", 0xB05218);
+        put(t, "research.phasePendingStripe", 0xD8D8D8);
+        put(t, "research.actionTagBackground", 0xEB5757);
+        put(t, "research.settingsErrorText", 0x961E1E);
+        put(t, "research.settingsSuccessText", 0x1E6E1E);
+        put(t, "research.settingsRowDivider", 0xDCDCDC);
+        put(t, "research.settingsHintText", 0x6E6E6E);
+        put(t, "research.fieldPlaceholderText", 0x808080);
+        put(t, "research.engineListSelectionBackground", 0xB8CFE5);
+        put(t, "research.engineListSelectionForeground", 0x000000);
+        put(t, "research.flagIconFrame", 0x000000);
+        put(t, "research.flagGermanyTopStripe", 0x000000);
+        put(t, "research.flagGermanyMiddleStripe", 0xDD0000);
+        put(t, "research.flagGermanyBottomStripe", 0xFFCE00);
+        put(t, "research.flagUnionField", 0x012169);
+        put(t, "research.flagUnionCross", 0xFFFFFF);
+        put(t, "research.flagUnionCrossCenter", 0xC8102E);
+
         // bubble group: exactly BubblePalette.windowsPhoneInspired()
         put(t, "bubble.transcriptBackground", 0xF4F4F4);
         put(t, "bubble.userBackground", 0x1676D2);
@@ -171,6 +192,21 @@ public final class AskAiTheme {
         put(t, "research.CLOUD_CLOSE", 0x9A5A3C);
         put(t, "research.LIGHT_CONTROL_BG", 0xFFFCF4);
         put(t, "research.LIGHT_CONTROL_BORDER", 0xCDBE9E);
+
+        // research plugin role tokens (T7a): arcane value copied from the family representative
+        put(t, "research.conceptCardMutedOutline", 0xCDBE9E); // grey line: comic.fieldBorder
+        put(t, "research.conceptCardMutedText", 0xA89C82); // light grey text: comic.hintTextSoft
+        put(t, "research.documentAccent", 0xD08A2C); // orange: comic.accentOrange
+        put(t, "research.phasePendingStripe", 0xCDBE9E); // grey line: comic.fieldBorder
+        // research.actionTagBackground, research.settingsErrorText: red function colors stay classic
+        put(t, "research.settingsSuccessText", 0x2A6F6B); // green: comic.agentPetrol
+        put(t, "research.settingsRowDivider", 0xCDBE9E); // grey line: comic.fieldBorder
+        put(t, "research.settingsHintText", 0x857A63); // mid-grey hint: comic.hintText
+        put(t, "research.fieldPlaceholderText", 0x857A63); // mid-grey hint: comic.hintText
+        put(t, "research.engineListSelectionBackground", 0x2D4F86); // blue: comic.navigationBlue
+        put(t, "research.engineListSelectionForeground", 0x24304A); // black text: comic.ink
+        put(t, "research.flagIconFrame", 0x24304A); // black line: comic.ink
+        // research.flag* stripes: national flag colors are identity, not theme — they stay classic
 
         put(t, "bubble.transcriptBackground", 0xF6EEDD);
         put(t, "bubble.userBackground", 0x24406E);
@@ -336,12 +372,19 @@ public final class AskAiTheme {
         return color;
     }
 
-    /** All research-side tokens (constant name → color), in table order. */
+    /**
+     * All {@link ResearchUiPalette} tokens (constant name → color), in table order: the research keys whose
+     * role is an UPPER_SNAKE constant name. Role tokens of the research plugin ({@code research.someRole},
+     * lowerCamel) are regular tokens without a palette constant.
+     */
     public Map<String, Color> researchTokens() {
         Map<String, Color> research = new LinkedHashMap<String, Color>();
         for (Map.Entry<String, Color> e : tokens.entrySet()) {
             if (e.getKey().startsWith(RESEARCH_PREFIX)) {
-                research.put(e.getKey().substring(RESEARCH_PREFIX.length()), e.getValue());
+                String name = e.getKey().substring(RESEARCH_PREFIX.length());
+                if (name.matches("[A-Z][A-Z0-9_]*")) {
+                    research.put(name, e.getValue());
+                }
             }
         }
         return Collections.unmodifiableMap(research);
