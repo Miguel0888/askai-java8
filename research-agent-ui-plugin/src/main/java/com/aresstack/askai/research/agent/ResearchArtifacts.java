@@ -50,7 +50,7 @@ public final class ResearchArtifacts {
         // #43 slice 9: the document gets its own page view (chapter hierarchy + clickable
         // [n] source badges); the plain editor stays one toggle away inside that view.
         list.add(new Artifact("document", "Document", TYPE_DOCUMENT, "document.md"));
-        list.add(new Artifact("state", "State", TYPE_STATE, ""));
+        list.add(new Artifact("state", "Revisions", TYPE_STATE, "")); // id stays "state" (persisted tab selection, /open)
         // Runtime + search settings are deliberately NOT artifacts anymore: they live as the plugin's
         // settings pages in the host's gear menu (session-based), the artifact area holds work products.
         return Collections.unmodifiableList(list);

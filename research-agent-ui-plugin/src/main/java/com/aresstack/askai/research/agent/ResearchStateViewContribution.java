@@ -22,7 +22,7 @@ public final class ResearchStateViewContribution implements ArtifactViewContribu
 
     @Override
     public String getDisplayName() {
-        return "State";
+        return "Revisions";
     }
 
     @Override
