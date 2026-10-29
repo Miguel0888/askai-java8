@@ -42,6 +42,8 @@ public final class ConnectionWidget extends JComponent {
     private boolean refreshEnabled = true;
     private boolean statusHovered;
     private boolean addressHovered;
+    /** Compact: only the status dot; address, status and version live in the hover popup. */
+    private boolean compact;
 
     public ConnectionWidget(Runnable openSettings, Runnable refresh) {
         this.openSettings = openSettings;
@@ -99,6 +101,17 @@ public final class ConnectionWidget extends JComponent {
         setMaximumSize(getPreferredSize()); // flush right after the menu-bar glue, never stretched
     }
 
+    /**
+     * Compact mode (title bar): only the dot, same size; hovering shows the address, status and version
+     * in the popup; a click still refreshes. The connection settings are reached through the gear.
+     */
+    public void setCompact(boolean compact) {
+        this.compact = compact;
+        revalidate();
+        repaint();
+        setMaximumSize(getPreferredSize());
+    }
+
     public ConnectionStatus getStatus() {
         return status;
     }
@@ -110,16 +123,26 @@ public final class ConnectionWidget extends JComponent {
     }
 
     private Rectangle statusZone() {
-        return new Rectangle(PAD_LEFT, 0, DOT_ZONE, getHeight());
+        return compact ? new Rectangle(0, 0, getWidth(), getHeight())
+                : new Rectangle(PAD_LEFT, 0, DOT_ZONE, getHeight());
     }
 
     private Rectangle addressZone() {
+        if (compact) {
+            return new Rectangle(0, 0, 0, 0);
+        }
         int start = PAD_LEFT + DOT_ZONE + GAP;
         return new Rectangle(start, 0, Math.max(0, getWidth() - start - PAD_RIGHT), getHeight());
     }
 
     @Override
     public String getToolTipText(MouseEvent event) {
+        if (compact) {
+            return "<html><b>Ollama</b> " + escape(url.isEmpty() ? "(no address)" : url)
+                    + "<br>Status: " + escape(status.getLabel())
+                    + (detail.isEmpty() ? "" : " — " + escape(detail))
+                    + "<br>Click to refresh connection, models and audio profiles</html>";
+        }
         if (statusZone().contains(event.getPoint())) {
             return "Status: " + status.getLabel()
                     + (detail.isEmpty() ? "" : " — " + detail)
@@ -138,7 +161,7 @@ public final class ConnectionWidget extends JComponent {
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
                     RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             int cy = getHeight() / 2;
-            int cx = PAD_LEFT + DOT_ZONE / 2;
+            int cx = compact ? getWidth() / 2 : PAD_LEFT + DOT_ZONE / 2;
             if (statusHovered) {
                 // The dot GROWS a purpose on hover: the comic refresh glyph — a circular arrow
                 // in the status colour, dimmed while a refresh is already running.
@@ -157,6 +180,9 @@ public final class ConnectionWidget extends JComponent {
                 g2.fillOval(cx - 4, cy - 4, 9, 9);
             }
 
+            if (compact) {
+                return; // the address lives in the hover popup
+            }
             String address = stripScheme(url);
             g2.setFont(getFont());
             FontMetrics metrics = g2.getFontMetrics();
@@ -176,8 +202,15 @@ public final class ConnectionWidget extends JComponent {
     @Override
     public Dimension getPreferredSize() {
         FontMetrics metrics = getFontMetrics(getFont());
+        if (compact) {
+            return new Dimension(DOT_ZONE + 4, Math.max(20, metrics.getHeight() + 4));
+        }
         int width = PAD_LEFT + DOT_ZONE + GAP + metrics.stringWidth(stripScheme(url)) + PAD_RIGHT;
         return new Dimension(width, Math.max(20, metrics.getHeight() + 4));
+    }
+
+    private static String escape(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     /** @return the URL without the http/https scheme and any trailing slash. */

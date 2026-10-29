@@ -141,6 +141,9 @@ public final class AskAiFrame extends JFrame {
         // search in the middle, the comic window control right) — see buildUserInterface.
         setUndecorated(true);
         AppIcon.apply(this); // the AskAI robot everywhere the Java cup used to be (taskbar, Alt-Tab)
+        // The theme FIRST: every component built from here on (models panel, connection widget, ...)
+        // picks up the comic delegates and colors — not Metal's.
+        ComicTheme.install(AskAiTheme.active());
         this.configurationRepository = configurationRepository;
         this.askAiService = askAiService;
         this.model = new AskAiModel(configurationRepository);
@@ -267,7 +270,6 @@ public final class AskAiFrame extends JFrame {
         // The comic design language's global part: the active theme's tokens for all standard
         // Swing components (surfaces, fields, tables, tabs, …), the comic button/scrollbar
         // delegates, and the menu/popup contours (issue #36).
-        ComicTheme.install(AskAiTheme.active());
         this.titleBar = new AskAiTitleBar(getTitle(),
                 () -> setState(java.awt.Frame.ICONIFIED),
                 () -> dispatchEvent(new java.awt.event.WindowEvent(this, java.awt.event.WindowEvent.WINDOW_CLOSING)));
@@ -278,6 +280,11 @@ public final class AskAiFrame extends JFrame {
         JMenuBar menuBar = createMenuBar();
         titleBar.setAlignmentX(LEFT_ALIGNMENT);
         menuBar.setAlignmentX(LEFT_ALIGNMENT);
+        // Right-aligned in the title bar, left of the close chip: the connection dot (address, status
+        // and version in its hover popup; click refreshes) and the settings gear (same size as the chip).
+        connectionStatusView.setCompact(true);
+        titleBar.addTrailingControl(connectionStatusView);
+        titleBar.addTrailingControl(createSettingsGear());
         header.add(titleBar);
         header.add(menuBar);
         JPanel windowSurface = new JPanel(new BorderLayout());
@@ -312,14 +319,6 @@ public final class AskAiFrame extends JFrame {
         menuBar.add(createTopLevelMenu("Batch", BATCH_VIEW));
         menuBar.add(createModelsMenu());
         menuBar.add(createHelpMenu());
-        menuBar.add(Box.createHorizontalGlue());
-        // The settings gear, right-aligned directly left of the connection widget: opens the
-        // active chat's settings dialog (moved here from the chat drawer's footer).
-        menuBar.add(createSettingsGear());
-        // ONE fused connection widget: status dot (hover → comic refresh glyph, click refreshes
-        // connection/models/audio profiles) + address (click opens the connection settings). No
-        // separate always-visible refresh button eating menu-bar space anymore.
-        menuBar.add(connectionStatusView);
         return menuBar;
     }
 
@@ -343,13 +342,45 @@ public final class AskAiFrame extends JFrame {
         return menu;
     }
 
-    /** The flat menu-bar gear (glyph only, ink like the menus); opens the settings menu. */
+    /** An icon drawn scaled to {@code size} pixels (the 15px stroke glyphs at title-bar size). */
+    private static final class ScaledIcon implements javax.swing.Icon {
+        private final javax.swing.Icon icon;
+        private final int size;
+
+        ScaledIcon(javax.swing.Icon icon, int size) {
+            this.icon = icon;
+            this.size = size;
+        }
+
+        public int getIconWidth() {
+            return size;
+        }
+
+        public int getIconHeight() {
+            return size;
+        }
+
+        public void paintIcon(java.awt.Component c, java.awt.Graphics g, int x, int y) {
+            java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+            try {
+                g2.translate(x, y);
+                g2.scale(size / (double) icon.getIconWidth(), size / (double) icon.getIconHeight());
+                icon.paintIcon(c, g2, 0, 0);
+            } finally {
+                g2.dispose();
+            }
+        }
+    }
+
+    /** The flat title-bar gear (glyph only, ink, the close chip's size); opens the settings menu. */
     private javax.swing.JComponent createSettingsGear() {
         com.aresstack.comiccontrols.control.ComicButton gear = new com.aresstack.comiccontrols.control.ComicButton(
                 com.aresstack.askai.java8.ui.ChatComposerPanel.createGearGlyphIcon());
         gear.setContentAreaFilled(false); // flat: just the glyph in the menu bar
         gear.setFocusable(false);
-        gear.setMargin(new java.awt.Insets(0, 6, 0, 6));
+        gear.setIcon(new ScaledIcon(com.aresstack.askai.java8.ui.ChatComposerPanel.createGearGlyphIcon(), 20));
+        gear.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        gear.setPreferredSize(new Dimension(24, 24)); // the size of the close chip beside it
         gear.setToolTipText("Settings and configuration");
         gear.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
         // The gear is THE settings menu: the chat settings dialog plus the configuration screens

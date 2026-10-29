@@ -36,6 +36,9 @@ public final class AskAiTitleBar extends JPanel {
     static final int HEIGHT = 34;
 
     private final JLabel titleLabel = new JLabel();
+    private final JPanel right = new JPanel();
+    /** Controls right-aligned directly LEFT of the close chip (e.g. connection dot, settings gear). */
+    private final JPanel trailingControls = new JPanel();
     private final JPanel searchSlot = new JPanel(new GridBagLayout());
     private AgentSearchContribution boundSearch;
     private Supplier<AgentSession> sessionSource;
@@ -65,10 +68,24 @@ public final class AskAiTitleBar extends JPanel {
         searchSlot.setVisible(false);
         add(searchSlot, BorderLayout.CENTER);
 
-        JPanel right = new JPanel(new GridBagLayout());
+        right.setLayout(new BoxLayout(right, BoxLayout.X_AXIS));
         right.setOpaque(false);
+        right.add(trailingControls);
+        right.add(Box.createHorizontalStrut(6));
         right.add(new ComicWindowHoldCloseButton(ComicPalette.defaultPalette(), minimizeAction, closeAction, 24));
+        trailingControls.setLayout(new BoxLayout(trailingControls, BoxLayout.X_AXIS));
+        trailingControls.setOpaque(false);
         add(right, BorderLayout.EAST);
+    }
+
+    /** Adds a control right-aligned directly left of the window control (in the given order). */
+    public void addTrailingControl(JComponent control) {
+        if (trailingControls.getComponentCount() > 0) {
+            trailingControls.add(Box.createHorizontalStrut(6));
+        }
+        control.setAlignmentY(CENTER_ALIGNMENT);
+        trailingControls.add(control);
+        trailingControls.revalidate();
     }
 
     /** The title shown next to the icon (follows the frame title). */
