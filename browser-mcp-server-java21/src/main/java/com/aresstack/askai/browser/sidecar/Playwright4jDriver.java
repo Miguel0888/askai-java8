@@ -119,7 +119,9 @@ final class Playwright4jDriver implements PlaywrightDriver {
             if (camoufox) {
                 // Downloads once (progress lines keep the host waiting), afterwards only verifies.
                 camoufoxExecutable = CamoufoxProvisioning.ensureInstalled();
-                camoufoxLaunch = CamoufoxLaunch.builtIn(camoufoxExecutable, CamoufoxProvisioning.browserRoot());
+                // The system language, as Chrome used it: search engines answer in it (see builtIn).
+                camoufoxLaunch = CamoufoxLaunch.builtIn(camoufoxExecutable, CamoufoxProvisioning.browserRoot(),
+                        java.util.Locale.getDefault());
                 stage = "PLAYWRIGHT_CREATE";
             }
             Map<String, String> env = new LinkedHashMap<String, String>();

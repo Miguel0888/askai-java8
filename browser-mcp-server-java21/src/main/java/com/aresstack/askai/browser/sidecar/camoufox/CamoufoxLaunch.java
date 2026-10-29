@@ -89,6 +89,35 @@ public record CamoufoxLaunch(Map<String, String> environment, JsonNode fingerpri
         return builtIn(defaultProfile(), executable, runtimeDir, System.getProperty("os.name"));
     }
 
+    /**
+     * AskAI: the built-in profile in the user's language instead of its fixed en-US. Search engines answer in
+     * the browser's language, and the SERP analysis was tuned on the pages Chrome got in the system
+     * language (an English Bing page reads "About 1,230,000 results", which contains the no-results
+     * marker "0 results"). Sets the requested locale, Accept-Language and Camoufox's locale fingerprint.
+     */
+    public static CamoufoxLaunch builtIn(Path executable, Path runtimeDir, Locale language) throws IOException {
+        return builtIn(localized(defaultProfile(), language), executable, runtimeDir, System.getProperty("os.name"));
+    }
+
+    static ObjectNode localized(ObjectNode profile, Locale language) {
+        String tag = language.toLanguageTag();
+        String primary = language.getLanguage();
+        if (primary.isEmpty() || "und".equals(tag)) return profile;
+        String accept = tag.equals(primary) ? primary + ",en-US;q=0.7,en;q=0.3"
+                : tag + "," + primary + ";q=0.8,en-US;q=0.5,en;q=0.3";
+        ObjectNode prefs = profile.has("firefoxUserPrefs") && profile.get("firefoxUserPrefs").isObject()
+                ? (ObjectNode) profile.get("firefoxUserPrefs") : profile.putObject("firefoxUserPrefs");
+        prefs.put("intl.locale.requested", tag);
+        prefs.put("intl.accept_languages", accept);
+        ObjectNode config = profile.has("config") && profile.get("config").isObject()
+                ? (ObjectNode) profile.get("config") : profile.putObject("config");
+        config.put("locale:language", primary);
+        if (!language.getCountry().isEmpty()) config.put("locale:region", language.getCountry());
+        config.put("locale:all", accept.replaceAll(";q=[0-9.]+", ""));
+        config.put("headers.Accept-Language", accept);
+        return profile;
+    }
+
     static ObjectNode defaultProfile() throws IOException {
         try (InputStream in = CamoufoxLaunch.class.getResourceAsStream(DEFAULT_PROFILE)) {
             if (in == null) throw new IllegalStateException(DEFAULT_PROFILE + " missing from the browser sidecar jar");
