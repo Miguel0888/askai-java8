@@ -47,6 +47,7 @@ public class ComicMergedFeaturesTest {
     @Test
     public void iconOnlyPillDropsTheLabelButKeepsTheNameForAssistiveTech() {
         ResearchPillDropdown pill = new ResearchPillDropdown(26, 10, 100, 8, 8);
+        pill.setFont(new java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.PLAIN, 13)); // as the contribution does
         javax.swing.Icon flag = new javax.swing.ImageIcon(new java.awt.image.BufferedImage(16, 11,
                 java.awt.image.BufferedImage.TYPE_INT_ARGB));
         pill.setItems(Arrays.asList(new ResearchPillDropdown.Item("Deutsch", flag, true, null)));
