@@ -633,8 +633,12 @@ public final class ProductiveResearchBackendFactory {
         // 2. LAZY browser runtime: created STOPPED — selecting the Research agent must NOT spawn a browser
         // or block the EDT. The Playwright sidecar starts on the FIRST browser command (on the runtime's
         // own owner thread) and is stopped again when the browsing phase ends; a broken generation restarts.
+        // The managed Camoufox is downloaded once; start that now in the background so the first browser
+        // command (usually minutes later, after scoping) finds it installed. Spawns no browser.
+        CamoufoxPrefetch.startOnce(config);
         final BrowserRuntimePort browser = new LazyRestartableBrowserRuntime(config,
-                SIDECAR_READY_TIMEOUT_SECONDS, sidecarConfigFile.getAbsolutePath(), toolClients);
+                SIDECAR_READY_TIMEOUT_SECONDS, sidecarConfigFile.getAbsolutePath(), toolClients,
+                browserToolTimeoutSeconds);
         try {
             // 3. Host endpoints for this session+generation (the bridge forwards through the lazy runtime).
             bridge = new BrowserBridgeEndpoint(registry, browser, captures, sessionKey, generationId);

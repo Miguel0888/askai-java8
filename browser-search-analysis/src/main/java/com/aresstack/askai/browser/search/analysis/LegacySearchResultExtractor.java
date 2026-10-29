@@ -323,10 +323,33 @@ public final class LegacySearchResultExtractor {
         for (RenderedContainerDescriptor container : document.containers) {
             String excerpt = container.textExcerpt.toLowerCase(Locale.ROOT);
             for (String marker : settings.analysis.noResultsTexts) {
-                if (!marker.isEmpty() && excerpt.contains(marker)) {
+                if (containsNoResultsMarker(excerpt, marker)) {
                     return true;
                 }
             }
+        }
+        return false;
+    }
+
+    /**
+     * A marker that starts with a digit ("0 results") only counts as a whole number: inside a larger
+     * number it is the tail of a result COUNT, not a no-results statement. Bing's English header
+     * "About 1,230,000 results" ends in "0 results" and was read as an empty page — no hit was opened
+     * although the page listed results.
+     */
+    static boolean containsNoResultsMarker(String lowerCasedExcerpt, String marker) {
+        if (marker == null || marker.isEmpty()) {
+            return false;
+        }
+        if (!Character.isDigit(marker.charAt(0))) {
+            return lowerCasedExcerpt.contains(marker);
+        }
+        int at = lowerCasedExcerpt.indexOf(marker);
+        while (at >= 0) {
+            if (at == 0 || !Character.isDigit(lowerCasedExcerpt.charAt(at - 1))) {
+                return true;
+            }
+            at = lowerCasedExcerpt.indexOf(marker, at + 1);
         }
         return false;
     }

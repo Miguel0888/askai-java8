@@ -61,10 +61,19 @@ public final class LazyRestartableBrowserRuntime implements BrowserRuntimePort {
     /** Dedupe for control-plane failure logging (polled ~1/s — never flood stderr). */
     private volatile String lastControlFailureLine;
 
-    /** Production runtime over the real browser MCP sidecar process. */
+    /**
+     * Production runtime over the real browser MCP sidecar process.
+     *
+     * @param toolTimeoutSeconds the user's browser tool timeout (the setting the runtime gets as
+     *                           ASKAI_BROWSER_TOOL_TIMEOUT_SECONDS): the host's own data client toward the
+     *                           sidecar must cover the same blocking call — a web_search_prepare over three
+     *                           result pages — or the host reports a working sidecar as dead first.
+     */
     public LazyRestartableBrowserRuntime(ResearchRuntimeConfig config, long readyTimeoutSeconds,
-                                         String browserConfigPath, McpToolClientFactory toolClients) {
-        this(productionStarter(config, readyTimeoutSeconds, browserConfigPath, toolClients));
+                                         String browserConfigPath, McpToolClientFactory toolClients,
+                                         int toolTimeoutSeconds) {
+        this(productionStarter(config, readyTimeoutSeconds, browserConfigPath, toolClients,
+                toolTimeoutSeconds));
     }
 
     LazyRestartableBrowserRuntime(SidecarStarter starter) {
@@ -288,13 +297,17 @@ public final class LazyRestartableBrowserRuntime implements BrowserRuntimePort {
     private static SidecarStarter productionStarter(final ResearchRuntimeConfig config,
                                                     final long readyTimeoutSeconds,
                                                     final String browserConfigPath,
-                                                    final McpToolClientFactory toolClients) {
+                                                    final McpToolClientFactory toolClients,
+                                                    final int toolTimeoutSeconds) {
         return new SidecarStarter() {
             public Sidecar start() throws BrowserRuntimeException {
                 try {
                     final BrowserMcpSidecarProcess process = BrowserMcpSidecarProcess.start(config,
                             readyTimeoutSeconds, browserConfigPath);
-                    final McpToolClient client = toolClients.connect(process.getMcpUrl(), "streamable");
+                    // The DATA lane blocks for a whole tool call (a multi-page SERP prepare): its timeout
+                    // is the user's tool timeout, the same one the runtime applies on its side.
+                    final McpToolClient client = toolClients.connect(process.getMcpUrl(), "streamable",
+                            toolTimeoutSeconds);
                     // Second connection to the SAME generation for the control plane: the data client is
                     // busy for the whole of a blocking call, and its thread-safety under concurrent use is
                     // not guaranteed — the control lane gets its own client instead of double-using it.

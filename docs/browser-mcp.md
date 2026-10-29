@@ -17,15 +17,37 @@
 The sidecar uses the OFFICIAL Playwright Java API (`com.microsoft.playwright:playwright:1.62.0`,
 with its `driver`/`driver-bundle` modules excluded) plus `com.aresstack:playwright4j:0.3.0`, which
 replaces `com.microsoft.playwright.impl.driver.Driver`: instead of a Node.js process it spawns a
-second **Java** process (`GraalDriverMain`) hosting the Playwright Core JS driver on GraalJS. The
-browser is a **locally installed** Chrome or Edge via the channel mechanism
-(`--browser-channel=chrome|msedge`). AskAI uses Chrome/Edge only (playwright4j itself also supports Firefox since 0.2.0).
+second **Java** process (`GraalDriverMain`) hosting the Playwright Core JS driver on GraalJS.
 
-Process tree: `sidecar JVM → GraalDriverMain JVM → Chromium processes`. playwright4j embeds the Playwright Core
+The default browser is **Camoufox** (`--browser-channel=camoufox`), taken over from
+[Argos](https://github.com/aresstack/argos) with minimal changes (package
+`com.aresstack.askai.browser.sidecar.camoufox`: `CamoufoxDistribution`, `CamoufoxInstaller`,
+`CamoufoxLaunch`, plus `camoufox/distribution.properties` and the fingerprint profile
+`camoufox/default-launch.json`):
+
+- **One-time download** of Argos' Camoufox distribution `camoufox-156.0.1-beta.36-argos.2`: the
+  daijro/camoufox release with the two WebDriver BiDi fixes of daijro/camoufox#952 already applied
+  (not in any Camoufox release yet) plus uBlock Origin. Installed to `%APPDATA%/.askai-java8/browser`.
+- **Verification**: archive SHA-256 pinned per platform (Windows x86_64, Linux x86_64), download into a
+  `.partial-*` folder, unpack, check manifest and both fixed `omni.ja` entries, then one atomic rename.
+  Every start re-checks the marker, the executable and both fixes. Concurrent installs serialize over
+  `.install.lock`.
+- **Start**: `firefox().launchPersistentContext` with channel `moz-firefox`, the verified executable,
+  the fingerprint environment (`CAMOU_CONFIG_1..n`, `CAMOU_PREFS_1..n`) and prefs of the built-in
+  profile, and no Playwright emulation (viewport, color scheme ...), exactly as Argos starts it. Profile:
+  `%APPDATA%/.askai-java8/browser-profiles/camoufox`; a concurrent research session gets a temporary
+  profile that is deleted on close.
+- **Progress**: while installing, the sidecar prints `camoufox install: ...` lines every 5 s; the host
+  restarts its readiness timeout on each one. When a research session starts, the host runs
+  `--install-camoufox` in the background so the first browser command usually finds the browser ready.
+
+The channels `chrome` / `msedge` use a **locally installed** Chrome or Edge via the channel mechanism.
+
+Process tree: `sidecar JVM -> GraalDriverMain JVM -> browser processes`. playwright4j embeds the Playwright Core
 JS package (`driver/package/**`, no Node.js binaries) in its own jar; `driver-bundle` is no longer needed.
 
-**Nothing is ever downloaded or installed**: `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is fixed; browser
-discovery only probes standard install locations.
+**Playwright never downloads a browser**: `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is fixed; Chrome/Edge
+discovery only probes standard install locations. The only download is the pinned Camoufox above.
 
 ## Capability probing
 
@@ -58,8 +80,10 @@ works; the `-cp`-spawned driver child inherits the classpath via the same jar me
 
 ```
 java -jar browser-mcp-sidecar-<version>.jar --port=<port> --token=<token> \
-     [--browser-channel=chrome|msedge] [--headless=true|false] \
+     [--browser-channel=camoufox|chrome|msedge] [--headless=true|false] \
      [--allow-private=true|false] [--search-url=<template with {query}>]
+
+java -jar browser-mcp-sidecar-<version>.jar --install-camoufox   # download/verify only, exit 0 = ready
 ```
 
 MCP endpoint: `http://127.0.0.1:<port>/mcp/browser/<token>` (streamable). Logs go to STDERR only;

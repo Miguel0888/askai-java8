@@ -139,6 +139,54 @@ public class ResearchRuntimeModeTest {
     }
 
     @Test
+    public void camoufoxIsTheDefaultChannelAndTheOldStoredChromeDefaultSwitchesOnce() {
+        assertEquals("camoufox", ResearchRuntimeSettings.defaults().getBrowserChannel());
+        assertEquals("camoufox", ResearchRuntimeSettings.load(new MemoryStore()).getBrowserChannel());
+
+        MemoryStore old = new MemoryStore();
+        old.put(ResearchRuntimeSettings.KEY_BROWSER_CHANNEL, "chrome"); // written by every earlier save
+        assertEquals("camoufox", ResearchRuntimeSettings.load(old).getBrowserChannel());
+        // Choosing Chrome again after the switch is respected.
+        old.put(ResearchRuntimeSettings.KEY_BROWSER_CHANNEL, "chrome");
+        assertEquals("chrome", ResearchRuntimeSettings.load(old).getBrowserChannel());
+
+        MemoryStore edge = new MemoryStore();
+        edge.put(ResearchRuntimeSettings.KEY_BROWSER_CHANNEL, "msedge");
+        assertEquals("msedge", ResearchRuntimeSettings.load(edge).getBrowserChannel());
+    }
+
+    @Test
+    public void theManagedCamoufoxChannelIsNeverReplacedByAnInstalledBrowser() {
+        assertEquals("camoufox", ResearchRuntimeDefaults.installedBrowserChannel("camoufox"));
+    }
+
+    @Test
+    public void camoufoxInstallProgressKeepsTheSidecarStartAlive() throws Exception {
+        final java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicLong progress = new java.util.concurrent.atomic.AtomicLong();
+        Thread installer = new Thread(new Runnable() {
+            public void run() {
+                try {
+                    for (int i = 0; i < 5; i++) { // 2.5 s of progress, longer than the 1 s timeout
+                        Thread.sleep(500);
+                        progress.set(System.nanoTime());
+                    }
+                    ready.countDown();
+                } catch (InterruptedException ignored) {
+                }
+            }
+        });
+        installer.start();
+        assertTrue(BrowserMcpSidecarProcess.awaitReady(ready, progress, 1));
+        installer.join();
+
+        long start = System.nanoTime();
+        assertEquals("without progress the timeout holds", false, BrowserMcpSidecarProcess.awaitReady(
+                new java.util.concurrent.CountDownLatch(1), new java.util.concurrent.atomic.AtomicLong(), 1));
+        assertTrue(System.nanoTime() - start < java.util.concurrent.TimeUnit.SECONDS.toNanos(3));
+    }
+
+    @Test
     public void unknownPersistedModeLoadsAsFake() {
         MemoryStore store = new MemoryStore();
         store.put(ResearchRuntimeSettings.KEY_MODE, "SOMETHING_ELSE");

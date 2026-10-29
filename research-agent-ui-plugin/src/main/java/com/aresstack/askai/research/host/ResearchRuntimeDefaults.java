@@ -59,6 +59,9 @@ public final class ResearchRuntimeDefaults {
      * sidecar's readiness probe reports BROWSER_NOT_INSTALLED readably. Discovery only — never installs.
      */
     public static String installedBrowserChannel(String configured) {
+        if (ResearchRuntimeSettings.CAMOUFOX_CHANNEL.equals(configured)) {
+            return configured; // managed: the sidecar downloads and verifies its own Camoufox
+        }
         String channel = "msedge".equals(configured) ? "msedge" : "chrome";
         String other = "msedge".equals(channel) ? "chrome" : "msedge";
         return pickChannel(channel, browserInstalled(channel), browserInstalled(other), other);

@@ -41,7 +41,8 @@ public final class ResearchRuntimeConfig {
         this.agentJar = agentJar;
         this.sidecarJavaExecutable = sidecarJavaExecutable;
         this.sidecarJar = sidecarJar;
-        this.browserChannel = browserChannel == null || browserChannel.isEmpty() ? "chrome" : browserChannel;
+        this.browserChannel = browserChannel == null || browserChannel.isEmpty()
+                ? ResearchRuntimeSettings.CAMOUFOX_CHANNEL : browserChannel;
         this.headless = headless;
         this.allowPrivateNetworks = allowPrivateNetworks;
         this.selectedRerankerModel = selectedRerankerModel == null ? "" : selectedRerankerModel.trim();

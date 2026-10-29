@@ -8,6 +8,9 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.PlaywrightException;
 
+import com.aresstack.askai.browser.sidecar.camoufox.CamoufoxLaunch;
+
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,8 +21,10 @@ import java.util.function.Predicate;
 /**
  * {@link PlaywrightDriver} over the OFFICIAL Playwright Java API, executed by playwright4j: the Driver
  * replacement spawns a second Java process ({@code GraalDriverMain}) hosting the Playwright Core JS driver on
- * GraalJS, which in turn launches the locally installed Chrome/Edge via the channel mechanism. Nothing is
- * downloaded ({@code PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1} is always set).
+ * GraalJS, which in turn launches the browser: by default the managed Camoufox (Firefox over WebDriver BiDi,
+ * downloaded once and verified by {@link CamoufoxProvisioning}, started with its fingerprint profile in a
+ * persistent context, as Argos does), or the locally installed Chrome/Edge via the channel mechanism.
+ * Playwright itself never downloads a browser ({@code PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1} is always set).
  *
  * <p>Lifecycle owned here (one research session per sidecar process): Playwright → Browser → one
  * BrowserContext → one Page + history. Popups are closed immediately, downloads are refused, and when a
@@ -38,8 +43,13 @@ final class Playwright4jDriver implements PlaywrightDriver {
     /** Created in the constructor — the launching thread (the actor owner) is the only legal caller. */
     private final ThreadOwnershipGuard owner = new ThreadOwnershipGuard();
     private final Playwright playwright;
+    /** Null for a persistent context whose browser Playwright does not expose (Camoufox). */
     private final Browser browser;
     private final BrowserContext context;
+    /** Camoufox only: the profile this browser runs on (released/deleted on close), else null. */
+    private CamoufoxProvisioning.ProfileLease profileLease;
+    /** Set by BrowserContext.onClose: a persistent context ends with its browser window. */
+    private volatile boolean contextClosed;
     /** SERP guard behaviour comes exclusively from the settings — no local constants. */
     private final com.aresstack.askai.browser.search.ConsentHandlingSettings consent;
     private final com.aresstack.askai.browser.search.CaptchaHandlingSettings captcha;
@@ -97,21 +107,40 @@ final class Playwright4jDriver implements PlaywrightDriver {
         Playwright playwright = null;
         Browser browser = null;
         BrowserContext context = null;
+        CamoufoxProvisioning.ProfileLease profile = null;
+        boolean camoufox = CamoufoxProvisioning.CHANNEL.equals(channel);
         // Which step of the chain was running when it failed — a visible window with a failed start
         // (browser up, CDP/context not) reads very differently from a driver that never came up.
-        String stage = "PLAYWRIGHT_CREATE";
+        String stage = camoufox ? "CAMOUFOX_INSTALL" : "PLAYWRIGHT_CREATE";
         long startedNanos = System.nanoTime();
         try {
+            CamoufoxLaunch camoufoxLaunch = null;
+            Path camoufoxExecutable = null;
+            if (camoufox) {
+                // Downloads once (progress lines keep the host waiting), afterwards only verifies.
+                camoufoxExecutable = CamoufoxProvisioning.ensureInstalled();
+                // The system language, as Chrome used it: search engines answer in it (see builtIn).
+                camoufoxLaunch = CamoufoxLaunch.builtIn(camoufoxExecutable, CamoufoxProvisioning.browserRoot(),
+                        java.util.Locale.getDefault());
+                stage = "PLAYWRIGHT_CREATE";
+            }
             Map<String, String> env = new LinkedHashMap<String, String>();
             env.put("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD", "1");
             env.put("PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS", "1");
             playwright = Playwright.create(new Playwright.CreateOptions().setEnv(env));
             stage = "BROWSER_LAUNCH";
-            browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
-                    .setChannel(channel)
-                    .setHeadless(headless));
-            stage = "CONTEXT_CREATE";
-            context = browser.newContext(new Browser.NewContextOptions().setAcceptDownloads(false));
+            if (camoufox) {
+                profile = CamoufoxProvisioning.leaseProfile();
+                context = playwright.firefox().launchPersistentContext(profile.directory(),
+                        camoufoxOptions(camoufoxExecutable, camoufoxLaunch, headless));
+                browser = context.browser();
+            } else {
+                browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
+                        .setChannel(channel)
+                        .setHeadless(headless));
+                stage = "CONTEXT_CREATE";
+                context = browser.newContext(new Browser.NewContextOptions().setAcceptDownloads(false));
+            }
             context.setDefaultNavigationTimeout(timeoutMillis);
             context.setDefaultTimeout(timeoutMillis);
             if (requestAllowed != null) {
@@ -124,21 +153,34 @@ final class Playwright4jDriver implements PlaywrightDriver {
                 });
             }
             stage = "PAGE_CREATE";
-            Page page = context.newPage();
+            // A persistent context opens with its first tab already; use it instead of a second one.
+            Page page = camoufox && !context.pages().isEmpty() ? context.pages().get(0) : context.newPage();
             final Playwright4jDriver driver = new Playwright4jDriver(playwright, browser, context, page,
                     consent, captcha, timeoutMillis);
+            driver.profileLease = profile;
             page.onPopup(driver.popupCloser());
             // Dispatched during the idle pump: the user closing the window becomes a TYPED condition
             // instead of an anonymous 'Target closed' that no classifier recognized.
-            browser.onDisconnected(new Consumer<Browser>() {
-                public void accept(Browser gone) {
+            if (browser != null) {
+                browser.onDisconnected(new Consumer<Browser>() {
+                    public void accept(Browser gone) {
+                        driver.browserDisconnected = true;
+                    }
+                });
+            }
+            context.onClose(new Consumer<BrowserContext>() {
+                public void accept(BrowserContext gone) {
+                    driver.contextClosed = true;
                     driver.browserDisconnected = true;
                 }
             });
             return driver;
-        } catch (RuntimeException ex) {
+        } catch (RuntimeException | java.io.IOException ex) {
             long elapsedMillis = (System.nanoTime() - startedNanos) / 1_000_000L;
             closeQuietly(context, browser, playwright);
+            if (profile != null) {
+                profile.close();
+            }
             // The one-line message travels to the host and the chat; the FULL exception (Playwright's
             // multi-line message carries the browser log and call log) goes to a persistent file —
             // start failures are rare, the next one must be diagnosable without a repro.
@@ -399,7 +441,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
             // USER closed the window, record it — with the page gone no message loop runs anymore, so
             // Browser.onDisconnected would never dispatch and the close would stay invisible until some
             // API call happened to fail.
-            if (!browser.isConnected() || page.isClosed()) {
+            if (!connected() || page.isClosed()) {
                 browserDisconnected = true;
             }
             try {
@@ -414,7 +456,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
     @Override
     public boolean browserClosedByUser() {
         owner.check();
-        return !closed && (browserDisconnected || !browser.isConnected());
+        return !closed && (browserDisconnected || !connected());
     }
 
     @Override
@@ -524,6 +566,46 @@ final class Playwright4jDriver implements PlaywrightDriver {
         } catch (RuntimeException ignored) {
         }
         closeQuietly(context, browser, playwright);
+        if (profileLease != null) {
+            profileLease.close();
+        }
+    }
+
+    /** Whether the browser is still there; a persistent context without a Browser object ends with its context. */
+    private boolean connected() {
+        return browser != null ? browser.isConnected() : !contextClosed;
+    }
+
+    /**
+     * Camoufox as Argos starts it: Firefox over WebDriver BiDi ({@code moz-firefox}) with the verified
+     * executable, the fingerprint environment and prefs of the built-in profile, and NO Playwright
+     * emulation (viewport, color scheme, motion ...) — the fingerprint owns the window and the screen.
+     */
+    private static BrowserType.LaunchPersistentContextOptions camoufoxOptions(Path executable,
+                                                                              CamoufoxLaunch launch,
+                                                                              boolean headless) {
+        Map<String, String> environment = new java.util.HashMap<String, String>(System.getenv());
+        environment.putAll(launch.environment());
+        Map<String, Object> prefs = new LinkedHashMap<String, Object>(launch.prefs());
+        // Playwright's BiDi layer misses history traversals restored from the back-forward cache
+        // (page.url() stays stale, goBack never settles) — the same pref Argos sets.
+        prefs.putIfAbsent("browser.sessionhistory.max_total_viewers", 0);
+        BrowserType.LaunchPersistentContextOptions options = new BrowserType.LaunchPersistentContextOptions()
+                .setChannel("moz-firefox")
+                .setExecutablePath(executable)
+                .setHeadless(headless)
+                .setEnv(environment)
+                .setAcceptDownloads(false)
+                .setViewportSize(null)
+                .setColorScheme(null)
+                .setReducedMotion(null)
+                .setForcedColors(null)
+                .setContrast(null)
+                .setFirefoxUserPrefs(prefs);
+        if (!launch.args().isEmpty()) {
+            options.setArgs(launch.args());
+        }
+        return options;
     }
 
     /** RENDERED state via the DOM: url after redirects, title, body innerText, anchors with absolute hrefs. */
