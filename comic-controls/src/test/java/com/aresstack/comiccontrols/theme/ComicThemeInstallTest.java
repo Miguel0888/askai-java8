@@ -1,5 +1,7 @@
 package com.aresstack.comiccontrols.theme;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import javax.swing.UIManager;
@@ -15,6 +17,22 @@ import static org.junit.Assert.assertTrue;
 
 /** Table-driven pin of the UIManager key table installed by {@link ComicTheme#install}. */
 public class ComicThemeInstallTest {
+
+    private Object previousButtonUi;
+    private Object previousScrollBarUi;
+
+    @Before
+    public void rememberDelegates() {
+        previousButtonUi = UIManager.get("ButtonUI");
+        previousScrollBarUi = UIManager.get("ScrollBarUI");
+    }
+
+    @After
+    public void restoreDelegates() {
+        // keep other tests in this JVM independent of the global delegates
+        UIManager.put("ButtonUI", previousButtonUi);
+        UIManager.put("ScrollBarUI", previousScrollBarUi);
+    }
 
     @Test
     public void everyKeyCarriesItsTokenAsUiResource() {

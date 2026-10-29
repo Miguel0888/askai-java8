@@ -62,4 +62,37 @@ public class ComicButtonUITest {
             UIManager.put("ButtonUI", old);
         }
     }
+
+    @Test
+    public void lafBorderIsFlattenedButMarginStaysLive() {
+        Object old = UIManager.get("ButtonUI");
+        try {
+            UIManager.put("ButtonUI", ComicButtonUI.class.getName());
+            JButton button = new JButton("x");
+            assertTrue(button.getBorder() instanceof javax.swing.plaf.UIResource);
+            button.setMargin(new java.awt.Insets(0, 0, 0, 0));
+            java.awt.Insets tight = button.getInsets();
+            button.setMargin(new java.awt.Insets(10, 20, 10, 20));
+            java.awt.Insets wide = button.getInsets();
+            assertEquals(tight.left + 20, wide.left);
+            assertEquals(tight.top + 10, wide.top);
+        } finally {
+            UIManager.put("ButtonUI", old);
+        }
+    }
+
+    @Test
+    public void explicitBordersAreKept() {
+        Object old = UIManager.get("ButtonUI");
+        try {
+            UIManager.put("ButtonUI", ComicButtonUI.class.getName());
+            JButton button = new JButton("x");
+            javax.swing.border.Border custom = javax.swing.BorderFactory.createEmptyBorder(1, 2, 3, 4);
+            button.setBorder(custom);
+            button.updateUI();
+            assertEquals(custom, button.getBorder());
+        } finally {
+            UIManager.put("ButtonUI", old);
+        }
+    }
 }

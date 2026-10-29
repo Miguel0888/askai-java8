@@ -280,13 +280,19 @@ Deviations and open points — documented, not decided:
    passed to their constructor (the palette has no slots for them). A control built with a custom
    palette therefore still gets the active theme's greys/creams.
 5. **`ComicButtonUI` border handling.** To avoid a Metal bevel under the rounded ink plate, the
-   delegate replaces a `UIResource` border with an empty `UIResource` border of the same insets
-   (button sizes unchanged; custom borders untouched). This also applies to buttons that opt out
-   via `askai.plainButton` AFTER installation, since the property is evaluated at paint time only.
-   Buttons with `contentAreaFilled == false` get no plate (icon/link buttons keep their look).
-   The delegate enables rollover via `LookAndFeel.installProperty` (explicit client settings win).
+   delegate replaces a `UIResource` border by insets-equal empty space; for a compound border
+   (Metal: bevel + margin border) only the OUTSIDE part is flattened, the inside margin border
+   stays live, so `setMargin(...)` keeps working (review fix, pinned). Custom borders are untouched.
+   This also applies to buttons that opt out via `askai.plainButton` after installation (the
+   property is evaluated at paint time only). Buttons with `contentAreaFilled == false` get no
+   plate. Rollover is enabled via `LookAndFeel.installProperty` (explicit client settings win).
+   Review fixes beyond the spec: opaque buttons fill the corners outside the plate with the parent
+   background (opaque contract, no repaint garbage), and keyboard focus is shown as a thin
+   navigation-blue inner ring (BasicButtonUI paints none, Metal's ring is gone with the delegate).
    Plate logic is the shared pure function `ComicButtonUI.plateFill(...)`, also used by `ComicButton`.
    Raw `JButton`s have no CRITICAL role — the delegate always uses the ACTION accent.
+   GUI-gate watch points: LAF-internal JButtons also get the plate (e.g. `MetalComboBoxButton`,
+   option-pane/file-chooser buttons, toolbar buttons lose Metal's rollover border).
 6. **`ComicScrollBarUI.createUI`** returns the delegate only; it does not apply the opaque/slim
    preferred-size tweaks of `install(JScrollBar)` (those remain for the explicit call sites).
 7. **`MenuBar.border`** (from the pre-existing `installMenuDefaults`) is still a plain
