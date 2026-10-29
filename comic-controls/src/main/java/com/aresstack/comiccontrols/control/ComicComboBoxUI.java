@@ -62,33 +62,45 @@ public final class ComicComboBoxUI extends BasicComboBoxUI {
         return combo;
     }
 
+    /** Hover tracking; removed again in {@link #uninstallListeners()} (a theme switch replaces the UI). */
+    private final MouseAdapter hoverListener = new MouseAdapter() {
+        @Override
+        public void mouseEntered(MouseEvent event) {
+            hovered = true;
+            repaintCombo();
+        }
+
+        @Override
+        public void mouseExited(MouseEvent event) {
+            hovered = false;
+            repaintCombo();
+        }
+    };
+
+    private final FocusAdapter focusRepaintListener = new FocusAdapter() {
+        @Override
+        public void focusGained(FocusEvent event) {
+            repaintCombo();
+        }
+
+        @Override
+        public void focusLost(FocusEvent event) {
+            repaintCombo();
+        }
+    };
+
     @Override
     protected void installListeners() {
         super.installListeners();
-        comboBox.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseEntered(MouseEvent event) {
-                hovered = true;
-                comboBox.repaint();
-            }
+        comboBox.addMouseListener(hoverListener);
+        comboBox.addFocusListener(focusRepaintListener);
+    }
 
-            @Override
-            public void mouseExited(MouseEvent event) {
-                hovered = false;
-                comboBox.repaint();
-            }
-        });
-        comboBox.addFocusListener(new FocusAdapter() {
-            @Override
-            public void focusGained(FocusEvent event) {
-                comboBox.repaint();
-            }
-
-            @Override
-            public void focusLost(FocusEvent event) {
-                comboBox.repaint();
-            }
-        });
+    @Override
+    protected void uninstallListeners() {
+        comboBox.removeMouseListener(hoverListener);
+        comboBox.removeFocusListener(focusRepaintListener);
+        super.uninstallListeners();
     }
 
     /**
