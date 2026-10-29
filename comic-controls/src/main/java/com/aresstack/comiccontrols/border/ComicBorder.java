@@ -38,6 +38,28 @@ public final class ComicBorder implements Border {
         return new ComicBorder(palette, 2, 0, new Insets(4, 2, 4, 2));
     }
 
+    /**
+     * Square 2px ink contour with a uniform grip padding — the edge of a FRAMELESS window, where the padding
+     * doubles as the resize zone ({@code ComicWindowResizer}).
+     */
+    public static ComicBorder windowBorder(ComicPalette palette, int padding) {
+        requirePalette(palette);
+        return new ComicBorder(palette, 2, 0, new Insets(padding, padding, padding, padding));
+    }
+
+    /**
+     * The same contour and grip padding as {@link #windowBorder}, with rounded corners of {@code radius}
+     * pixels — for a frameless window whose own shape is rounded with the same radius
+     * ({@code ComicWindowShape}), so no square window corner shows behind the curve.
+     */
+    public static ComicBorder roundedWindowBorder(ComicPalette palette, int padding, int radius) {
+        requirePalette(palette);
+        int thickness = 2; // the center line sits half a stroke inside: its arc is that much smaller, so the
+        // outer edge of the ink lies exactly on the window shape
+        return new ComicBorder(palette, thickness, Math.max(0, radius * 2 - thickness),
+                new Insets(padding, padding, padding, padding));
+    }
+
     /** Rounded ink contour for panels that want the comic outline without an impact burst. */
     public static ComicBorder roundedBorder(ComicPalette palette, int padding) {
         requirePalette(palette);

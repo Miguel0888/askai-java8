@@ -8,6 +8,8 @@ public final class ResearchUiMetrics {
 
     /** Standard corner radius of normal controls (pills, footer buttons). */
     public static final int RADIUS_CONTROL = 10;
+    /** Corner radius of a frameless window (Windows 11 look). */
+    public static final int RADIUS_WINDOW = 8;
     /** Corner radius of secondary controls (the "+ Hinzufügen" chip). */
     public static final int RADIUS_SECONDARY = 12;
     /** Corner radius of the blacklist chips. */
