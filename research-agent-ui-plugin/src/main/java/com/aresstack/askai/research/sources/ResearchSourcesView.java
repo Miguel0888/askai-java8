@@ -644,6 +644,9 @@ public final class ResearchSourcesView extends JPanel {
     }
 
     private void loadDetail(ResearchSourceRecord record) {
+        if (selectionPublisher != null) {
+            selectionPublisher.accept(record); // e.g. the full text in the main area
+        }
         renderPassages(record.getSourceId());
         selectedId = record.getSourceId();
         loadedRevision = record.getRevision();
@@ -668,6 +671,9 @@ public final class ResearchSourcesView extends JPanel {
     }
 
     private void clearDetail() {
+        if (selectionPublisher != null) {
+            selectionPublisher.accept(null);
+        }
         selectedId = null;
         loadedRevision = 0;
         titleField.setText("");
@@ -939,5 +945,19 @@ public final class ResearchSourcesView extends JPanel {
         }
         visualizeSlot.revalidate();
         visualizeSlot.repaint();
+    }
+
+    /** Notified with the selected source (null when the selection is cleared), e.g. to show its full text. */
+    private java.util.function.Consumer<ResearchSourceRecord> selectionPublisher;
+
+    /** Publishes every loaded/cleared selection (the contribution shows the full text in the main area). */
+    public void setSelectionPublisher(java.util.function.Consumer<ResearchSourceRecord> publisher) {
+        this.selectionPublisher = publisher;
+        if (publisher != null && selectedId != null) {
+            ResearchSourceRecord current = repository.get(selectedId);
+            if (current != null) {
+                publisher.accept(current); // a row selected while building the view counts too
+            }
+        }
     }
 }

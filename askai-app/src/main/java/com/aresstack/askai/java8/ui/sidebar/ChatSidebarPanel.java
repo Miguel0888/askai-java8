@@ -38,6 +38,8 @@ public final class ChatSidebarPanel extends JPanel {
 
     private String activeTitle;
     private Supplier<List<ChatSidebarTab>> extraTabsSupplier;
+    /** Told the active pane's title whenever it changes (the workspace swaps its main area). */
+    private java.util.function.Consumer<String> tabListener;
 
     public ChatSidebarPanel(String defaultTabTitle, JComponent defaultTabComponent) {
         super(new BorderLayout());
@@ -69,6 +71,10 @@ public final class ChatSidebarPanel extends JPanel {
         return activeTitle;
     }
 
+    public void setTabListener(java.util.function.Consumer<String> listener) {
+        this.tabListener = listener;
+    }
+
     /** Show the pane with this title (no-op for unknown titles). */
     public void showTab(String title) {
         if (title == null || !titles.contains(title)) {
@@ -80,6 +86,9 @@ public final class ChatSidebarPanel extends JPanel {
         // other pane (Fragestellung, Visualisierung, …) it is foreign chrome and disappears.
         if (header != null) {
             header.setVisible(defaultTabTitle.equals(title));
+        }
+        if (tabListener != null) {
+            tabListener.accept(title);
         }
     }
 

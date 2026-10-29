@@ -96,6 +96,27 @@ public class ChatWorkspacePanelTest {
         });
     }
 
+    @Test
+    public void theMainAreaFollowsTheActiveDrawerPane() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                ChatWorkspacePanel workspace = build();
+                assertTrue("the Settings pane is always offered",
+                        workspace.sidebarTabTitlesForTest().contains(ChatWorkspacePanel.SETTINGS_TAB));
+                javax.swing.JLabel page = new javax.swing.JLabel("page");
+                workspace.setMainContent(ChatWorkspacePanel.SETTINGS_TAB, page);
+                assertFalse("the Chats pane is active: the chat stays", workspace.isMainContentShowing());
+                workspace.openSidebarTab(ChatWorkspacePanel.SETTINGS_TAB);
+                assertTrue("the Settings pane owns the main area", workspace.isMainContentShowing());
+                workspace.openSidebarTab("Chats");
+                assertFalse("back on Chats: the chat shows again", workspace.isMainContentShowing());
+                workspace.openSidebarTab(ChatWorkspacePanel.SETTINGS_TAB);
+                workspace.setMainContent(ChatWorkspacePanel.SETTINGS_TAB, null);
+                assertFalse("withdrawn content: the chat shows again", workspace.isMainContentShowing());
+            }
+        });
+    }
+
     private static void collect(java.awt.Container root,
                                 List<com.aresstack.comiccontrols.control.ResearchIconButton> into) {
         for (java.awt.Component child : root.getComponents()) {

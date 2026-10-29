@@ -154,7 +154,18 @@ public final class ChatWorkspacePanel extends JPanel {
 
         this.burger = ChatComposerPanel.createSidebarToggleButton();
         this.sidebar = new ChatSidebarPanel("Chats", buildChatsSidebarTab());
-        this.sidebarSplit = new ComicSplitPane(sidebar, cards, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
+        // The MAIN area is a deck (pattern of the enterprise client): the chat cards, or the content the
+        // ACTIVE drawer pane put there (settings page, source full text, ...).
+        mainDeck.add(cards, MAIN_CHAT);
+        mainDeck.add(mainContentSlot, MAIN_CONTENT);
+        mainContentSlot.setOpaque(false);
+        sidebar.setTabListener(title -> {
+            if (SETTINGS_TAB.equals(title) && settingsPane.getComponentCount() == 0) {
+                fillSettingsFromActiveChat(); // the Settings pane picked directly in the ribbon
+            }
+            updateMainArea();
+        });
+        this.sidebarSplit = new ComicSplitPane(sidebar, mainDeck, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
         sidebarSplit.setPreferredLeftWidth(SIDEBAR_DEFAULT_WIDTH);
         sidebarSplit.collapseLeft(); // the drawer starts closed, exactly like before the split pane
         this.sidebarWidthSaveTimer = new javax.swing.Timer(SIDEBAR_WIDTH_SAVE_DELAY_MS,
@@ -204,6 +215,10 @@ public final class ChatWorkspacePanel extends JPanel {
      */
     private ChatSessionComponent addChat(ChatSessionId id, ChatSessionComponent session) {
         sessionsById.put(id, session);
+        if (session instanceof OllamaChatPanel) {
+            final OllamaChatPanel chat = (OllamaChatPanel) session;
+            chat.setSettingsOpener(category -> openSettings(chat, category));
+        }
         cards.add(session.getComponent(), id.toString());
         selectSession(id);
         fireTabSetChanged();
@@ -538,8 +553,14 @@ public final class ChatWorkspacePanel extends JPanel {
         topBar.add(agentToolbarSlot, BorderLayout.EAST);
 
         sidebar.setVisible(false);
-        sidebar.setExtraTabsSupplier(() -> sidebarTabsSource == null
-                ? java.util.Collections.<ChatSidebarTab>emptyList() : sidebarTabsSource.get());
+        sidebar.setExtraTabsSupplier(() -> {
+            List<ChatSidebarTab> tabs = new java.util.ArrayList<ChatSidebarTab>();
+            if (sidebarTabsSource != null && sidebarTabsSource.get() != null) {
+                tabs.addAll(sidebarTabsSource.get());
+            }
+            tabs.add(settingsTab); // always last: the general settings beside the agent's panes
+            return tabs;
+        });
         // No pane title in the header — the ribbon's colored entry already names the active pane.
         // The chat SEARCH BAR takes that spot; it filters live on every keystroke, no Enter needed.
         chatFilter.getTextField().getDocument().addDocumentListener(
@@ -789,12 +810,119 @@ public final class ChatWorkspacePanel extends JPanel {
         return footer;
     }
 
-    /** Opens the ACTIVE chat's settings dialog (the menu-bar gear); no-op without an active chat panel. */
+    /** Opens the ACTIVE chat's settings (drawer pane + main area); no-op without an active chat panel. */
     public void openActiveChatSettings() {
         ChatSessionComponent active = activeSession();
         if (active instanceof OllamaChatPanel) {
-            ((OllamaChatPanel) active).openSettingsDialog();
+            openSettings((OllamaChatPanel) active, null);
         }
+    }
+
+    // ------------------------------------------------------------------ main area (deck)
+
+    /** The drawer pane that holds the settings category list; its page shows in the main area. */
+    public static final String SETTINGS_TAB = "Settings";
+    private static final String MAIN_CHAT = "chat";
+    private static final String MAIN_CONTENT = "content";
+    private final CardLayout mainLayout = new CardLayout();
+    private final JPanel mainDeck = new JPanel(mainLayout);
+    private final JPanel mainContentSlot = new JPanel(new BorderLayout());
+    /** The main-area content each drawer pane owns (pane title -> content). */
+    private final Map<String, JComponent> mainContentByTab = new LinkedHashMap<String, JComponent>();
+    private final JPanel settingsPane = new JPanel(new BorderLayout());
+    private final ChatSidebarTab settingsTab = new ChatSidebarTab() {
+        public String getTitle() {
+            return SETTINGS_TAB;
+        }
+
+        public JComponent getComponent() {
+            return settingsPane;
+        }
+    };
+
+    /**
+     * Put {@code content} into the main area while the drawer pane {@code tabTitle} is active ({@code null}
+     * withdraws it). The main area always follows the active pane: its content, or the chat.
+     */
+    public void setMainContent(String tabTitle, JComponent content) {
+        if (tabTitle == null) {
+            return;
+        }
+        if (content == null) {
+            mainContentByTab.remove(tabTitle);
+        } else {
+            mainContentByTab.put(tabTitle, content);
+        }
+        updateMainArea();
+    }
+
+    /** The drawer's pane titles (tests). */
+    List<String> sidebarTabTitlesForTest() {
+        sidebar.rebuildTabs();
+        return sidebar.tabTitles();
+    }
+
+    /** Whether the main area currently shows a pane's content instead of the chat (tests). */
+    boolean isMainContentShowing() {
+        return mainContentSlot.isVisible() && mainContentSlot.getComponentCount() > 0
+                && mainContentByTab.containsKey(sidebar.activeTab());
+    }
+
+    private void updateMainArea() {
+        JComponent content = mainContentByTab.get(sidebar.activeTab());
+        if (content == null) {
+            mainLayout.show(mainDeck, MAIN_CHAT);
+            return;
+        }
+        if (mainContentSlot.getComponentCount() != 1 || mainContentSlot.getComponent(0) != content) {
+            refreshThemeIfStale(content);
+            mainContentSlot.removeAll();
+            mainContentSlot.add(content, BorderLayout.CENTER);
+            mainContentSlot.revalidate();
+        }
+        mainLayout.show(mainDeck, MAIN_CONTENT);
+        mainContentSlot.repaint();
+    }
+
+    /** Theme switches seen so far; content that was off-screen during one gets its delegates renewed. */
+    private static volatile int themeGeneration;
+
+    static {
+        com.aresstack.comiccontrols.theme.AskAiTheme.addChangeListener(() -> themeGeneration++);
+    }
+
+    private static void refreshThemeIfStale(JComponent content) {
+        Object seen = content.getClientProperty("askai.themeGeneration");
+        if (seen != null && ((Integer) seen).intValue() != themeGeneration) {
+            javax.swing.SwingUtilities.updateComponentTreeUI(content);
+        }
+        content.putClientProperty("askai.themeGeneration", Integer.valueOf(themeGeneration));
+    }
+
+    /**
+     * The settings live in the workspace (no dialog): the category list in the drawer's Settings pane, the
+     * selected page in the main area. {@code category} null keeps the current page.
+     */
+    private void fillSettingsFromActiveChat() {
+        ChatSessionComponent active = activeSession();
+        if (active instanceof OllamaChatPanel) {
+            OllamaChatPanel chat = (OllamaChatPanel) active;
+            settingsPane.add(chat.settingsNavigationComponent(), BorderLayout.CENTER);
+            mainContentByTab.put(SETTINGS_TAB, chat.settingsPagesComponent());
+        }
+    }
+
+    private void openSettings(OllamaChatPanel chat, String category) {
+        settingsPane.removeAll();
+        settingsPane.add(chat.settingsNavigationComponent(), BorderLayout.CENTER);
+        settingsPane.revalidate();
+        settingsPane.repaint();
+        if (category != null) {
+            chat.selectSettingsCategory(category);
+        }
+        setMainContent(SETTINGS_TAB, chat.settingsPagesComponent());
+        refreshSidebarTabs();
+        openSidebarTab(SETTINGS_TAB);
     }
 
     /** One chat-list entry: an open session ({@code openId != null}) and/or its persisted record. */

@@ -11,4 +11,11 @@ public interface AgentOverlayHost {
 
     /** Show a Mermaid diagram (source) in the host's diagram viewer overlay. */
     void showDiagramOverlay(String mermaidSource, String title);
+
+    /**
+     * Show {@code content} in the main (chat) area while the drawer pane {@code ownerTabTitle} is active;
+     * {@code null} withdraws it. Default: no-op (hosts without a switchable main area).
+     */
+    default void setMainContent(String ownerTabTitle, javax.swing.JComponent content) {
+    }
 }

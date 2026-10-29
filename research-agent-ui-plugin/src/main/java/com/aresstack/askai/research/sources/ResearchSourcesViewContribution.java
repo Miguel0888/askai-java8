@@ -34,6 +34,19 @@ public final class ResearchSourcesViewContribution implements ArtifactViewContri
                     new ResearchSourcesView(repository, ResearchSourcesView.demoKnownSections());
             view.setVisualizeButton(
                     com.aresstack.askai.research.agent.ResearchVisualizeButtons.sources(research, context));
+            // Selecting a source shows its FULL TEXT in the main area (where the chat is) while the
+            // Sources pane is active; clearing the selection brings the chat back.
+            final SourceFullTextView fullText = new SourceFullTextView();
+            view.setSelectionPublisher(new java.util.function.Consumer<ResearchSourceRecord>() {
+                public void accept(ResearchSourceRecord record) {
+                    if (record == null) {
+                        context.clearMainContent();
+                    } else {
+                        fullText.show(record);
+                        context.showMainContent(fullText);
+                    }
+                }
+            });
             // Keep the table live: every session state change (run finished, approval, continuation)
             // re-reads the repository, so freshly accepted sources appear without manual filtering.
             research.addStateListener(new Runnable() {

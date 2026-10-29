@@ -66,6 +66,20 @@ final class DefaultArtifactViewContext implements ArtifactViewContext {
     }
 
     @Override
+    public void showMainContent(javax.swing.JComponent content) {
+        if (overlayHost != null && artifact != null) {
+            overlayHost.setMainContent(artifact.getDisplayName(), content);
+        }
+    }
+
+    @Override
+    public void clearMainContent() {
+        if (overlayHost != null && artifact != null) {
+            overlayHost.setMainContent(artifact.getDisplayName(), null);
+        }
+    }
+
+    @Override
     public void showDiagramOverlay(String mermaidSource, String title) {
         if (overlayHost != null) {
             overlayHost.showDiagramOverlay(mermaidSource, title);

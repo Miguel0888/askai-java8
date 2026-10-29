@@ -329,6 +329,7 @@ public final class AskAiFrame extends JFrame {
         JMenuItem chatSettings = new JMenuItem("Chat settings…");
         chatSettings.addActionListener(event -> {
             if (chatWorkspace != null) {
+                showScreen(CHAT_VIEW); // the settings live in the chat workspace (drawer + main area)
                 chatWorkspace.openActiveChatSettings();
             }
         });
@@ -732,6 +733,11 @@ public final class AskAiFrame extends JFrame {
 
             public void showDiagramOverlay(String mermaidSource, String title) {
                 showDiagramOverlayOnActiveChat(mermaidSource, title);
+            }
+
+            @Override
+            public void setMainContent(String ownerTabTitle, javax.swing.JComponent content) {
+                chatTabs.setMainContent(ownerTabTitle, content);
             }
         });
         chatTabs.setSidebarTabContributions(

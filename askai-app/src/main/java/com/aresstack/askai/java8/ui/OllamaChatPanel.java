@@ -958,7 +958,61 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         this.agentSettingsSession = session;
     }
 
+    /** The settings category list (built once with the pages; shown in the workspace drawer). */
+    private JComponent settingsNavigationPane;
+    /** The settings pages (CardLayout; shown in the workspace's main area). */
+    private JComponent settingsPagesPane;
+    /**
+     * Opens the settings in the WORKSPACE (category list in the drawer, page in the main area) at the given
+     * category; set by the workspace. Without it (standalone/tests) the modeless dialog is the fallback.
+     */
+    private java.util.function.Consumer<String> settingsOpener;
+
+    public void setSettingsOpener(java.util.function.Consumer<String> opener) {
+        this.settingsOpener = opener;
+    }
+
+    /** The settings category list for the workspace drawer (refreshes the dynamic choices first). */
+    public JComponent settingsNavigationComponent() {
+        ensureSettingsPanes();
+        return settingsNavigationPane;
+    }
+
+    /** The settings pages for the workspace's main area. */
+    public JComponent settingsPagesComponent() {
+        ensureSettingsPanes();
+        return settingsPagesPane;
+    }
+
+    /** Show this category's page (no-op for unknown names). */
+    public void selectSettingsCategory(String category) {
+        ensureSettingsPanes();
+        if (category != null && settingsNavigation != null) {
+            settingsNavigation.setSelectedValue(category, true);
+        }
+    }
+
+    private void ensureSettingsPanes() {
+        refreshAudioProfiles(); // reload so profiles saved in the editor appear immediately
+        refreshSpeechOutputVoices(); // voices installed in Models > Setup appear immediately
+        refreshPlaybackOutputs(); // playback devices (incl. a newly located VLC) appear immediately
+        if (settingsPagesPane == null) {
+            buildSettingsPanes();
+        }
+    }
+
     private JComponent buildSettingsContent() {
+        if (settingsPagesPane == null) {
+            buildSettingsPanes();
+        }
+        JPanel root = new JPanel(new BorderLayout(8, 0));
+        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        root.add(settingsNavigationPane, BorderLayout.WEST);
+        root.add(settingsPagesPane, BorderLayout.CENTER);
+        return root;
+    }
+
+    private void buildSettingsPanes() {
         final java.awt.CardLayout cardLayout = new java.awt.CardLayout();
         final JPanel cards = new JPanel(cardLayout);
         JComponent[] partyCards = buildPartyCards();
@@ -1008,12 +1062,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
         JScrollPane navigationScroll = new JScrollPane(navigation);
         navigationScroll.setPreferredSize(new Dimension(180, 10));
-
-        JPanel root = new JPanel(new BorderLayout(8, 0));
-        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        root.add(navigationScroll, BorderLayout.WEST);
-        root.add(cards, BorderLayout.CENTER);
-        return root;
+        cards.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        settingsNavigationPane = navigationScroll;
+        settingsPagesPane = cards;
     }
 
     /**
@@ -1340,9 +1391,11 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
     /** Opens the settings dialog on Audio &amp; Dictation and marks the recommended voice's row. */
     public void openSpeechOutputSettings(String voiceId) {
-        openSettingsDialog();
-        if (settingsNavigation != null) {
-            settingsNavigation.setSelectedValue(SETTINGS_CATEGORIES[2], true);
+        if (settingsOpener != null) {
+            settingsOpener.accept(SETTINGS_CATEGORIES[2]);
+        } else {
+            openSettingsDialog();
+            selectSettingsCategory(SETTINGS_CATEGORIES[2]);
         }
         if (speechVoicesPanel != null) {
             speechVoicesPanel.highlightVoice(voiceId);
@@ -2186,9 +2239,11 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
     /** Opens the (modeless) chat settings dialog — triggered by the drawer footer's gear button. */
     public void openSettingsDialog() {
-        refreshAudioProfiles(); // reload so profiles saved in the editor appear immediately
-        refreshSpeechOutputVoices(); // voices installed in Models > Setup appear immediately
-        refreshPlaybackOutputs(); // playback devices (incl. a newly located VLC) appear immediately
+        if (settingsOpener != null) {
+            settingsOpener.accept(null); // the workspace shows the settings in drawer + main area
+            return;
+        }
+        ensureSettingsPanes();
         if (settingsDialog == null) {
             java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
             settingsDialog = new javax.swing.JDialog(

@@ -36,4 +36,16 @@ public interface ArtifactViewContext {
      */
     default void showDiagramOverlay(String mermaidSource, String title) {
     }
+
+    /**
+     * Show {@code content} in the workspace's MAIN area (where the chat is) while this view's pane is the
+     * active one in the drawer — e.g. the full text of the source selected in the Sources pane. Selecting
+     * another pane brings the chat back; selecting this pane again shows the content again. Default: no-op.
+     */
+    default void showMainContent(javax.swing.JComponent content) {
+    }
+
+    /** Withdraw this view's main-area content (the chat shows again). Default: no-op. */
+    default void clearMainContent() {
+    }
 }
