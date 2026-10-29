@@ -23,6 +23,8 @@ public final class OllamaAboutPanel extends JPanel {
 
     private static final String PRODUCT = "AskAI";
     private static final int LOGO_SIZE = 256;
+    /** The gap between the logo and the text — also between the license and library columns below. */
+    private static final int HEADER_GAP = 20;
     private static final String DESCRIPTION =
             "Local model management and chat for Ollama, with a Hugging Face import flow.";
     private static final String PROJECT_LINE =
@@ -31,13 +33,18 @@ public final class OllamaAboutPanel extends JPanel {
     public OllamaAboutPanel() {
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
-        JPanel header = new JPanel(new BorderLayout(20, 0));
+        JPanel header = new JPanel(new BorderLayout(HEADER_GAP, 0));
         JComponent logo = buildLogo();
         if (logo != null) {
             header.add(logo, BorderLayout.WEST);
         }
         header.add(buildContent(), BorderLayout.CENTER);
         add(header, BorderLayout.NORTH);
+        // The third-party libraries: the license column right under the logo (same width), the library
+        // details in the column of the text above.
+        add(new com.aresstack.askai.java8.ui.about.OpenSourceLibrariesView(
+                new com.aresstack.askai.java8.ui.about.ClasspathOssLicenseRepository(),
+                logo != null ? logo.getPreferredSize().width : LOGO_SIZE, HEADER_GAP), BorderLayout.CENTER);
         add(buildActions(), BorderLayout.SOUTH);
     }
 
