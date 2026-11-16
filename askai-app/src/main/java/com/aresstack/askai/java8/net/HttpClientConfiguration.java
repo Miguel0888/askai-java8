@@ -2,7 +2,7 @@ package com.aresstack.askai.java8.net;
 
 /**
  * Request-level HTTP settings that are independent of both proxy <em>resolution</em>
- * ({@link ProxyConfiguration}) and TLS <em>trust</em> ({@link CertificateTrustConfiguration}):
+ * ({@link ProxyConfiguration}) and TLS <em>trust</em> ({@link com.aresstack.wintrust.CertificateTrustConfiguration}):
  * the outgoing {@code User-Agent} and how (if at all) the client authenticates to the proxy.
  *
  * <p>These exist because a corporate proxy can return HTTP 403 <em>after</em> a perfectly valid TLS

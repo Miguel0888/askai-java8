@@ -1,9 +1,9 @@
 package com.aresstack.askai.java8.ollamalib;
 
-import com.aresstack.askai.java8.net.CertificateTrustConfiguration;
+import com.aresstack.wintrust.CertificateTrustConfiguration;
 import com.aresstack.askai.java8.net.HttpClientConfiguration;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
-import com.aresstack.askai.java8.net.SystemTrustSslSocketFactory;
+import com.aresstack.wintrust.SystemTrustSslSocketFactory;
 
 import javax.net.ssl.HttpsURLConnection;
 import java.io.IOException;
